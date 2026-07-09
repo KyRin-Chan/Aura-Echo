@@ -11,6 +11,7 @@ env:
   BACKEND: cuda
   BUILD_NAME: rtx5080-optimized
   PYTHONWARNINGS: ignore
+  PYINSTALLER_CACHE_DIR: ${{ github.workspace }}/.pyinstaller_cache
 
 jobs:
   build-win-cuda-5080:
@@ -27,15 +28,21 @@ jobs:
           server/requirements-common.txt
           server/requirements-cuda-5080.txt
 
+    - name: Cache PyInstaller
+      uses: actions/cache@v4
+      with:
+        path: .pyinstaller_cache
+        key: pyinstaller-${{ runner.os }}-${{ hashFiles('server/requirements-common.txt', 'server/requirements-cuda-5080.txt') }}
+
     - name: Installing build dependencies
-      run: python -m pip install --no-cache-dir --upgrade pip wheel setuptools pyinstaller
+      run: python -m pip install --upgrade pip wheel setuptools pyinstaller
 
     - name: Installing project dependencies (RTX 5080 Optimized)
-      run: python -m pip install --no-cache-dir -r requirements-common.txt -r requirements-cuda-5080.txt
+      run: python -m pip install -r requirements-common.txt -r requirements-cuda-5080.txt
       working-directory: ./server
 
     - name: Building executable (RTX 5080 Spec)
-      run: pyinstaller --clean -y --dist ./dist --workpath /tmp MMVCServerSIO_cuda_5080.spec
+      run: pyinstaller -y --dist ./dist --workpath /tmp MMVCServerSIO_cuda_5080.spec
       working-directory: ./server
 
     - name: Copy utils
@@ -46,7 +53,7 @@ jobs:
       shell: bash
       run: |
         mkdir ./server/artifacts
-        7z a -mx=5 -v2000m ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z ./server/dist/* > /dev/null 2>&1
+        7z a -mx=1 -v2000m ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z ./server/dist/* > /dev/null 2>&1
 
     - name: Rename single asset
       shell: bash
