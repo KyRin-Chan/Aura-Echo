@@ -407,18 +407,18 @@ class VoiceChangerSettings:
         self._silenceFront = int(enable)
 
     # Audio Effects settings
-    _audioEffects: dict = {}
+    _audioEffects: list = []
 
     @property
     def audioEffects(self):
         return self._audioEffects
 
     @audioEffects.setter
-    def audioEffects(self, effects: str | dict):
+    def audioEffects(self, effects: str | dict | list):
         if isinstance(effects, str):
             import json
             effects = json.loads(effects)
-        self._audioEffects = effects if effects else {}
+        self._audioEffects = effects if effects else []
 
     @property
     def pitchExtractors(self) -> Dict[str, Dict[str, Any]]:

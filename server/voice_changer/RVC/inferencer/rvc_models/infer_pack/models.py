@@ -137,7 +137,8 @@ class ResidualCouplingBlock(nn.Module):
             for flow in self.flows:
                 x, _ = flow(x, x_mask, g=g, reverse=reverse)
         else:
-            for flow in self.flows[::-1]:
+            for i in range(len(self.flows) - 1, -1, -1):
+                flow = self.flows[i]
                 x, _ = flow(x, x_mask, g=g, reverse=reverse)
         return x
 

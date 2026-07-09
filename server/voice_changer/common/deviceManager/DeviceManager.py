@@ -135,6 +135,27 @@ class DeviceManager(object):
             devices.append(device)
         return devices
 
+    def _is_tensorrt_available(self):
+        import os
+        import sys
+        search_dirs = os.environ.get("PATH", "").split(os.pathsep)
+        search_dirs.append(os.path.dirname(sys.executable))
+        search_dirs.extend([
+            os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32"),
+            os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "SysWOW64")
+        ])
+        for directory in search_dirs:
+            if not directory or not os.path.isdir(directory):
+                continue
+            try:
+                for file in os.listdir(directory):
+                    name = file.lower()
+                    if name.startswith("nvinfer") and name.endswith(".dll"):
+                        return True
+            except Exception:
+                pass
+        return False
+
     def get_onnx_execution_provider(self):
         cpu_settings = {
             "intra_op_num_threads": 8,
@@ -142,6 +163,9 @@ class DeviceManager(object):
             "inter_op_num_threads": 8,
         }
         availableProviders = onnxruntime.get_available_providers()
+        if "TensorrtExecutionProvider" in availableProviders and not self._is_tensorrt_available():
+            availableProviders = [p for p in availableProviders if p != "TensorrtExecutionProvider"]
+
         if self.device.type == 'cuda' and "ROCMExecutionProvider" in availableProviders:
             return ["ROCMExecutionProvider", "CPUExecutionProvider"], [{"device_id": self.device.index}, cpu_settings]
         elif self.device.type == 'cuda':
