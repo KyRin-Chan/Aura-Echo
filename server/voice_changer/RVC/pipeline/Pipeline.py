@@ -215,14 +215,48 @@ class Pipeline:
                 audio = self.audio_effects_manager.process_input_chain(audio, sample_rate=16000)
             t.record("input-effects")
 
-            # ピッチ検出
-            pitch, pitchf = self.extract_pitch(audio[silence_front:], pitch, pitchf, f0_up_key, formant_shift) if self.use_f0 else (None, None)
-            t.record("extract-pitch")
+            # Pitch extraction and feature extraction in parallel (releasing GIL in ONNX/PyTorch)
+            if self.use_f0:
+                import threading
 
-            # embedding
-            feats = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
+                pitch_res = [None, None]
+                feats_res = [None]
+                exceptions = []
+
+                def _run_pitch():
+                    try:
+                        pitch_res[0], pitch_res[1] = self.extract_pitch(
+                            audio[silence_front:], pitch, pitchf, f0_up_key, formant_shift
+                        )
+                    except Exception as e:
+                        exceptions.append(e)
+
+                def _run_feats():
+                    try:
+                        feats_res[0] = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
+                    except Exception as e:
+                        exceptions.append(e)
+
+                t_pitch = threading.Thread(target=_run_pitch)
+                t_feats = threading.Thread(target=_run_feats)
+
+                t_pitch.start()
+                t_feats.start()
+
+                t_pitch.join()
+                t_feats.join()
+
+                if exceptions:
+                    raise exceptions[0]
+
+                pitch, pitchf = pitch_res[0], pitch_res[1]
+                feats = feats_res[0]
+            else:
+                pitch, pitchf = None, None
+                feats = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
+
             feats = torch.cat((feats, feats[:, -1:, :]), 1)
-            t.record("extract-feats")
+            t.record("extract-pitch-and-feats")
 
             # Index - feature抽出
             is_active_index = self.use_index and index_rate > 0

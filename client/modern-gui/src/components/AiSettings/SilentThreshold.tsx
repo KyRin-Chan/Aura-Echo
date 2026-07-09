@@ -34,6 +34,15 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
     });
   };
 
+  // Handle power saving mode change
+  const handlePowerSavingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const enabled = e.target.checked ? 1 : 0;
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting?.serverSetting,
+      powerSavingMode: enabled
+    });
+  };
+
   // ---------------- Render ----------------
 
   return (
@@ -51,6 +60,19 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
         onChange={handleChangeSilentThreshold}
       />
       <p className={CSS_CLASSES.sliderValue}>{localSilentThreshold} dB</p>
+      
+      <div className="mt-3 flex items-center">
+        <input
+          id="powerSavingMode"
+          type="checkbox"
+          checked={appState.serverSetting?.serverSetting?.powerSavingMode === 1}
+          onChange={handlePowerSavingChange}
+          className={CSS_CLASSES.checkbox}
+        />
+        <label htmlFor="powerSavingMode" className={CSS_CLASSES.checkboxLabel}>
+          Power Saving Mode (Skip inference on silence)
+        </label>
+      </div>
     </div>
   );
 }
