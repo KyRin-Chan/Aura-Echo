@@ -50,8 +50,6 @@ a = Analysis(
         'torch.utils.tensorboard',
         'tkinter', 'tcl', 'tk',
         'matplotlib', 'IPython', 'ipykernel', 'notebook', 'jinja2',
-        'scipy.spatial', 'scipy.optimize', 'scipy.integrate',
-        'scipy.interpolate', 'scipy.cluster', 'scipy.odr', 'scipy.ndimage'
     ],
     noarchive=False,
 )
