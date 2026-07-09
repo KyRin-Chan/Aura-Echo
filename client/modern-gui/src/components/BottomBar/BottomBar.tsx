@@ -5,6 +5,7 @@ import { faSun, faMoon, faPlay, faStop, faVolumeUp, faVolumeMute } from '@fortaw
 import { AppContextValue, useAppState } from '../../context/AppContext';
 import { useUIContext } from '../../context/UIContext';
 import MergeLabModal from './Modals/Merge/MergeLabModal';
+import VoiceAnalyzerModal from './Modals/VoiceAnalyzer/VoiceAnalyzerModal';
 import AdvancedSettingsModal from './Modals/AdvancedSettings/AdvancedSettingsModal';
 import ClientInfoModal from './Modals/ClientInfoModal';
 import ServerInfoModal from './Modals/ServerInfoModal';
@@ -18,6 +19,7 @@ function BottomBar(): JSX.Element {
   const uiContext = useUIContext();
 
   const [showMerge, setShowMerge] = useState<boolean>(false);
+  const [showVoiceAnalyzer, setShowVoiceAnalyzer] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showPassthroughConfirm, setShowPassthroughConfirm] = useState<boolean>(false);
   const [showClientInfo, setShowClientInfo] = useState<boolean>(false);
@@ -134,6 +136,13 @@ function BottomBar(): JSX.Element {
         setShowMerge={setShowMerge}
       />
 
+      <VoiceAnalyzerModal
+        appState={appState}
+        guiState={uiContext}
+        showVoiceAnalyzer={showVoiceAnalyzer}
+        setShowVoiceAnalyzer={setShowVoiceAnalyzer}
+      />
+
       <AdvancedSettingsModal
         showAdvancedSettings={showSettings}
         setShowAdvancedSettings={setShowSettings}
@@ -165,6 +174,7 @@ function BottomBar(): JSX.Element {
         {/* Left group: tools */}
         <div className="flex space-x-2">
           <button onClick={() => setShowMerge(true)} className={CSS_CLASSES.modalSecondaryButton}>Merge Lab</button>
+          <button onClick={() => setShowVoiceAnalyzer(true)} className={CSS_CLASSES.modalSecondaryButton}>Voice Analyzer</button>
           <button onClick={() => setShowSettings(true)} className={CSS_CLASSES.modalSecondaryButton}>Advanced Settings</button>
         </div>
 
