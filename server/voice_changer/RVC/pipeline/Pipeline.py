@@ -140,7 +140,7 @@ class Pipeline:
         else:
             logger.warning("Failed to configure audio effects")
 
-    def extract_pitch(self, audio: torch.Tensor, pitch: torch.Tensor | None, pitchf: torch.Tensor | None, f0_up_key: int, formant_shift: float) -> tuple[torch.Tensor, torch.Tensor]:
+    def extract_pitch(self, audio: torch.Tensor, pitch: torch.Tensor | None, pitchf: torch.Tensor | None, f0_up_key: float, formant_shift: float) -> tuple[torch.Tensor, torch.Tensor]:
         f0 = self.pitchExtractor.extract(
             audio,
             HUBERT_SAMPLE_RATE,
@@ -193,7 +193,7 @@ class Pipeline:
         audio: torch.Tensor,  # torch.tensor [n]
         pitch: torch.Tensor | None,  # torch.tensor [m]
         pitchf: torch.Tensor | None,  # torch.tensor [m]
-        f0_up_key: int,
+        f0_up_key: float,
         formant_shift: float,
         index_rate: float,
         audio_feats_len: int,

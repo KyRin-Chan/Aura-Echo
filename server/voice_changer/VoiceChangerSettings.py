@@ -315,7 +315,7 @@ class VoiceChangerSettings:
     _dstId: int = 0
 
     _f0Detector: str = "rmvpe_onnx"
-    _tran: int = 0
+    _tran: float = 0.0
     _formantShift: float = 0
     _useONNX: int = 0
 
@@ -348,7 +348,7 @@ class VoiceChangerSettings:
 
     @tran.setter
     def tran(self, tone: str):
-        self._tran = int(tone)
+        self._tran = float(tone)
 
     @property
     def formantShift(self):

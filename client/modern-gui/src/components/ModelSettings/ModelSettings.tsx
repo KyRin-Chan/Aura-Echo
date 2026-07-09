@@ -35,7 +35,7 @@ function ModelSettings({ model, handlePitchChange, handleFormatShiftChange, hand
           name="pitch"
           min={-50}
           max={50}
-          step={1}
+          step={0.5}
           value={model?.defaultTune || 0}
           onChange={handlePitchChange}
           onImmediateChange={(val) => setModel({ ...model, defaultTune: val })}

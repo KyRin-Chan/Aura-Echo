@@ -26,7 +26,7 @@ class RVCModelSlot(ModelSlot):
     modelFile: str = ""
     modelFileOnnx: str = ""
     indexFile: str = ""
-    defaultTune: int = 0
+    defaultTune: float = 0.0
     defaultFormantShift: float = 0
     defaultIndexRatio: float = 0
     defaultProtect: float = 0.5
