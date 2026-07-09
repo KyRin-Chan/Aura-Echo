@@ -1,4 +1,4 @@
-import { JSX, useState, useEffect, useMemo } from 'react';
+import { JSX, useState, useEffect, useMemo, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronUp, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import DragHandle from './../Helpers/DragHandle';
@@ -86,8 +86,17 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
     };
   }, [appState.performance, appState.serverSetting.serverSetting.serverReadChunkSize, appState.serverSetting.serverSetting.crossFadeOverlapSize]);
 
+  const lastChartUpdateTimeRef = useRef<number>(0);
+  const CHART_UPDATE_INTERVAL_MS = 1000; // Throttle updates to once per second
+
   //Format DataPoint into ChartDataPoint and add to ChartData
   useEffect(() => {
+    const now = Date.now();
+    if (now - lastChartUpdateTimeRef.current < CHART_UPDATE_INTERVAL_MS) {
+      return;
+    }
+    lastChartUpdateTimeRef.current = now;
+
     const { perfStatus, perfTime } = calculatedMetrics;
 
     const roundedPerfTime = Math.round(perfTime);
@@ -98,7 +107,7 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
     else if (perfStatus === 'critical') rt = roundedPerfTime;
 
     const newDataPoint: ChartDataPoint = {
-      timestamp: Date.now(),
+      timestamp: now,
       perfTimeValue: roundedPerfTime,
       chunkTime: Math.round(calculatedMetrics.chunkTime),
       greenTime: gt, yellowTime: yt, redTime: rt,

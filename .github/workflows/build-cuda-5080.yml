@@ -1,0 +1,59 @@
+name: Build RTX 5080 CUDA Optimized Executable
+
+on:
+  push:
+    branches: [ master-custom ]
+  pull_request:
+    branches: [ master-custom ]
+  workflow_dispatch:
+
+env:
+  BACKEND: cuda
+  BUILD_NAME: rtx5080-optimized
+
+jobs:
+  build-win-cuda-5080:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Installing build dependencies
+      run: python -m pip install --no-cache-dir --upgrade pip wheel setuptools pyinstaller
+
+    - name: Installing project dependencies (RTX 5080 Optimized)
+      run: python -m pip install --no-cache-dir -r requirements-common.txt -r requirements-cuda-5080.txt
+      working-directory: ./server
+
+    - name: Building executable (RTX 5080 Spec)
+      run: pyinstaller --clean -y --dist ./dist --workpath /tmp MMVCServerSIO_cuda_5080.spec
+      working-directory: ./server
+
+    - name: Copy utils
+      run: cp ./server/{force_gpu_clocks.bat,reset_gpu_clocks.bat} ./server/dist/
+      shell: bash
+
+    - name: Pack artifact
+      shell: bash
+      run: |
+        mkdir ./server/artifacts
+        7z a -v2000m -tzip ./server/artifacts/voice-changer-windows-amd64-cuda-5080.zip ./server/dist/* > /dev/null 2>&1
+
+    - name: Rename single asset
+      shell: bash
+      run: |
+        ls -al ./server/artifacts/
+        COUNT=$(ls -1q ./server/artifacts/ | wc -l | sed -r 's/[[:space:]]+//g')
+        if [ $COUNT = 1 ]; then
+          mv ./server/artifacts/voice-changer-windows-amd64-cuda-5080.zip.001 ./server/artifacts/voice-changer-windows-amd64-cuda-5080.zip
+        fi
+
+    - name: Uploading artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: voice-changer-windows-amd64-cuda-5080
+        path: ./server/artifacts

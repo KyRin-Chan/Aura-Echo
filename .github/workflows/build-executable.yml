@@ -1,8 +1,8 @@
 name: Package exe with PyInstaller
 
 on:
-  pull_request:
-    branches: [ master-custom ]
+  workflow_dispatch:
+
 
 env:
   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}

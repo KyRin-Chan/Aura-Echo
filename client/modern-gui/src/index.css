@@ -2,6 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --macaron-mint: #a8e6cf;
+  --macaron-mint-hover: #92dba7;
+  --macaron-pink: #ffd3b6;
+  --macaron-pink-hover: #ffbba4;
+  --macaron-yellow: #ffea7f;
+  --macaron-coral: #ffaaa6;
+  --macaron-purple: #d291bc;
+  --macaron-purple-hover: #c17ca9;
+  --macaron-blue: #aec6cf;
+  --macaron-blue-hover: #92b1bd;
+}
+
+.dark {
+  --macaron-mint: #3dbb89;
+  --macaron-mint-hover: #319f73;
+  --macaron-pink: #e28c68;
+  --macaron-pink-hover: #cc7854;
+  --macaron-yellow: #e4c540;
+  --macaron-coral: #e0726d;
+  --macaron-purple: #ab6a97;
+  --macaron-purple-hover: #945480;
+  --macaron-blue: #6d9ba8;
+  --macaron-blue-hover: #578491;
+}
+
+
 /* Custom Scrollbar */
 /* Light Mode */
 ::-webkit-scrollbar {

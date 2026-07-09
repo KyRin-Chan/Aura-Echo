@@ -5,13 +5,13 @@ import { ChartDataPoint, PerfStatus } from './PerformanceStatsCard';
 import { useThemeContext } from '../../context/ThemeContext';
 
 const LATENCY_STATUS_FILL_HEX: Record<PerfStatus, string> = {
-  good: '#10B981',     // emerald-500
-  warning: '#F59E0B',  // amber-500
-  critical: '#EF4444', // red-500
+  good: '#a8e6cf',     // Macaron Mint Green
+  warning: '#ffea7f',  // Macaron Yellow
+  critical: '#ffaaa6', // Macaron Coral/Peach
 };
 
-const CHART_LINE_COLOR_LIGHT_HEX = '#475569'; // slate-600
-const CHART_LINE_COLOR_DARK_HEX = '#cbd5e1'; // slate-300
+const CHART_LINE_COLOR_LIGHT_HEX = '#d291bc'; // Macaron Lavender Purple
+const CHART_LINE_COLOR_DARK_HEX = '#ab6a97'; // Macaron Dark Purple
 
 interface PerformanceGraphProps {
   chartData: ChartDataPoint[];
@@ -78,7 +78,7 @@ function PerformanceGraph({ chartData }: PerformanceGraphProps) {
         <Line
           type="monotone"
           dataKey="chunkTime"
-          stroke="#8B5CF6"
+          stroke="#aec6cf"
           strokeWidth={2}
           strokeDasharray="5 5"
           dot={false}

@@ -144,8 +144,19 @@ class DeviceManager(object):
         availableProviders = onnxruntime.get_available_providers()
         if self.device.type == 'cuda' and "ROCMExecutionProvider" in availableProviders:
             return ["ROCMExecutionProvider", "CPUExecutionProvider"], [{"device_id": self.device.index}, cpu_settings]
-        elif self.device.type == 'cuda' and "CUDAExecutionProvider" in availableProviders:
-            return ["CUDAExecutionProvider", "CPUExecutionProvider"], [{"device_id": self.device.index}, cpu_settings]
+        elif self.device.type == 'cuda':
+            providers = []
+            options = []
+            if "TensorrtExecutionProvider" in availableProviders:
+                providers.append("TensorrtExecutionProvider")
+                options.append({"device_id": self.device.index, "trt_fp16_enable": True})
+            if "CUDAExecutionProvider" in availableProviders:
+                providers.append("CUDAExecutionProvider")
+                options.append({"device_id": self.device.index})
+            if len(providers) > 0:
+                providers.append("CPUExecutionProvider")
+                options.append(cpu_settings)
+                return providers, options
         elif self.device.type == 'privateuseone' and "DmlExecutionProvider" in availableProviders:
             return ["DmlExecutionProvider", "CPUExecutionProvider"], [{"device_id": self.device.index}, cpu_settings]
         elif 'CoreMLExecutionProvider' in availableProviders:

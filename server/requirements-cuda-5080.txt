@@ -1,0 +1,15 @@
+# CUDA 12.8 + Blackwell (RTX 5080) Optimized Requirements
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.7.1
+torchaudio==2.7.1
+faiss-cpu==1.11.0; sys_platform!='linux'
+faiss-gpu-cu12; sys_platform=='linux'
+
+onnx==1.16.0
+onnxscript==0.2.6
+onnxslim==0.1.72
+onnxruntime-gpu==1.20.0
+tensorrt==10.8.0; sys_platform=='win32'
+torchcrepe==0.0.24
+torchfcpe==0.0.4
+safetensors==0.5.3

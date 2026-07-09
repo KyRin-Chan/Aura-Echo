@@ -1,35 +1,35 @@
 export const CSS_CLASSES = {
     // Form Controls
-    select: "w-full p-2 border border-slate-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-slate-900 dark:text-gray-100 text-sm transition-colors duration-150",
-    input: "w-full p-2 border border-slate-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-slate-900 dark:text-gray-100 text-sm",
-    fileInput: `w-full p-2 border border-slate-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-slate-900 dark:text-gray-100 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 dark:file:bg-gray-600 file:text-blue-700 dark:file:text-blue-300 hover:file:bg-blue-100 dark:hover:file:bg-gray-500`,
-    range: "w-full h-2 bg-slate-200 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500 dark:accent-blue-400 transition-colors duration-150",
-    rangeDisabled: "w-full h-2 bg-slate-100 dark:bg-gray-700 rounded-lg appearance-none cursor-not-allowed accent-slate-300 dark:accent-gray-500 opacity-50 transition-colors duration-150",
-    checkbox: "mr-2 accent-blue-500 dark:accent-blue-400",
-    radioButton: "mr-2 accent-blue-500 dark:accent-blue-400",
+    select: "w-full p-2.5 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[var(--macaron-mint)] bg-slate-50 dark:bg-gray-800 text-slate-800 dark:text-gray-100 text-sm transition-all duration-200 shadow-sm",
+    input: "w-full p-2.5 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[var(--macaron-mint)] bg-slate-50 dark:bg-gray-800 text-slate-800 dark:text-gray-100 text-sm transition-all duration-200 shadow-sm",
+    fileInput: `w-full p-2.5 border border-slate-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[var(--macaron-mint)] bg-slate-50 dark:bg-gray-800 text-slate-800 dark:text-gray-100 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[var(--macaron-blue)] file:text-slate-800 hover:file:opacity-90 dark:file:bg-gray-700 dark:file:text-gray-200 transition-all`,
+    range: "w-full h-2 bg-slate-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[var(--macaron-mint)] dark:accent-[var(--macaron-mint)] transition-colors duration-150",
+    rangeDisabled: "w-full h-2 bg-slate-100 dark:bg-gray-800 rounded-lg appearance-none cursor-not-allowed accent-slate-300 dark:accent-gray-600 opacity-50 transition-colors duration-150",
+    checkbox: "mr-2 accent-[var(--macaron-mint)]",
+    radioButton: "mr-2 accent-[var(--macaron-mint)]",
 
     // Typography
-    label: "block text-sm font-medium text-slate-600 dark:text-gray-400 mt-1 mb-1",
-    heading: "text-lg font-semibold text-slate-700 dark:text-gray-200",
-    sliderValue: "text-xs text-slate-600 dark:text-gray-400 text-right",
-    checkboxLabel: "flex items-center text-sm text-slate-700 dark:text-gray-300",
-    radioLabel: "inline-flex items-center mr-4 text-sm text-slate-700 dark:text-gray-300",
+    label: "block text-sm font-medium text-slate-500 dark:text-gray-400 mt-1 mb-1 tracking-wide",
+    heading: "text-lg font-semibold text-slate-700 dark:text-gray-200 tracking-tight",
+    sliderValue: "text-xs font-semibold text-slate-500 dark:text-gray-400 text-right",
+    checkboxLabel: "flex items-center text-sm text-slate-700 dark:text-gray-300 cursor-pointer",
+    radioLabel: "inline-flex items-center mr-4 text-sm text-slate-700 dark:text-gray-300 cursor-pointer",
 
     // Buttons
-    iconButton: "p-1 text-slate-500 hover:text-slate-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors duration-150",
-    primaryButton: "px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors duration-150",
-    modalPrimaryButton: "px-4 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors duration-150",
-    modalSecondaryButton: "px-4 py-2 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 bg-slate-200 hover:bg-slate-300 text-slate-700 dark:bg-gray-600 dark:hover:bg-gray-500 dark:text-gray-200 focus:ring-slate-400",
+    iconButton: "p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700 rounded-full transition-all duration-150 hover:scale-105 active:scale-95",
+    primaryButton: "px-5 py-2.5 bg-[var(--macaron-mint)] hover:bg-[var(--macaron-mint-hover)] text-slate-800 font-medium rounded-full shadow-sm transition-all duration-150 hover:scale-103 active:scale-97 hover:shadow-md",
+    modalPrimaryButton: "px-5 py-2.5 rounded-full text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 bg-[var(--macaron-mint)] hover:bg-[var(--macaron-mint-hover)] text-slate-800 shadow-sm transition-all duration-150 hover:scale-103 active:scale-97",
+    modalSecondaryButton: "px-5 py-2.5 rounded-full text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200 transition-all duration-150 hover:scale-103 active:scale-97",
 
     // Layout
-    card: "p-4 border border-slate-200 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-800 transition-all duration-300",
-    cardHeader: "flex justify-between items-center mb-3 pb-2 border-b border-slate-200 dark:border-gray-700",
+    card: "p-5 border border-slate-100 dark:border-gray-800 rounded-3xl shadow-sm bg-white dark:bg-gray-900 transition-all duration-300 hover:shadow-md",
+    cardHeader: "flex justify-between items-center mb-4 pb-2.5 border-b border-slate-100 dark:border-gray-800",
 
     // States
-    error: "p-2 mb-4 text-sm text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400 rounded",
-    success: "p-2 mb-4 text-sm text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400 rounded",
-    warning: "p-2 mb-4 text-sm text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 dark:text-yellow-400 rounded",
-    loading: "text-blue-500 animate-spin"
+    error: "p-3 mb-4 text-sm text-red-700 bg-[var(--macaron-coral)]/20 dark:bg-[var(--macaron-coral)]/10 dark:text-red-400 rounded-2xl border border-[var(--macaron-coral)]/30",
+    success: "p-3 mb-4 text-sm text-green-700 bg-[var(--macaron-mint)]/20 dark:bg-[var(--macaron-mint)]/10 dark:text-green-400 rounded-2xl border border-[var(--macaron-mint)]/30",
+    warning: "p-3 mb-4 text-sm text-yellow-700 bg-[var(--macaron-yellow)]/20 dark:bg-[var(--macaron-yellow)]/10 dark:text-yellow-400 rounded-2xl border border-[var(--macaron-yellow)]/30",
+    loading: "text-[var(--macaron-mint)] animate-spin"
 };
 
 export const AUDIO_KEYS = {
