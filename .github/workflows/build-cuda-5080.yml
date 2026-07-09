@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: 'Build Type (auto, lightweight, full)'
+        description: 'Build Type (auto, lightweight, full, full-patch)'
         required: true
         default: 'auto'
         type: choice
@@ -16,6 +16,7 @@ on:
         - auto
         - lightweight
         - full
+        - full-patch
 
 env:
   BACKEND: cuda
@@ -52,11 +53,11 @@ jobs:
           echo "$CHANGED_FILES"
           
           if echo "$CHANGED_FILES" | grep -qE "requirements.*\.txt|MMVCServerSIO\.spec|\.github/workflows/"; then
-            echo "Build configuration or dependency file changed. Selecting FULL build."
-            BUILD_TYPE="full"
+            echo "Build configuration or dependency file changed. Selecting FULL-PATCH build."
+            BUILD_TYPE="full-patch"
           elif [ "$CHANGED_FILES" = "ALL" ]; then
-            echo "Could not fetch diff. Selecting FULL build as fallback."
-            BUILD_TYPE="full"
+            echo "Could not fetch diff. Selecting FULL-PATCH build as fallback."
+            BUILD_TYPE="full-patch"
           else
             echo "Only logic files changed. Selecting LIGHTWEIGHT build."
           fi
@@ -98,7 +99,7 @@ jobs:
         ..\.venv\Scripts\python -m pip install -r requirements-common.txt
 
     - name: Install CUDA Dependencies (Full Build Only)
-      if: steps.cache-venv.outputs.cache-hit != 'true' && steps.determine_build.outputs.build_type == 'full'
+      if: steps.cache-venv.outputs.cache-hit != 'true' && steps.determine_build.outputs.build_type != 'lightweight'
       working-directory: ./server
       run: |
         ..\.venv\Scripts\python -m pip install -r requirements-cuda-5080.txt
@@ -129,18 +130,23 @@ jobs:
       run: |
         mkdir ./server/artifacts
         ARCHIVE_NAME="voice-changer-windows-amd64-cuda-5080"
+        EXTRA_7Z_ARGS=""
+        VOLUME_ARG="-v2000m"
         if [ "${{ steps.determine_build.outputs.build_type }}" = "lightweight" ]; then
           ARCHIVE_NAME="${ARCHIVE_NAME}-lightweight"
+        elif [ "${{ steps.determine_build.outputs.build_type }}" = "full-patch" ]; then
+          ARCHIVE_NAME="${ARCHIVE_NAME}-patch"
+          EXTRA_7Z_ARGS="-xr!_internal"
+          VOLUME_ARG=""
         fi
         echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
-        7z a -v2000m ./server/artifacts/${ARCHIVE_NAME}.7z ./server/dist/* > /dev/null 2>&1
+        7z a $EXTRA_7Z_ARGS $VOLUME_ARG ./server/artifacts/${ARCHIVE_NAME}.7z ./server/dist/* > /dev/null 2>&1
 
     - name: Rename single asset
       shell: bash
       run: |
         ls -al ./server/artifacts/
-        COUNT=$(ls -1q ./server/artifacts/ | wc -l | sed -r 's/[[:space:]]+//g')
-        if [ $COUNT = 1 ]; then
+        if [ -f "./server/artifacts/${{ env.ARCHIVE_NAME }}.7z.001" ]; then
           mv ./server/artifacts/${{ env.ARCHIVE_NAME }}.7z.001 ./server/artifacts/${{ env.ARCHIVE_NAME }}.7z
         fi
 

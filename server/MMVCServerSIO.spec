@@ -24,7 +24,7 @@ if 'BUILD_NAME' in os.environ:
   datas += [('./version.txt', '.')]
 
 binaries = []
-hiddenimports = ['app']
+hiddenimports = ['app', 'torchgen']
 
 # Collect TensorRT dynamic libraries and data for RTX 5080 / Blackwell optimization
 if not is_lightweight:
