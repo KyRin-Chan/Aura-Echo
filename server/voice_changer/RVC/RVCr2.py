@@ -28,6 +28,11 @@ from Exceptions import (
 logger = logging.getLogger(__name__)
 
 
+class BypassResampler(torch.nn.Module):
+    def forward(self, x):
+        return x
+
+
 class RVCr2(VoiceChangerModel):
     def __init__(self, slotInfo: RVCModelSlot, settings: VoiceChangerSettings):
         self.voiceChangerType = "RVC"
@@ -82,35 +87,47 @@ class RVCr2(VoiceChangerModel):
             return
 
         # 処理は16Kで実施(Pitch, embed, (infer))
-        self.resampler_in = tat.Resample(
-            orig_freq=self.input_sample_rate,
-            new_freq=HUBERT_SAMPLE_RATE,
-            dtype=torch.float32
-        ).to(self.device_manager.device)
+        if self.input_sample_rate == HUBERT_SAMPLE_RATE:
+            self.resampler_in = BypassResampler().to(self.device_manager.device)
+        else:
+            self.resampler_in = tat.Resample(
+                orig_freq=self.input_sample_rate,
+                new_freq=HUBERT_SAMPLE_RATE,
+                dtype=torch.float32
+            ).to(self.device_manager.device)
 
-        self.resampler_out = tat.Resample(
-            orig_freq=self.slotInfo.samplingRate,
-            new_freq=self.output_sample_rate,
-            dtype=torch.float32
-        ).to(self.device_manager.device)
+        if self.slotInfo.samplingRate == self.output_sample_rate:
+            self.resampler_out = BypassResampler().to(self.device_manager.device)
+        else:
+            self.resampler_out = tat.Resample(
+                orig_freq=self.slotInfo.samplingRate,
+                new_freq=self.output_sample_rate,
+                dtype=torch.float32
+            ).to(self.device_manager.device)
 
         logger.info("Initialized.")
 
     def set_sampling_rate(self, input_sample_rate: int, output_sample_rate: int):
         if self.input_sample_rate != input_sample_rate:
             self.input_sample_rate = input_sample_rate
-            self.resampler_in = tat.Resample(
-                orig_freq=self.input_sample_rate,
-                new_freq=HUBERT_SAMPLE_RATE,
-                dtype=torch.float32
-            ).to(self.device_manager.device)
+            if self.input_sample_rate == HUBERT_SAMPLE_RATE:
+                self.resampler_in = BypassResampler().to(self.device_manager.device)
+            else:
+                self.resampler_in = tat.Resample(
+                    orig_freq=self.input_sample_rate,
+                    new_freq=HUBERT_SAMPLE_RATE,
+                    dtype=torch.float32
+                ).to(self.device_manager.device)
         if self.output_sample_rate != output_sample_rate:
             self.output_sample_rate = output_sample_rate
-            self.resampler_out = tat.Resample(
-                orig_freq=self.slotInfo.samplingRate,
-                new_freq=self.output_sample_rate,
-                dtype=torch.float32
-            ).to(self.device_manager.device)
+            if self.slotInfo.samplingRate == self.output_sample_rate:
+                self.resampler_out = BypassResampler().to(self.device_manager.device)
+            else:
+                self.resampler_out = tat.Resample(
+                    orig_freq=self.slotInfo.samplingRate,
+                    new_freq=self.output_sample_rate,
+                    dtype=torch.float32
+                ).to(self.device_manager.device)
 
     def change_pitch_extractor(self):
         pitchExtractor = PitchExtractorManager.getPitchExtractor(

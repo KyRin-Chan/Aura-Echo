@@ -47,7 +47,7 @@ a = Analysis(
     hookspath=['./pyinstaller-hooks'],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['torch.utils.tensorboard'],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

@@ -10,6 +10,7 @@ on:
 env:
   BACKEND: cuda
   BUILD_NAME: rtx5080-optimized
+  PYTHONWARNINGS: ignore
 
 jobs:
   build-win-cuda-5080:

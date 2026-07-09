@@ -59,7 +59,8 @@ function AudioDevicesServer() {
       ...appState.serverSetting.serverSetting,
       serverInputAudioSampleRate: parseInt(event.target.value),
       serverOutputAudioSampleRate: parseInt(event.target.value),
-      serverMonitorAudioSampleRate: parseInt(event.target.value)
+      serverMonitorAudioSampleRate: parseInt(event.target.value),
+      serverAudioSampleRate: parseInt(event.target.value)
     });
   };
 
@@ -153,7 +154,7 @@ function AudioDevicesServer() {
     <>
       <div>
         <label htmlFor="sampleRate" className={CSS_CLASSES.label}>Sample Rate</label>
-        <select id="sampleRate" className={CSS_CLASSES.select} value={appState.serverSetting?.serverSetting?.serverInputAudioSampleRate} onChange={handleSampleRateChange}>
+        <select id="sampleRate" className={CSS_CLASSES.select} value={appState.serverSetting?.serverSetting?.serverAudioSampleRate} onChange={handleSampleRateChange}>
           {sampleRates.map(rate => (
             <option key={rate} value={rate}>{rate} Hz</option>
           ))}

@@ -174,11 +174,11 @@ class VoiceChangerSettings:
     # Server Audio settings
     _serverAudioStated: int = 0
     _enableServerAudio: int = 0
-    _serverInputAudioSampleRate: int = 44100
-    _serverOutputAudioSampleRate: int = 44100
-    _serverMonitorAudioSampleRate: int = 44100
+    _serverInputAudioSampleRate: int = 48000
+    _serverOutputAudioSampleRate: int = 48000
+    _serverMonitorAudioSampleRate: int = 48000
 
-    _serverAudioSampleRate: int = 44100
+    _serverAudioSampleRate: int = 48000
 
     _serverInputDeviceId: int = -1
     _serverOutputDeviceId: int = -1

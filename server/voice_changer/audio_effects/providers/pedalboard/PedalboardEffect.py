@@ -20,6 +20,79 @@ except ImportError:
     logger.warning("Pedalboard not available, pedalboard effects will be disabled")
 
 
+def _generate_synthetic_ir(ir_type: str, room_size: float, damping: float, sample_rate: int = 48000) -> np.ndarray:
+    """
+    Generates a synthetic impulse response NumPy array.
+    """
+    # 1. Determine duration (rt60) based on type and room_size
+    if ir_type == "hall":
+        rt60 = 1.5 + room_size * 2.5  # 1.5 to 4.0 seconds
+    elif ir_type == "room":
+        rt60 = 0.2 + room_size * 0.8  # 0.2 to 1.0 seconds
+    elif ir_type == "plate":
+        rt60 = 0.8 + room_size * 1.7  # 0.8 to 2.5 seconds
+    elif ir_type == "spring":
+        rt60 = 1.0 + room_size * 1.5  # 1.0 to 2.5 seconds
+    elif ir_type == "cathedral":
+        rt60 = 3.0 + room_size * 5.0  # 3.0 to 8.0 seconds
+    else:
+        rt60 = 1.5
+        
+    num_samples = int(rt60 * sample_rate)
+    t = np.linspace(0, rt60, num_samples, endpoint=False)
+    noise = np.random.normal(0, 1.0, num_samples)
+    
+    # Create exponential decay
+    decay_rate = 6.91 / rt60
+    
+    import scipy.signal
+    try:
+        # Multi-band damping: split into low, mid, high bands
+        # and apply faster decay to higher frequencies
+        sos_low = scipy.signal.butter(2, 500, 'lp', fs=sample_rate, output='sos')
+        low_band = scipy.signal.sosfilt(sos_low, noise)
+        
+        sos_mid = scipy.signal.butter(2, [500, 3000], 'bp', fs=sample_rate, output='sos')
+        mid_band = scipy.signal.sosfilt(sos_mid, noise)
+        
+        sos_high = scipy.signal.butter(2, 3000, 'hp', fs=sample_rate, output='sos')
+        high_band = scipy.signal.sosfilt(sos_high, noise)
+        
+        decay_low = decay_rate
+        decay_mid = decay_rate * (1.0 + damping)
+        decay_high = decay_rate * (1.0 + damping * 3.0)
+        
+        low_env = np.exp(-decay_low * t)
+        mid_env = np.exp(-decay_mid * t)
+        high_env = np.exp(-decay_high * t)
+        
+        ir = (low_band * low_env) + (mid_band * mid_env) + (high_band * high_env)
+    except Exception as e:
+        logger.warning(f"Failed to use scipy filtering for IR generation, falling back to simple envelope: {e}")
+        envelope = np.exp(-decay_rate * (1.0 + damping) * t)
+        ir = noise * envelope
+        
+    # Apply fade-in for initial diffusion simulation
+    fade_in_samples = int(0.015 * sample_rate)  # 15ms
+    if fade_in_samples < num_samples:
+        fade_in = np.linspace(0.0, 1.0, fade_in_samples)
+        ir[:fade_in_samples] *= fade_in
+        
+    # Spring reverb special comb reflections
+    if ir_type == "spring":
+        for delay_ms in [25, 55, 85]:
+            idx = int((delay_ms / 1000.0) * sample_rate)
+            if idx < num_samples:
+                ir[idx:] += ir[:-idx] * 0.4
+                
+    # Normalize to prevent clipping
+    max_val = np.max(np.abs(ir))
+    if max_val > 1e-6:
+        ir = ir / max_val * 0.7
+        
+    return ir.astype(np.float32)
+
+
 class PedalboardEffect(AudioEffect):
     """Pedalboard-specific audio effect implementation"""
     
@@ -146,23 +219,20 @@ class PedalboardEffect(AudioEffect):
                 )
             
             elif self.effect_type == "convolution":
-                # Simplified convolution using reverb as fallback
-                if self.parameters.get("impulseResponse") == "hall":
-                    self._effect = Reverb(
-                        room_size=0.8,
-                        damping=0.2,
-                        wet_level=self.parameters.get("mix", 0.3),
-                        dry_level=1.0 - self.parameters.get("mix", 0.3)
-                    )
-                else:
-                    room_sizes = {"room": 0.3, "plate": 0.6, "spring": 0.4, "cathedral": 0.9}
-                    room_size = room_sizes.get(self.parameters.get("impulseResponse", "hall"), 0.5)
-                    self._effect = Reverb(
-                        room_size=room_size,
-                        damping=0.3,
-                        wet_level=self.parameters.get("mix", 0.3),
-                        dry_level=1.0 - self.parameters.get("mix", 0.3)
-                    )
+                ir_type = self.parameters.get("impulseResponse", "hall")
+                room_size = self.parameters.get("roomSize", 0.5)
+                damping = self.parameters.get("damping", 0.3)
+                mix = self.parameters.get("mix", 0.3)
+                
+                # Generate synthetic impulse response NumPy array
+                ir = _generate_synthetic_ir(ir_type, room_size, damping, sample_rate=48000)
+                
+                # Spotify's Pedalboard supports passing a NumPy float32 array directly
+                self._effect = Convolution(
+                    ir,
+                    sample_rate=48000,
+                    mix=mix
+                )
             
             elif self.effect_type == "mp3Compressor":
                 self._effect = MP3Compressor(vbr_quality=self.parameters.get("vbrQuality", 2))

@@ -84,5 +84,108 @@
         "description": "Level of delayed signal"
       }
     }
+  },
+  "exciter": {
+    "name": "Harmonic Exciter",
+    "description": "Adds brightness and high-end air by synthesizing new harmonics",
+    "provider": "Simple",
+    "parameters": {
+      "frequency": {
+        "name": "Cutoff Frequency",
+        "type": "slider",
+        "defaultValue": 3000,
+        "min": 1000,
+        "max": 8000,
+        "step": 100,
+        "unit": "Hz",
+        "description": "Frequency above which harmonics are generated"
+      },
+      "drive": {
+        "name": "Harmonic Drive",
+        "type": "slider",
+        "defaultValue": 1.5,
+        "min": 1.0,
+        "max": 5.0,
+        "step": 0.1,
+        "description": "Intensity of the generated harmonics"
+      },
+      "mix": {
+        "name": "Harmonics Mix",
+        "type": "slider",
+        "defaultValue": 0.15,
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+        "description": "Volume level of the added harmonics"
+      }
+    }
+  },
+  "deesser": {
+    "name": "De-esser",
+    "description": "Attenuates harsh sibilant 'S' and 'T' sounds to reduce glitches",
+    "provider": "Simple",
+    "parameters": {
+      "cutoff": {
+        "name": "Crossover Frequency",
+        "type": "slider",
+        "defaultValue": 5000,
+        "min": 3000,
+        "max": 8000,
+        "step": 100,
+        "unit": "Hz",
+        "description": "Frequency threshold for sibilance detection"
+      },
+      "threshold": {
+        "name": "Threshold",
+        "type": "slider",
+        "defaultValue": -30,
+        "min": -60,
+        "max": -10,
+        "step": 1,
+        "unit": "dB",
+        "description": "Level above which high-frequency compression starts"
+      },
+      "ratio": {
+        "name": "Ratio",
+        "type": "slider",
+        "defaultValue": 4.0,
+        "min": 1.5,
+        "max": 10.0,
+        "step": 0.1,
+        "description": "Compression ratio for sibilance"
+      }
+    }
+  },
+  "resonanceSuppressor": {
+    "name": "Dynamic Resonance Suppressor",
+    "description": "Detects and suppresses sharp metallic whistles and resonances",
+    "provider": "Simple",
+    "parameters": {
+      "threshold": {
+        "name": "Sensitivity",
+        "type": "slider",
+        "defaultValue": 6.0,
+        "min": 2.0,
+        "max": 15.0,
+        "step": 0.5,
+        "description": "Higher values mean less sensitive, suppressing only very sharp peaks"
+      },
+      "amount": {
+        "name": "Reduction Amount",
+        "type": "slider",
+        "defaultValue": 0.6,
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.05,
+        "description": "How aggressively to suppress detected resonance peaks"
+      },
+      "frequencyRange": {
+        "name": "Frequency Range",
+        "type": "select",
+        "defaultValue": "mid-high",
+        "options": ["all", "mid-high", "high"],
+        "description": "Limit resonance suppression to specific frequency bands"
+      }
+    }
   }
 }
