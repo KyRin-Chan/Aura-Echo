@@ -21,6 +21,7 @@ from Exceptions import (
     VoiceChangerIsNotSelectedException,
 )
 from traceback import format_exc
+from time import time
 from typing import Callable, Any
 from dataclasses import asdict
 
@@ -304,10 +305,16 @@ class VoiceChangerManager(ServerAudioCallbacks):
                 audio, vol, perf = self.vc.on_request(receivedData)
             return audio, vol, perf, None
         except VoiceChangerIsNotSelectedException as e:
-            logger.exception(e)
+            now = time()
+            if not hasattr(self, '_last_vc_warn_time') or now - self._last_vc_warn_time > 5:
+                self._last_vc_warn_time = now
+                logger.warning("Voice changer is not selected. Please select a model in the GUI.")
             return np.zeros(1, dtype=np.float32), 0, [0, 0, 0], ('VoiceChangerIsNotSelectedException', format_exc())
         except PipelineNotInitializedException as e:
-            logger.exception(e)
+            now = time()
+            if not hasattr(self, '_last_pipeline_warn_time') or now - self._last_pipeline_warn_time > 5:
+                self._last_pipeline_warn_time = now
+                logger.warning("Pipeline is not initialized. Please upload/select a model in the GUI.")
             return np.zeros(1, dtype=np.float32), 0, [0, 0, 0], ('PipelineNotInitializedException', format_exc())
         except Exception as e:
             logger.exception(e)

@@ -344,7 +344,11 @@ class RMVPE:
         self.use_jit_eager = not use_jit_compile
         if use_jit_compile:
             logger.info('Compiling JIT model...')
-            model = torch.jit.optimize_for_inference(torch.jit.script(model))
+            try:
+                model = torch.jit.optimize_for_inference(torch.jit.script(model))
+            except Exception as e:
+                logger.warning(f"JIT compilation failed: {e}. Falling back to eager mode.")
+                self.use_jit_eager = True
 
         self.model = model
 

@@ -203,10 +203,11 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
 
       // Upload main model files (model + optional index file)
       console.log('Uploading model with settings:', uploadSettingsData);
-      const serverInfo = await appState.serverSetting.uploadModel(uploadSettingsData);
+      await appState.serverSetting.uploadModel(uploadSettingsData);
+      const serverInfo = await appState.getInfo();
       
       // Verify that the model was actually uploaded by checking if the slot has a model file
-      const uploadedModel = serverInfo.modelSlots[emptySlotIndex];
+      const uploadedModel = serverInfo?.modelSlots?.[emptySlotIndex];
       const hasModelFile = uploadedModel && 'modelFile' in uploadedModel && uploadedModel.modelFile;
       
       if (hasModelFile) {
