@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { VoiceChangerServerSetting, ServerInfo, ServerSettingKey, OnnxExporterInfo, MergeModelRequest, VoiceChangerType, DefaultServerSetting } from "../const";
 import { VoiceChangerClient } from "../VoiceChangerClient";
 
@@ -87,6 +87,9 @@ export type ServerSettingState = {
 
 export const useServerSetting = (props: UseServerSettingProps): ServerSettingState => {
     const [serverSetting, _setServerSetting] = useState<ServerInfo>(DefaultServerSetting);
+    const serverSettingRef = useRef<ServerInfo>(serverSetting);
+    serverSettingRef.current = serverSetting;
+
     const setServerSetting = (info: ServerInfo | null) => {
         if (!info || !(info as any).modelSlots) {
             // サーバが情報を空で返したとき。Web版対策
@@ -114,7 +117,7 @@ export const useServerSetting = (props: UseServerSettingProps): ServerSettingSta
             const stringKeys = (Object.values(ServerSettingKey).filter((v) => typeof v === 'string') as string[]) as (keyof VoiceChangerServerSetting)[];
             for (let i = 0; i < stringKeys.length; i++) {
                 const k = stringKeys[i] as keyof VoiceChangerServerSetting;
-                const cur_v = serverSetting[k];
+                const cur_v = serverSettingRef.current[k];
                 const new_v = setting[k];
 
                 // Deep comparison for objects, simple comparison for primitives
@@ -130,13 +133,16 @@ export const useServerSetting = (props: UseServerSettingProps): ServerSettingSta
                     
                     const res = await props.voiceChangerClient.updateServerSettings(k, valueToSend);
                     latestRes = res as ServerInfo;
+                    if (res) {
+                        serverSettingRef.current = res;
+                    }
                 }
             }
             if (latestRes) {
                 setServerSetting(latestRes);
             }
         };
-    }, [props.voiceChangerClient, serverSetting]);
+    }, [props.voiceChangerClient]);
 
     //////////////
     // 操作

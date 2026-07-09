@@ -69,7 +69,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
 
     // Do not connect output worklet to server on protocol change.
     // TODO: Refactor
-    if (!this.outputNode) {
+    if (this.outputNode) {
       let recreateSocketIoRequired = (
         this.setting.serverUrl !== setting.serverUrl ||
         this.setting.protocol !== setting.protocol

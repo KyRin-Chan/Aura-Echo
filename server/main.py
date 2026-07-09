@@ -1,5 +1,9 @@
 import os
 import sys
+import warnings
+
+# Filter out weight_norm FutureWarning deprecation warnings
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*weight_norm.*")
 import multiprocessing as mp
 
 from const import ROOT_PATH, UPLOAD_DIR, TMP_DIR, LOG_FILE, get_version, get_edition
