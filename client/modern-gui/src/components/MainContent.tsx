@@ -102,7 +102,7 @@ function MainContent() {
       }
 
       let cardComponent;
-      const gridClasses = isWide ? 'md:col-span-2' : '';
+      const gridClasses = isWide ? 'col-span-2' : '';
       
       switch (cardId) {
         case 'modelSettings':
@@ -185,7 +185,7 @@ function MainContent() {
       <SortableContext
         items={cardOrder}
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 auto-rows-min">
+        <div className="grid grid-cols-2 gap-4 auto-rows-min">
           {generateGridItems()}
         </div>
       </SortableContext>

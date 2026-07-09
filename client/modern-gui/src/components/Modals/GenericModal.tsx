@@ -62,15 +62,20 @@ function GenericModal({
   return createPortal(
     <div className={`fixed inset-0 ${transparent === false ? 'bg-black bg-opacity-50 backdrop-blur-sm' : 'opacity-100'}  flex justify-center items-center z-40 p-4 transition-opacity duration-300 ease-in-out`} onClick={closeOnOutsideClick ? onClose : undefined}>
       <div
-        className={`bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full ${getModalWidth(size)} max-h-[90vh] flex flex-col transform transition-all duration-300 ease-in-out scale-95 opacity-0 animate-modalFadeInScaleUp overflow-hidden`}
+        className={`p-6 rounded-2xl shadow-xl w-full ${getModalWidth(size)} max-h-[90vh] flex flex-col transform transition-all duration-300 ease-in-out scale-95 opacity-0 animate-modalFadeInScaleUp overflow-hidden`}
+        style={{
+          backgroundColor: 'var(--bg-secondary)',
+          border: '1px solid var(--border-primary)',
+        }}
         onClick={(e) => e.stopPropagation()} // Prevent click inside modal from closing it
       >
         {/* Modal Header */}
-        <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-200 dark:border-gray-700">
-          <h3 className="text-xl font-semibold text-slate-800 dark:text-gray-100">{title}</h3>
+        <div className="flex justify-between items-center mb-4 pb-3" style={{ borderBottom: '1px solid var(--border-primary)' }}>
+          <h3 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
           <button
             onClick={onClose}
-            className="text-slate-500 hover:text-slate-700 dark:text-gray-400 dark:hover:text-gray-200 p-1 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="p-1 rounded-full focus:outline-none focus:ring-2 transition-opacity hover:opacity-70"
+            style={{ color: 'var(--text-tertiary)' }}
             aria-label="Close modal"
           >
             <FontAwesomeIcon icon={faTimes} className="h-5 w-5" />
@@ -84,7 +89,7 @@ function GenericModal({
 
         {/* Modal Footer (optional buttons) */}
         {(primaryButton || secondaryButton) && (
-          <div className="flex justify-end space-x-3 pt-3 border-t border-slate-200 dark:border-gray-700">
+          <div className="flex justify-end space-x-3 pt-3" style={{ borderTop: '1px solid var(--border-primary)' }}>
             {secondaryButton && (
               <button
                 onClick={secondaryButton.onClick}
@@ -111,4 +116,4 @@ function GenericModal({
   );
 }
 
-export default GenericModal; 
+export default GenericModal;

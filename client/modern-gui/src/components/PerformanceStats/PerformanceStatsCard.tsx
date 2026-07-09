@@ -132,9 +132,15 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
   // ---------------- Render ----------------
 
   return (
-    <div className={`p-4 border border-slate-200 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-800 transition-all duration-300 flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : ''}`}>
-      <div className="flex justify-between items-center mb-3 pb-2 border-b border-slate-200 dark:border-gray-700">
-        <h5 className="text-lg font-semibold text-slate-700 dark:text-gray-200">Performance Stats</h5>
+    <div
+      className={`p-4 rounded-2xl shadow-sm transition-all duration-300 flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : ''}`}
+      style={{
+        backgroundColor: 'var(--bg-secondary)',
+        border: '1px solid var(--border-primary)',
+      }}
+    >
+      <div className="flex justify-between items-center mb-3 pb-2" style={{ borderBottom: '1px solid var(--border-primary)' }}>
+        <h5 className={CSS_CLASSES.heading}>Performance Stats</h5>
         <div className="flex space-x-1 items-center">
           <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? "Expand" : "Collapse"}>
             <FontAwesomeIcon icon={isCollapsed ? faChevronDown : faChevronUp} className="h-5 w-5" />
@@ -162,7 +168,13 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
             />
           </div>
 
-          <div className="w-full h-48 bg-slate-100 dark:bg-gray-700 border border-slate-300 dark:border-gray-500 rounded-md flex-grow">
+          <div
+            className="w-full h-48 rounded-xl flex-grow"
+            style={{
+              backgroundColor: 'var(--bg-tertiary)',
+              border: '1px solid var(--border-primary)',
+            }}
+          >
             <PerformanceGraph
               chartData={chartData}
             />

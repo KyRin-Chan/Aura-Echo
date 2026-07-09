@@ -73,11 +73,17 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
   // ---------------- Render ----------------
 
   return (
-    <div className={`p-4 border border-slate-200 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-800 transition-all duration-300 flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : ''}`}>
-      <div className="flex justify-between items-center mb-3 pb-2 border-b border-slate-200 dark:border-gray-700">
-        <h4 className="text-lg font-semibold text-slate-800 dark:text-gray-200">Model Settings</h4>
+    <div
+      className={`p-4 rounded-2xl shadow-sm transition-all duration-300 flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : ''}`}
+      style={{
+        backgroundColor: 'var(--bg-secondary)',
+        border: '1px solid var(--border-primary)',
+      }}
+    >
+      <div className="flex justify-between items-center mb-3 pb-2" style={{ borderBottom: '1px solid var(--border-primary)' }}>
+        <h4 className={CSS_CLASSES.heading}>Model Settings</h4>
         <div className="flex space-x-1 items-center">
-          <button onClick={() => setIsCollapsed(!isCollapsed)} className={`${CSS_CLASSES.iconButton} focus:ring-blue-500`} title={isCollapsed ? "Expand" : "Collapse"}>
+          <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? "Expand" : "Collapse"}>
             <FontAwesomeIcon icon={isCollapsed ? faChevronDown : faChevronUp} className="h-5 w-5" />
           </button>
           <DragHandle attributes={dndAttributes} listeners={dndListeners} title="Drag" />
@@ -91,8 +97,11 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
               icon={icon || placeholder}
             />
           ) : (
-            <div className="flex items-center justify-center mb-6 p-8 bg-slate-200 dark:bg-gray-700/50 rounded-lg min-h-[160px]">
-              <p className="text-slate-600 dark:text-gray-400 italic text-center">Select a model from the list <br /> to see its settings.</p>
+            <div
+              className="flex items-center justify-center mb-6 p-8 rounded-xl min-h-[160px]"
+              style={{ backgroundColor: 'var(--bg-tertiary)' }}
+            >
+              <p style={{ color: 'var(--text-tertiary)' }} className="italic text-center">Select a model from the list <br /> to see its settings.</p>
             </div>
           )}
           {
@@ -121,4 +130,4 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
   );
 }
 
-export default ModelSettingsCard; 
+export default ModelSettingsCard;

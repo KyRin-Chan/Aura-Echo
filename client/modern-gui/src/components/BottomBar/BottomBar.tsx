@@ -155,45 +155,58 @@ function BottomBar(): JSX.Element {
         setShowServerInfo={setShowServerInfo}
       />
 
-      <div className="h-20 min-h-[60px] bg-white dark:bg-gray-800 border-t border-slate-200 dark:border-gray-700 flex items-center justify-between px-4 py-2 flex-shrink-0 transition-colors duration-300">
+      <div
+        className="h-16 min-h-[56px] flex items-center justify-between px-6 py-2 flex-shrink-0 transition-colors duration-300"
+        style={{
+          backgroundColor: 'var(--bg-secondary)',
+          borderTop: '1px solid var(--border-primary)',
+        }}
+      >
+        {/* Left group: tools */}
         <div className="flex space-x-2">
           <button onClick={() => setShowMerge(true)} className={CSS_CLASSES.modalSecondaryButton}>Merge Lab</button>
           <button onClick={() => setShowSettings(true)} className={CSS_CLASSES.modalSecondaryButton}>Advanced Settings</button>
         </div>
 
+        {/* Center group: primary controls */}
         <div className="flex items-center space-x-3">
           <button
             onClick={handleToggleClientActivity}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150 flex items-center space-x-2 
+            className={`px-5 py-2 rounded-full text-sm font-semibold transition-all duration-200 flex items-center space-x-2 shadow-sm hover:shadow-md
             ${uiContext.isConverting
-                ? 'bg-red-500 hover:bg-red-600 text-white'
-                : 'bg-green-500 hover:bg-green-600 text-white'}
-            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 
-            ${uiContext.isConverting ? 'focus:ring-red-400' : 'focus:ring-green-400'}`}
+                ? 'text-white'
+                : 'text-white'}
+            focus:outline-none focus:ring-2 focus:ring-offset-2`}
+            style={{
+              backgroundColor: uiContext.isConverting ? 'var(--macaron-coral)' : 'var(--macaron-mint)',
+              color: '#3a3530',
+            }}
           >
             <FontAwesomeIcon icon={uiContext.isConverting ? faStop : faPlay} />
-            <span>{uiContext.isConverting ? 'Stop Server' : 'Start Server'}</span>
+            <span>{uiContext.isConverting ? 'Stop' : 'Start'}</span>
           </button>
           <button
             onClick={appState.serverSetting.serverSetting.passThrough ? disablePassThrough : () => setShowPassthroughConfirm(true)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150 flex items-center space-x-2 
-            ${appState.serverSetting?.serverSetting?.passThrough
-                ? 'bg-yellow-500 hover:bg-yellow-600 text-gray-900'
-                : 'bg-gray-600 hover:bg-gray-500 text-white'}
-            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 
-            ${appState.serverSetting?.serverSetting?.passThrough ? 'focus:ring-yellow-400' : 'focus:ring-gray-400'}`}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 flex items-center space-x-2
+            focus:outline-none focus:ring-2 focus:ring-offset-2`}
+            style={{
+              backgroundColor: appState.serverSetting?.serverSetting?.passThrough ? 'var(--macaron-yellow)' : 'var(--bg-tertiary)',
+              color: 'var(--text-primary)',
+              border: `1px solid ${appState.serverSetting?.serverSetting?.passThrough ? 'var(--macaron-yellow)' : 'var(--border-primary)'}`,
+            }}
           >
             <FontAwesomeIcon icon={appState.serverSetting?.serverSetting?.passThrough ? faVolumeUp : faVolumeMute} />
             <span>{appState.serverSetting?.serverSetting?.passThrough ? 'Passthrough ON' : 'Passthrough OFF'}</span>
           </button>
         </div>
 
+        {/* Right group: info & theme */}
         <div className="flex items-center space-x-2">
           <button onClick={() => setShowServerInfo(true)} className={CSS_CLASSES.modalSecondaryButton}>Server Info</button>
           <button onClick={() => setShowClientInfo(true)} className={CSS_CLASSES.modalSecondaryButton}>Client Info</button>
           <button
             onClick={toggleTheme}
-            className={CSS_CLASSES.modalSecondaryButton}
+            className={CSS_CLASSES.iconButton}
             aria-label={theme === 'light' ? "Switch to dark mode" : "Switch to light mode"}
           >
             <FontAwesomeIcon icon={theme === 'light' ? faMoon : faSun} className="h-5 w-5" />
@@ -204,4 +217,4 @@ function BottomBar(): JSX.Element {
   );
 }
 
-export default BottomBar; 
+export default BottomBar;

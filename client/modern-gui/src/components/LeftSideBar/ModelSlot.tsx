@@ -42,10 +42,23 @@ function ModelSlot(props: ModelSlotProps) {
       />
       {/* Main model slot container with conditional styling for selection state */}
       <li
-        className={`p-3 text-sm cursor-pointer flex items-center group text-slate-700 dark:text-slate-300 transition-colors duration-200 border-b border-slate-200 dark:border-gray-700 last:border-b-0
-              ${props.selected
-            ? 'bg-blue-50 dark:bg-blue-700/20 border-l-4 border-l-blue-500 dark:border-l-blue-400 pl-2 rounded-md'
-            : 'hover:bg-slate-50 dark:hover:bg-gray-700/50 hover:border-l-2 hover:border-l-slate-300 dark:hover:border-l-gray-500'}`}
+        className="p-3 text-sm cursor-pointer flex items-center group transition-colors duration-200 rounded-lg"
+        style={{
+          color: 'var(--text-primary)',
+          backgroundColor: props.selected ? 'var(--macaron-mint)' : 'transparent',
+          borderLeft: props.selected ? '4px solid var(--macaron-mint-hover)' : '4px solid transparent',
+          opacity: props.selected ? 1 : 0.85,
+        }}
+        onMouseEnter={(e) => {
+          if (!props.selected) {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-tertiary)';
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!props.selected) {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
+          }
+        }}
         onClick={() => {
           props.handleSelectModel(props.model);
         }}
@@ -54,26 +67,31 @@ function ModelSlot(props: ModelSlotProps) {
         <img
           src={icon.length > 0 ? icon : placeholder}
           alt={props.model.name}
-          className="w-8 h-8 md:w-10 md:h-10 rounded-md mr-3 object-cover flex-shrink-0"
+          className="w-10 h-10 rounded-lg mr-3 object-cover flex-shrink-0"
         />
         {/* Model name with text truncation for long names */}
-        <span className="truncate mr-2 flex-grow">{props.model.name}</span>
-        <div className="flex space-x-2 md:space-x-1 items-center md:opacity-0 group-hover:md:opacity-100 transition-opacity">
+        <span
+          className="truncate mr-2 flex-grow font-medium"
+          style={{ color: props.selected ? '#3a3530' : 'var(--text-primary)' }}
+        >{props.model.name}</span>
+        <div className="flex space-x-1 items-center opacity-0 group-hover:opacity-100 transition-opacity">
           {/* Edit button - Opens model settings modal */}
           <button
             onClick={(e) => { e.stopPropagation(); setShowEdit(true); }}
-            className="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 p-1 md:p-0"
+            className="p-2 rounded-full transition-opacity hover:opacity-70"
+            style={{ color: 'var(--macaron-blue)' }}
             title="Edit Model"
           >
-            <FontAwesomeIcon icon={faPen} className="h-4 w-4 md:h-3 md:w-3 p-2" />
+            <FontAwesomeIcon icon={faPen} className="h-3 w-3" />
           </button>
           {/* Delete button - Opens confirmation modal */}
           <button
             onClick={(e) => { e.stopPropagation(); setShowDelete(true); }}
-            className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1 md:p-0"
+            className="p-2 rounded-full transition-opacity hover:opacity-70"
+            style={{ color: 'var(--macaron-coral)' }}
             title="Delete Model"
           >
-            <FontAwesomeIcon icon={faTrash} className="h-4 w-4 md:h-3 md:w-3 p-2" />
+            <FontAwesomeIcon icon={faTrash} className="h-3 w-3" />
           </button>
         </div>
       </li>

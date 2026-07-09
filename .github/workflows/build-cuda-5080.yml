@@ -57,7 +57,7 @@ jobs:
       shell: bash
       run: |
         mkdir ./server/artifacts
-        7z a -mx=3 -v2000m ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z ./server/dist/* > /dev/null 2>&1
+        7z a -v2000m ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z ./server/dist/* > /dev/null 2>&1
 
     - name: Rename single asset
       shell: bash

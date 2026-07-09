@@ -1,6 +1,7 @@
 import { RVCModelSlot } from "@dannadori/voice-changer-client-js";
 import { CSS_CLASSES } from "../../styles/constants"
 import DebouncedSlider from "../Helpers/DebouncedSlider"
+import { useAppState } from "../../context/AppContext"
 
 interface ModelSettingsProps {
   model: RVCModelSlot;
@@ -12,6 +13,7 @@ interface ModelSettingsProps {
 }
 
 function ModelSettings({ model, handlePitchChange, handleFormatShiftChange, handleIndexRatioChange, handleSpeakerChange, setModel }: ModelSettingsProps) {
+  const appState = useAppState();
   // ---------------- State ----------------
   let speakerOptions: JSX.Element[] = [];
   if (model && model.speakers && Object.keys(model.speakers).length > 0) {
@@ -86,7 +88,7 @@ function ModelSettings({ model, handlePitchChange, handleFormatShiftChange, hand
               name="speaker"
               className={CSS_CLASSES.select}
               disabled={!model || !model.speakers || Object.keys(model.speakers).length === 0}
-              value={model?.slotIndex ?? 0}
+              value={appState.serverSetting?.serverSetting?.dstId ?? 0}
               onChange={(e) => handleSpeakerChange(Number(e.target.value))}
             >
               {speakerOptions}

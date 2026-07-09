@@ -5,13 +5,13 @@ import { ChartDataPoint, PerfStatus } from './PerformanceStatsCard';
 import { useThemeContext } from '../../context/ThemeContext';
 
 const LATENCY_STATUS_FILL_HEX: Record<PerfStatus, string> = {
-  good: '#a8e6cf',     // Macaron Mint Green
-  warning: '#ffea7f',  // Macaron Yellow
-  critical: '#ffaaa6', // Macaron Coral/Peach
+  good: '#a8e6cf',     // Macaron Mint
+  warning: '#ffe49c',  // Macaron Yellow
+  critical: '#ffaaa6', // Macaron Coral
 };
 
-const CHART_LINE_COLOR_LIGHT_HEX = '#d291bc'; // Macaron Lavender Purple
-const CHART_LINE_COLOR_DARK_HEX = '#ab6a97'; // Macaron Dark Purple
+const CHART_LINE_COLOR_LIGHT_HEX = '#d4a5c9'; // Macaron Lavender
+const CHART_LINE_COLOR_DARK_HEX = '#b98aad'; // Macaron Lavender Dark
 
 interface PerformanceGraphProps {
   chartData: ChartDataPoint[];

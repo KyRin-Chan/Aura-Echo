@@ -94,7 +94,7 @@ function ModelFilter({
 
     if (typeVersionFilter !== 'All') {
       processedModels = processedModels.filter(model =>
-        model.voiceChangerType && model.version && `${model.voiceChangerType} ${model.version}` === typeVersionFilter
+        model.voiceChangerType && `${model.voiceChangerType}` === typeVersionFilter
       );
     }
 
@@ -134,16 +134,26 @@ function ModelFilter({
           placeholder="Search Models..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full p-2 pr-10 border border-slate-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-sm placeholder-slate-400 dark:placeholder-gray-500 text-slate-700 dark:text-slate-100 [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-cancel-button]:hidden"
+          className="w-full p-2 pr-10 rounded-xl focus:outline-none focus:ring-2 text-sm [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-cancel-button]:hidden"
+          style={{
+            backgroundColor: 'var(--bg-tertiary)',
+            border: '1px solid var(--border-primary)',
+            color: 'var(--text-primary)',
+          }}
         />
-        <FontAwesomeIcon icon={faSearch} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 dark:text-gray-500" />
+        <FontAwesomeIcon icon={faSearch} className="absolute right-3 top-1/2 transform -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
       </div>
 
       {/* Filter and Sort Toggle Button */}
       <div className="mb-2">
         <button
           onClick={() => setIsSortFilterVisible(!isSortFilterVisible)}
-          className="w-full flex items-center justify-between p-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-gray-700 rounded-md border border-slate-300 dark:border-gray-600"
+          className="w-full flex items-center justify-between p-2 text-sm font-medium rounded-xl transition-opacity hover:opacity-80"
+          style={{
+            color: 'var(--text-primary)',
+            backgroundColor: 'var(--bg-tertiary)',
+            border: '1px solid var(--border-primary)',
+          }}
         >
           <span><FontAwesomeIcon icon={faFilter} className="mr-2" /> Filter & Sort</span>
           <FontAwesomeIcon icon={isSortFilterVisible ? faTimes : faSort} />
@@ -152,17 +162,18 @@ function ModelFilter({
 
       {/* Filter and Sort Controls - Conditional Rendering */}
       {isSortFilterVisible && (
-        <div className="space-y-3 mb-3 p-3 border border-slate-200 dark:border-gray-700 rounded-md">
+        <div className="space-y-3 mb-3 p-3 rounded-xl" style={{ border: '1px solid var(--border-primary)' }}>
           {/* Sort Controls */}
-          <div className="space-y-1 pb-2 border-b border-slate-200 dark:border-gray-700">
-            <label htmlFor="sortOption" className="text-xs font-medium text-slate-600 dark:text-gray-300 flex items-center"><FontAwesomeIcon icon={faSort} className="mr-1.5" />Sort by:</label>
+          <div className="space-y-1 pb-2" style={{ borderBottom: '1px solid var(--border-primary)' }}>
+            <label htmlFor="sortOption" className="text-xs font-medium flex items-center" style={{ color: 'var(--text-secondary)' }}><FontAwesomeIcon icon={faSort} className="mr-1.5" />Sort by:</label>
             <div className="flex gap-2 items-center">
               <select id="sortOption" value={currentSort} onChange={(e) => setCurrentSort(e.target.value as SortOption)} className={`${CSS_CLASSES.select} flex-grow`}>
                 {sortOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
               <button
                 onClick={() => setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
-                className="p-1.5 border border-slate-300 dark:border-gray-600 rounded-md hover:bg-slate-50 dark:hover:bg-gray-600 text-slate-600 dark:text-gray-300"
+                className="p-1.5 rounded-lg transition-opacity hover:opacity-80"
+                style={{ border: '1px solid var(--border-primary)', color: 'var(--text-secondary)' }}
                 title={sortDirection === 'asc' ? "Sort Descending" : "Sort Ascending"}
               >
                 <FontAwesomeIcon icon={sortDirection === 'asc' ? faArrowUpAZ : faArrowDownAZ} className="text-xs" />
@@ -172,21 +183,21 @@ function ModelFilter({
 
           {/* Filter Controls */}
           <div className="space-y-1 pt-2">
-            <p className="text-xs font-medium text-slate-600 dark:text-gray-300 flex items-center mb-1"><FontAwesomeIcon icon={faFilter} className="mr-1.5" />Filter by:</p>
+            <p className="text-xs font-medium flex items-center mb-1" style={{ color: 'var(--text-secondary)' }}><FontAwesomeIcon icon={faFilter} className="mr-1.5" />Filter by:</p>
             <div className="grid grid-cols-2 gap-2 items-center">
-              <label htmlFor="typeVersionFilter" className="text-xs font-medium text-slate-500 dark:text-gray-400">Type:</label>
+              <label htmlFor="typeVersionFilter" className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>Type:</label>
               <select id="typeVersionFilter" value={typeVersionFilter} onChange={(e) => setTypeVersionFilter(e.target.value)} className={CSS_CLASSES.select}>
                 {modelTypeVersionOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-2 items-center">
-              <label htmlFor="rateFilter" className="text-xs font-medium text-slate-500 dark:text-gray-400">Rate:</label>
+              <label htmlFor="rateFilter" className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>Rate:</label>
               <select id="rateFilter" value={rateFilter === 'All' ? 'All' : rateFilter} onChange={(e) => setRateFilter(e.target.value === 'All' ? 'All' : Number(e.target.value) as SampleRateFilter)} className={CSS_CLASSES.select}>
                 {sampleRateOptions.map(opt => <option key={opt} value={opt}>{opt === 'All' ? 'All' : `${opt / 1000}kHz`}</option>)}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-2 items-center">
-              <label htmlFor="embedderFilter" className="text-xs font-medium text-slate-500 dark:text-gray-400">Embedder:</label>
+              <label htmlFor="embedderFilter" className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>Embedder:</label>
               <select id="embedderFilter" value={embedderFilter} onChange={(e) => setEmbedderFilter(e.target.value)} className={CSS_CLASSES.select}>
                 {embedderOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>

@@ -195,16 +195,35 @@ function AudioEffectsCard({ dndAttributes, dndListeners }: AudioEffectsCardProps
   // ---------------- Render ----------------
 
   return (
-    <div className={`p-4 border border-slate-200 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-800 transition-all duration-300 flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : 'overflow-hidden'}`}>
-      <div className="flex justify-between items-center mb-3 pb-2 border-b border-slate-200 dark:border-gray-700">
+    <div
+      className={`p-4 rounded-2xl shadow-sm transition-all duration-300 flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : 'overflow-hidden'}`}
+      style={{
+        backgroundColor: 'var(--bg-secondary)',
+        border: '1px solid var(--border-primary)',
+      }}
+    >
+      <div className="flex justify-between items-center mb-3 pb-2" style={{ borderBottom: '1px solid var(--border-primary)' }}>
         <div className="flex items-center space-x-3">
           <h4 className={CSS_CLASSES.heading}>Audio Effects</h4>
           <div className="flex items-center space-x-2">
-            {/* Removed syncing badge to avoid slider overlap */}
-            <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400 text-xs rounded-full">
+            <span
+              className="px-2 py-1 text-xs rounded-full"
+              style={{
+                backgroundColor: 'var(--macaron-blue)',
+                color: '#3a3530',
+                opacity: 0.85,
+              }}
+            >
               {totalActiveEffects} Effects
             </span>
-            <span className="px-2 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-400 text-xs rounded-full">
+            <span
+              className="px-2 py-1 text-xs rounded-full"
+              style={{
+                backgroundColor: 'var(--macaron-lavender)',
+                color: '#3a3530',
+                opacity: 0.85,
+              }}
+            >
               {totalActiveBackground} Background Tracks
             </span>
           </div>
@@ -224,18 +243,22 @@ function AudioEffectsCard({ dndAttributes, dndListeners }: AudioEffectsCardProps
       {!isCollapsed && (
         <div className="flex-1 min-h-0 flex">
           {/* Left Panel - Effects or Background List */}
-          <div className="w-1/2 pr-3 border-r border-slate-200 dark:border-gray-600">
+          <div className="w-1/2 pr-3" style={{ borderRight: '1px solid var(--border-primary)' }}>
             {/* Local Tabs above lists only */}
-            <div className="flex mb-3 bg-slate-100 dark:bg-gray-700 rounded-md p-1">
+            <div
+              className="flex mb-3 rounded-xl p-1"
+              style={{ backgroundColor: 'var(--bg-tertiary)' }}
+            >
               {(['input','output','background'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`flex-1 px-3 py-2 text-sm font-medium rounded transition-colors ${
-                    activeTab === tab
-                      ? 'bg-white dark:bg-gray-600 text-slate-700 dark:text-gray-200 shadow-sm'
-                      : 'text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200'
-                  }`}
+                  className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors`}
+                  style={{
+                    backgroundColor: activeTab === tab ? 'var(--bg-secondary)' : 'transparent',
+                    color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                    boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  }}
                 >
                   <div className="flex items-center justify-center space-x-1">
                     <span className="capitalize">{tab}</span>

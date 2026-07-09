@@ -31,8 +31,14 @@ function AiSettingsCard({ dndAttributes, dndListeners }: AiSettingsCardProps): J
   // ---------------- Render ----------------
 
   return (
-    <div className={`p-4 border border-slate-200 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-800 transition-all duration-300 flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : 'overflow-y-auto'}`}>
-      <div className="flex justify-between items-center mb-3 pb-2 border-b border-slate-200 dark:border-gray-700">
+    <div
+      className={`p-4 rounded-2xl shadow-sm transition-all duration-300 flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : 'overflow-y-auto'}`}
+      style={{
+        backgroundColor: 'var(--bg-secondary)',
+        border: '1px solid var(--border-primary)',
+      }}
+    >
+      <div className="flex justify-between items-center mb-3 pb-2" style={{ borderBottom: '1px solid var(--border-primary)' }}>
         <h4 className={CSS_CLASSES.heading}>AI Settings</h4>
         <div className="flex space-x-1 items-center">
           <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? "Expand" : "Collapse"}>
@@ -82,4 +88,4 @@ function AiSettingsCard({ dndAttributes, dndListeners }: AiSettingsCardProps): J
   );
 }
 
-export default AiSettingsCard; 
+export default AiSettingsCard;
