@@ -32,7 +32,7 @@ export const useInitialPlaceholder = (name: string, options?: { size?: number; b
         const calculatedFontSize = fontSize || size * 0.4;
 
         // Return SVG as data URL
-        return `data:image/svg+xml;base64,${btoa(`
+        const svgString = `
             <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                     <clipPath id="clip">
@@ -43,6 +43,7 @@ export const useInitialPlaceholder = (name: string, options?: { size?: number; b
                 <text x="50%" y="50%" font-family="${fontFamily}" font-size="${calculatedFontSize}" 
                       fill="${textColor}" text-anchor="middle" dy=".3em" clip-path="url(#clip)">${initial}</text>
             </svg>
-        `)}`;
+        `;
+        return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgString.trim())))}`;
     }, [name, options]);
 };

@@ -40,13 +40,14 @@ function MergeModelList({ models, selectedModels, onModelToggle, onPercentageCha
     const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6f42c1', '#e83e8c', '#fd7e14'];
     const bgColor = colors[Math.abs(hash) % colors.length];
 
-    return `data:image/svg+xml;base64,${btoa(`
+    const svgString = `
       <svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
         <rect width="100%" height="100%" fill="${bgColor}" rx="3.2"/>
         <text x="50%" y="50%" font-family="Arial" font-size="12.8" 
               fill="#ffffff" text-anchor="middle" dy=".3em">${initial}</text>
       </svg>
-    `)}`;
+    `;
+    return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgString.trim())))}`;
   };
 
   // Handle model card click

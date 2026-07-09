@@ -89,12 +89,12 @@ function MergeFilter({
               value={selectedEmbedder}
               onChange={(e) => handleEmbedderChange(e.target.value)}
               className={CSS_CLASSES.select}
-              disabled={Object.keys(embedders).length === 0}
+              disabled={Object.keys(embedders || {}).length === 0}
             >
-              {Object.keys(embedders).length === 0 ? (
+              {Object.keys(embedders || {}).length === 0 ? (
                 <option value="">No embedders available</option>
               ) : (
-                Object.entries(embedders).map(([key, embedderInfo]) => (
+                Object.entries(embedders || {}).map(([key, embedderInfo]) => (
                   <option key={key} value={key}>
                     {embedderInfo.name}
                   </option>

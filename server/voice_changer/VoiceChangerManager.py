@@ -74,6 +74,10 @@ class VoiceChangerManager(ServerAudioCallbacks):
         # Ensure selected device exists; default to CPU when not available
         try:
             device_ids = [d.get("id") for d in self.devices]
+            if self.settings.gpu == -1 and 0 in device_ids:
+                logger.info("First run or GPU not configured. Automatically defaulting to CUDA GPU 0.")
+                self.settings.gpu = 0
+
             if self.settings.gpu not in device_ids:
                 logger.warning(f"Configured GPU id {self.settings.gpu} not available. Defaulting to CPU.")
                 self.settings.gpu = -1
