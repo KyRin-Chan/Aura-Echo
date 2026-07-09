@@ -51,7 +51,7 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
           
-          if echo "$CHANGED_FILES" | grep -qE "requirements.*\.txt|MMVCServerSIO\.spec|\.github/workflows/"; then
+          if echo "$CHANGED_FILES" | grep -qE "requirements-cuda-5080\.txt|MMVCServerSIO\.spec|\.github/workflows/"; then
             echo "Build configuration or dependency file changed. Selecting FULL build."
             BUILD_TYPE="full"
           elif [ "$CHANGED_FILES" = "ALL" ]; then
