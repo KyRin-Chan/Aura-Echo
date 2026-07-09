@@ -53,7 +53,7 @@ const AppContent: React.FC = () => {
           isOpen={true}
           transparent={true}
           onClose={handleWelcomeComplete}
-          title="RVC VoiceChanger"
+          title="AuraEcho"
           primaryButton={{
             text: "Continue",
             onClick: handleWelcomeComplete

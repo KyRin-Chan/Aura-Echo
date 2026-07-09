@@ -39,13 +39,11 @@ function LeftSidebar(): JSX.Element | null {
         borderRight: '1px solid var(--border-primary)',
       }}
     >
-      {/* Header: Logo */}
-      <div className="flex items-center justify-center relative">
-        <img
-          src={'logo.png'}
-          alt="Logo"
-          className="h-10"
-        />
+      {/* Header: Text Logo */}
+      <div className="flex items-center justify-center py-2">
+        <span className="text-2xl font-black tracking-wider bg-gradient-to-r from-[var(--macaron-mint)] to-[var(--macaron-blue)] bg-clip-text text-transparent select-none">
+          AuraEcho
+        </span>
       </div>
 
       <hr style={{ borderColor: 'var(--border-primary)' }} className="my-3" />
