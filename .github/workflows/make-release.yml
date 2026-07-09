@@ -104,8 +104,10 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        # architecture: x64
-        # cache: pip
+        cache: 'pip'
+        cache-dependency-path: |
+          server/requirements-common.txt
+          server/requirements-${{ matrix.reqs }}.txt
     - name: Installing build dependencies
       run: python -m pip install --no-cache-dir --upgrade pip wheel setuptools pyinstaller
     - name: Installing project dependencies
@@ -128,10 +130,10 @@ jobs:
       run: |
         mkdir ./server/artifacts
         if [ "$RUNNER_OS" = "Windows" ]; then
-          7z a -v2000m -tzip ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.zip ./server/dist/* > /dev/null 2>&1
+          7z a -mx=9 -v2000m ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.7z ./server/dist/* > /dev/null 2>&1
         else
           cd ./server/dist
-          tar czf - ./* | split -b 2000m - ../artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.tar.gz.
+          tar cJf - ./* | split -b 2000m - ../artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.tar.xz.
           cd -
         fi
     - name: Rename single asset
@@ -141,9 +143,9 @@ jobs:
         COUNT=$(ls -1q ./server/artifacts/ | wc -l | sed -r 's/[[:space:]]+//g')
         if [ $COUNT = 1 ]; then
           if [ "$RUNNER_OS" = "Windows" ]; then
-            mv ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.zip.001 ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.zip
+            mv ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.7z.001 ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.7z
           else
-            mv ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.tar.gz.aa ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.tar.gz
+            mv ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.tar.xz.aa ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.tar.xz
           fi
         fi
     - name: Upload release

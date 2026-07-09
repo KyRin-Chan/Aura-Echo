@@ -22,6 +22,10 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
+        cache: 'pip'
+        cache-dependency-path: |
+          server/requirements-common.txt
+          server/requirements-cuda-5080.txt
 
     - name: Installing build dependencies
       run: python -m pip install --no-cache-dir --upgrade pip wheel setuptools pyinstaller
@@ -42,7 +46,7 @@ jobs:
       shell: bash
       run: |
         mkdir ./server/artifacts
-        7z a -v2000m -tzip ./server/artifacts/voice-changer-windows-amd64-cuda-5080.zip ./server/dist/* > /dev/null 2>&1
+        7z a -mx=9 -v2000m ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z ./server/dist/* > /dev/null 2>&1
 
     - name: Rename single asset
       shell: bash
@@ -50,7 +54,7 @@ jobs:
         ls -al ./server/artifacts/
         COUNT=$(ls -1q ./server/artifacts/ | wc -l | sed -r 's/[[:space:]]+//g')
         if [ $COUNT = 1 ]; then
-          mv ./server/artifacts/voice-changer-windows-amd64-cuda-5080.zip.001 ./server/artifacts/voice-changer-windows-amd64-cuda-5080.zip
+          mv ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z.001 ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z
         fi
 
     - name: Uploading artifact
