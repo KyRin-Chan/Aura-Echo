@@ -6,19 +6,10 @@ import site
 
 sys.setrecursionlimit(sys.getrecursionlimit() * 5)
 
-backend = os.environ.get('BACKEND', 'cpu')
+backend = os.environ.get('BACKEND', 'cuda')
 
 with open('edition.txt', 'w') as f:
-    if backend == 'cpu':
-      f.write('CPU')
-    elif backend == 'dml':
-      f.write('DirectML')
-    elif backend == 'cuda':
-      f.write('NVIDIA-CUDA')
-    elif backend == 'rocm':
-      f.write('AMD-ROCm')
-    else:
-      f.write('-')
+    f.write('NVIDIA-CUDA-RTX5080-Optimized')
 
 datas = [('../client/modern-gui/dist', './dist'), ('./edition.txt', '.')]
 
@@ -29,10 +20,18 @@ if 'BUILD_NAME' in os.environ:
 datas += collect_data_files('onnxscript', include_py_files=True)
 
 binaries = []
-if backend == 'dml':
-  binaries += collect_dynamic_libs('torch_directml')
 
-hiddenimports = ['app']
+# Collect TensorRT dynamic libraries and data for RTX 5080 / Blackwell optimization
+try:
+    trt_ret = collect_all('tensorrt')
+    datas += trt_ret[0]
+    binaries += trt_ret[1]
+    hiddenimports_trt = trt_ret[2]
+except Exception as e:
+    print(f"Warning: Could not collect tensorrt: {e}")
+    hiddenimports_trt = []
+
+hiddenimports = ['app'] + hiddenimports_trt
 hiddenimports += collect_submodules('scipy') # Fix "ModuleNotFoundError: No module named 'scipy._lib.*'"
 
 tmp_ret = collect_all('onnxruntime') # Fix "ModuleNotFoundError: No module named 'onnxruntime.transformers.*'"
@@ -56,7 +55,7 @@ a = Analysis(
 )
 
 # Filter out unnecessary compile-time and unused files
-is_trt_build = False
+is_trt_build = True
 def filter_unwanted(collected_list):
     filtered = []
     for item in collected_list:

@@ -44,110 +44,55 @@ jobs:
         draft: true
         tag_name: ${{ steps.tag.outputs.name }}
 
-  build-all:
+  build-release:
     needs:
     - create-tag
-
-    strategy:
-      matrix:
-        include:
-        - os: windows-latest
-          os_suffix: windows-amd64
-          reqs: cuda
-          backend: cuda
-          python-version: '3.12'
-        - os: windows-latest
-          os_suffix: windows-amd64
-          reqs: dml
-          backend: dml
-          python-version: '3.12'
-        - os: windows-latest
-          os_suffix: windows-amd64
-          reqs: cpu
-          backend: cpu
-          python-version: '3.12'
-        - os: ubuntu-22.04
-          os_suffix: linux-amd64
-          reqs: cpu
-          backend: cpu
-          python-version: '3.12'
-        - os: ubuntu-22.04
-          os_suffix: linux-amd64
-          reqs: cuda
-          backend: cuda
-          # Linux CUDA depends on faiss-gpu-cp310
-          python-version: '3.10'
-        - os: ubuntu-22.04
-          os_suffix: linux-amd64
-          reqs: rocm
-          backend: rocm
-          # onnxruntime-rocm supports only cp310
-          python-version: '3.10'
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     env:
-      BACKEND: ${{ matrix.backend }}
+      BACKEND: cuda
       BUILD_NAME: ${{ needs.create-tag.outputs.name }}
     steps:
-    - name: Maximize build space
-      if: matrix.os == 'ubuntu-22.04'
-      uses: AdityaGarg8/remove-unwanted-software@v3
-      with:
-        remove-swapfile: 'true'
-        remove-codeql: 'true'
-        remove-docker-images: 'true'
-        remove-android: 'true'
-        remove-dotnet: 'true'
-        # remove-large-packages: 'true'
-        remove-haskell: 'true'
     - uses: actions/checkout@v4
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: '3.12'
         cache: 'pip'
         cache-dependency-path: |
           server/requirements-common.txt
-          server/requirements-${{ matrix.reqs }}.txt
+          server/requirements-cuda-5080.txt
+
     - name: Installing build dependencies
       run: python -m pip install --no-cache-dir --upgrade pip wheel setuptools pyinstaller
-    - name: Installing project dependencies
-      run: python -m pip install --no-cache-dir -r requirements-common.txt -r requirements-${{ matrix.reqs }}.txt
+
+    - name: Installing project dependencies (RTX 5080 Optimized)
+      run: python -m pip install --no-cache-dir -r requirements-common.txt -r requirements-cuda-5080.txt
       working-directory: ./server
-    - name: Building executable
+
+    - name: Building executable (RTX 5080 Spec)
       run: pyinstaller --clean -y --dist ./dist --workpath /tmp MMVCServerSIO.spec
       working-directory: ./server
+
     - name: Copy utils
       run: cp ./server/{force_gpu_clocks.bat,reset_gpu_clocks.bat} ./server/dist/
       shell: bash
-      if: matrix.os == 'windows-latest' && matrix.backend == 'cuda'
-    - name: Add CUDA library symlinks
-      run: ln -svf nvidia/*/lib/*.so* .
-      shell: bash
-      if: matrix.os == 'ubuntu-22.04' && matrix.backend == 'cuda'
-      working-directory: ./server/dist/MMVCServerSIO/_internal
+
     - name: Pack artifact
       shell: bash
       run: |
         mkdir ./server/artifacts
-        if [ "$RUNNER_OS" = "Windows" ]; then
-          7z a -mx=5 -v2000m ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.7z ./server/dist/* > /dev/null 2>&1
-        else
-          cd ./server/dist
-          tar czf - ./* | split -b 2000m - ../artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.tar.gz.
-          cd -
-        fi
+        7z a -mx=5 -v2000m ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z ./server/dist/* > /dev/null 2>&1
+
     - name: Rename single asset
       shell: bash
       run: |
         ls -al ./server/artifacts/
         COUNT=$(ls -1q ./server/artifacts/ | wc -l | sed -r 's/[[:space:]]+//g')
         if [ $COUNT = 1 ]; then
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            mv ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.7z.001 ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.7z
-          else
-            mv ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.tar.gz.aa ./server/artifacts/voice-changer-${{ matrix.os_suffix }}-${{ matrix.reqs }}.tar.gz
-          fi
+          mv ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z.001 ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z
         fi
+
     - name: Upload release
       id: upload_release
       uses: actions/github-script@v7

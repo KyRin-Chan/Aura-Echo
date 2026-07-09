@@ -2,16 +2,29 @@
 setlocal enabledelayedexpansion
 
 echo ===============================================
-echo Voice Changer Server Installation Script
+echo Voice Changer Server Installation Script (RTX 5080 CUDA)
 echo ===============================================
 echo.
+
+REM Check if we're in the server directory
+if not exist "main.py" (
+    echo Error: This script must be run from the server directory.
+    echo Please navigate to the server directory and run the script again.
+    pause
+    exit /b 1
+)
+if not exist "requirements-common.txt" (
+    echo Error: This script must be run from the server directory.
+    pause
+    exit /b 1
+)
 
 REM Function to check if Python is available
 :check_python
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo Error: Python is not installed or not in PATH
-    echo Please install Python 3.8 or higher and try again
+    echo Please install Python 3.12 and try again.
     pause
     exit /b 1
 )
@@ -24,7 +37,7 @@ for /f "tokens=1,2 delims=." %%a in ("%PYTHON_VERSION%") do (
 )
 
 if %PYTHON_MAJOR% lss 3 (
-    echo Error: Python 3.10 or higher is required. Found: %PYTHON_VERSION%
+    echo Error: Python 3.12 is recommended. Found: %PYTHON_VERSION%
     pause
     exit /b 1
 )
@@ -35,48 +48,8 @@ if %PYTHON_MAJOR% equ 3 if %PYTHON_MINOR% lss 10 (
 )
 
 echo Found Python: %PYTHON_VERSION%
-goto select_backend
-
-REM Function to select backend
-:select_backend
-echo.
-echo Please select your backend:
-echo 1) CPU (works everywhere, slower)
-echo 2) CUDA (NVIDIA GPUs)
-echo 3) DirectML (Windows, AMD/Intel/NVIDIA)
-echo 4) ROCm (AMD GPUs on Linux - not recommended for Windows)
-echo.
-
-:ask_choice
-set /p choice=Enter your choice (1-4): 
-
-if "%choice%"=="1" (
-    set BACKEND=cpu
-    set REQUIREMENTS_FILE=requirements-cpu.txt
-    goto create_venv
-)
-if "%choice%"=="2" (
-    set BACKEND=cuda
-    set REQUIREMENTS_FILE=requirements-cuda.txt
-    goto create_venv
-)
-if "%choice%"=="3" (
-    set BACKEND=dml
-    set REQUIREMENTS_FILE=requirements-dml.txt
-    goto create_venv
-)
-if "%choice%"=="4" (
-    set BACKEND=rocm
-    set REQUIREMENTS_FILE=requirements-rocm.txt
-    echo Warning: ROCm is not officially supported on Windows
-    set /p confirm=Continue anyway? (y/n): 
-    if /i "!confirm!"=="y" goto create_venv
-    if /i "!confirm!"=="yes" goto create_venv
-    goto ask_choice
-)
-
-echo Invalid choice. Please enter 1, 2, 3, or 4.
-goto ask_choice
+set BACKEND=cuda-rtx5080
+set REQUIREMENTS_FILE=requirements-cuda-5080.txt
 
 REM Function to create virtual environment
 :create_venv
@@ -130,7 +103,7 @@ if %errorlevel% neq 0 (
 
 REM Install backend-specific requirements
 if exist "%REQUIREMENTS_FILE%" (
-    echo Installing %BACKEND%-specific requirements...
+    echo Installing %BACKEND%-specific requirements (%REQUIREMENTS_FILE%)...
     pip install -r "%REQUIREMENTS_FILE%"
     if %errorlevel% neq 0 (
         echo Error: Failed to install %BACKEND%-specific requirements
@@ -138,7 +111,9 @@ if exist "%REQUIREMENTS_FILE%" (
         exit /b 1
     )
 ) else (
-    echo Warning: %REQUIREMENTS_FILE% not found. Skipping backend-specific requirements.
+    echo Error: %REQUIREMENTS_FILE% not found.
+    pause
+    exit /b 1
 )
 
 echo Requirements installed successfully
@@ -153,32 +128,10 @@ echo ===============================================
 echo.
 echo To start the voice changer server:
 echo.
-echo Run .\vc_start.bat
+echo Run .\vc_startup.bat
 echo.
-echo Backend: %BACKEND%
-echo Requirements file: %REQUIREMENTS_FILE%
+echo Backend: %BACKEND% (RTX 5080 Optimized)
 echo.
 echo Press any key to exit...
 pause >nul
 exit /b 0
-
-REM Main installation process
-:main
-echo Starting installation process...
-echo.
-
-REM Check if we're in the server directory
-if not exist "main.py" (
-    echo Error: This script must be run from the server directory
-    echo Please navigate to the server directory and run the script again
-    pause
-    exit /b 1
-)
-if not exist "requirements-common.txt" (
-    echo Error: This script must be run from the server directory
-    echo Please navigate to the server directory and run the script again
-    pause
-    exit /b 1
-)
-
-goto check_python
