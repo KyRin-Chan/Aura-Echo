@@ -24,7 +24,7 @@ class OnnxRVCInferencer(Inferencer):
         self.fp_dtype_np = np.float16 if self.is_half else np.float32
 
         so = onnxruntime.SessionOptions()
-        # so.log_severity_level = 3
+        so.log_severity_level = 3
         # so.enable_profiling = True
         self.model = onnxruntime.InferenceSession(model.SerializeToString(), sess_options=so, providers=onnxProviders, provider_options=onnxProviderOptions)
 

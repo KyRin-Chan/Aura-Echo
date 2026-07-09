@@ -245,7 +245,9 @@ class RVCModelSlotGenerator(ModelSlotGenerator):
 
     @classmethod
     def _setInfoByONNX(cls, modelPath: str, slot: RVCModelSlot):
-        tmp_onnx_session = onnxruntime.InferenceSession(modelPath, providers=["CPUExecutionProvider"])
+        so = onnxruntime.SessionOptions()
+        so.log_severity_level = 3
+        tmp_onnx_session = onnxruntime.InferenceSession(modelPath, sess_options=so, providers=["CPUExecutionProvider"])
         modelmeta = tmp_onnx_session.get_modelmeta()
         try:
             slot = RVCModelSlot(**asdict(slot))

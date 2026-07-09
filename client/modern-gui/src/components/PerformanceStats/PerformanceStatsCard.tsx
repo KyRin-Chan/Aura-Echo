@@ -25,6 +25,7 @@ export interface ChartDataPoint {
   timestamp: number;
   perfTimeValue: number;
   chunkTime: number;
+  status?: PerfStatus;
   greenTime?: number;
   yellowTime?: number;
   redTime?: number;
@@ -110,6 +111,7 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
       timestamp: now,
       perfTimeValue: roundedPerfTime,
       chunkTime: Math.round(calculatedMetrics.chunkTime),
+      status: perfStatus,
       greenTime: gt, yellowTime: yt, redTime: rt,
     };
 

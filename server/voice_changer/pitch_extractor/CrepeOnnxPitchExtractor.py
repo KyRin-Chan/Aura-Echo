@@ -17,8 +17,10 @@ class CrepeOnnxPitchExtractor(PitchExtractor):
             onnxProviderOptions,
         ) = DeviceManager.get_instance().get_onnx_execution_provider()
 
+        so = onnxruntime.SessionOptions()
+        so.log_severity_level = 3
         self.onnx_session = onnxruntime.InferenceSession(
-            file, providers=onnxProviders, provider_options=onnxProviderOptions
+            file, sess_options=so, providers=onnxProviders, provider_options=onnxProviderOptions
         )
 
     def extract(

@@ -24,13 +24,13 @@ const AppContent: React.FC = () => {
   const getParticleConfig = () => {
     if (theme === 'dark') {
       return {
-        particleColor: "rgba(147, 197, 253, 0.6)", // Light blue particles for dark theme
-        backgroundColor: "rgb(17, 24, 39)" // Dark background
+        particleColor: "rgba(13, 242, 163, 0.4)", // Cyber-mint glowing particles
+        backgroundColor: "#070913" // Space obsidian dark background
       };
     } else {
       return {
-        particleColor: "rgba(59, 130, 246, 0.4)", // Darker blue particles for light theme
-        backgroundColor: "rgb(214, 214, 214)" // Light background
+        particleColor: "rgba(58, 225, 165, 0.3)", // Soft mint particles
+        backgroundColor: "#faf9f5" // Alabaster cream light background
       };
     }
   };

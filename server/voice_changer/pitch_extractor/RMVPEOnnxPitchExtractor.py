@@ -29,7 +29,7 @@ class RMVPEOnnxPitchExtractor(PitchExtractor):
         self.threshold = np.array(0.05, dtype=self.fp_dtype_np)
 
         so = onnxruntime.SessionOptions()
-        # so.log_severity_level = 3
+        so.log_severity_level = 3
         # so.enable_profiling = True
         self.mel_extractor = MelSpectrogram(
             self.is_half, 128, 16000, 1024, 160, mel_fmin=30, mel_fmax=8000

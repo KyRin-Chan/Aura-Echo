@@ -3,51 +3,51 @@
 @tailwind utilities;
 
 :root {
-  /* Light theme: Cream-white (米白色) */
-  --bg-primary: #fdfbf7;
+  /* Light theme: Modern Alabaster Cream & Sleek Slate-Warm Hybrid */
+  --bg-primary: #faf9f5;
   --bg-secondary: #ffffff;
-  --bg-tertiary: #f5efe3;
-  --border-primary: #ede5d4;
-  --border-secondary: #e0d5be;
-  --text-primary: #3a3530;
-  --text-secondary: #6b6358;
-  --text-tertiary: #9c9184;
+  --bg-tertiary: #f4f2eb;
+  --border-primary: #e9e4d9;
+  --border-secondary: #dbd3c2;
+  --text-primary: #2b2722;
+  --text-secondary: #5c554a;
+  --text-tertiary: #8f8576;
 
-  /* Macaron accents */
-  --macaron-mint: #a8e6cf;
-  --macaron-mint-hover: #8fd9b8;
-  --macaron-pink: #ffd3b6;
-  --macaron-pink-hover: #ffbfa0;
-  --macaron-yellow: #ffe49c;
-  --macaron-coral: #ffaaa6;
-  --macaron-lavender: #d4a5c9;
-  --macaron-lavender-hover: #c490b8;
-  --macaron-blue: #aec6cf;
-  --macaron-blue-hover: #98b5bf;
+  /* Premium Vibrant Macaron accents (Highly curated HSL colors) */
+  --macaron-mint: #3ae1a5;
+  --macaron-mint-hover: #26ca8f;
+  --macaron-pink: #ffa4bc;
+  --macaron-pink-hover: #eb87a1;
+  --macaron-yellow: #ffd066;
+  --macaron-coral: #ff7575;
+  --macaron-lavender: #b792e8;
+  --macaron-lavender-hover: #9c71cc;
+  --macaron-blue: #7ac6e6;
+  --macaron-blue-hover: #5baecf;
 }
 
 .dark {
-  /* Dark theme: Navy-blue (藏青色) */
-  --bg-primary: #0b1329;
-  --bg-secondary: #1c2541;
-  --bg-tertiary: #151d35;
-  --border-primary: #2a3a5c;
-  --border-secondary: #3a4d73;
-  --text-primary: #e8ecf4;
-  --text-secondary: #a8b5cc;
-  --text-tertiary: #6b7fa0;
+  /* Dark theme: Sleek Space Obsidian & Cyber-Glow Neon */
+  --bg-primary: #070913;
+  --bg-secondary: #0e1220;
+  --bg-tertiary: #14192b;
+  --border-primary: #1e2842;
+  --border-secondary: #2d3b61;
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-tertiary: #6b7280;
 
-  /* Macaron accents (slightly toned down for dark bg) */
-  --macaron-mint: #7ecbaa;
-  --macaron-mint-hover: #6aba98;
-  --macaron-pink: #e0a88a;
-  --macaron-pink-hover: #cc9477;
-  --macaron-yellow: #d4bf6e;
-  --macaron-coral: #d97e7a;
-  --macaron-lavender: #b98aad;
-  --macaron-lavender-hover: #a47798;
-  --macaron-blue: #8aaab4;
-  --macaron-blue-hover: #7698a3;
+  /* Glowing Cyber Accents for Dark Mode */
+  --macaron-mint: #0df2a3;
+  --macaron-mint-hover: #0bc987;
+  --macaron-pink: #ff6083;
+  --macaron-pink-hover: #e04465;
+  --macaron-yellow: #fbc02d;
+  --macaron-coral: #f43f5e;
+  --macaron-lavender: #a855f7;
+  --macaron-lavender-hover: #8b5cf6;
+  --macaron-blue: #00b4d8;
+  --macaron-blue-hover: #0096c7;
 }
 
 
@@ -93,6 +93,22 @@ body {
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
+}
+
+/* Premium UI Enhancements */
+.card, [class*="card"] {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Subtle Glow and Hover Effects */
+.hover-glow:hover {
+  box-shadow: 0 0 15px -3px var(--macaron-mint);
 }
 
 @keyframes particle-float {

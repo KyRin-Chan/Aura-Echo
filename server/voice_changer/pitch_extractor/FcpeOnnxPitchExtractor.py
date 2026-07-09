@@ -31,7 +31,7 @@ class FcpeOnnxPitchExtractor(PitchExtractor):
         self.threshold = np.array(0.006, dtype=self.fp_dtype_np)
 
         so = onnxruntime.SessionOptions()
-        # so.log_severity_level = 3
+        so.log_severity_level = 3
         # so.enable_profiling = True
         self.mel_extractor = Wav2MelModule(
             sr=16000,

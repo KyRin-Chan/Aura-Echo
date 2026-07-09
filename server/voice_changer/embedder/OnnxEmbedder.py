@@ -18,7 +18,7 @@ class OnnxEmbedder(Embedder):
         model = load_onnx_model(file, self.is_half, device_manager.is_int8_avalable())
 
         so = onnxruntime.SessionOptions()
-        # so.log_severity_level = 3
+        so.log_severity_level = 3
         # so.enable_profiling = True
         # so.add_free_dimension_override_by_name('audio_dynamic_axes_1', 45600)
         self.fp_dtype_t = torch.float16 if self.is_half else torch.float32

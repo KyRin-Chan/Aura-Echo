@@ -112,7 +112,9 @@ class Pipeline:
             providers,
             provider_options,
         ) = self.device_manager.get_onnx_execution_provider()
-        return onnxruntime.InferenceSession(onnx_model.SerializeToString(), providers=providers, provider_options=provider_options)
+        so = onnxruntime.SessionOptions()
+        so.log_severity_level = 3
+        return onnxruntime.InferenceSession(onnx_model.SerializeToString(), sess_options=so, providers=providers, provider_options=provider_options)
 
     def getPipelineInfo(self):
         inferencerInfo = self.inferencer.getInferencerInfo() if self.inferencer else {}
