@@ -169,7 +169,7 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
           </div>
 
           <div
-            className="w-full h-48 rounded-xl flex-grow"
+            className="w-full h-48 rounded-xl flex-grow relative overflow-hidden"
             style={{
               backgroundColor: 'var(--bg-tertiary)',
               border: '1px solid var(--border-primary)',
