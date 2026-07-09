@@ -49,16 +49,16 @@ function ModelSettings({ model, handlePitchChange, handleFormatShiftChange, hand
         <DebouncedSlider
           id="formatShift"
           name="formatShift"
-          min={-5}
-          max={5}
-          step={0.1}
+          min={-2.0}
+          max={2.0}
+          step={0.01}
           value={model?.defaultFormantShift ?? 0}
           onChange={handleFormatShiftChange}
           onImmediateChange={(val) => setModel({ ...model, defaultFormantShift: val })}
           className={CSS_CLASSES.range}
           disabled={!model}
         />
-        <p className={CSS_CLASSES.sliderValue}>{(model?.defaultFormantShift ?? 0).toFixed(1)}</p>
+        <p className={CSS_CLASSES.sliderValue}>{(model?.defaultFormantShift ?? 0).toFixed(2)}</p>
       </div>
       {model.indexFile !== "" && (
         <div>
