@@ -48,6 +48,9 @@ jobs:
     needs:
     - create-tag
     runs-on: windows-latest
+    strategy:
+      matrix:
+        build_type: [lightweight, full]
     env:
       BACKEND: cuda
       BUILD_NAME: ${{ needs.create-tag.outputs.name }}
@@ -58,21 +61,38 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-        cache: 'pip'
-        cache-dependency-path: |
-          server/requirements-common.txt
-          server/requirements-cuda-5080.txt
 
-    - name: Installing build dependencies
-      run: python -m pip install --no-cache-dir --upgrade pip wheel setuptools pyinstaller
+    - name: Cache Virtual Environment
+      uses: actions/cache@v4
+      id: cache-venv
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('server/requirements-common.txt', 'server/requirements-cuda-5080.txt') }}
 
-    - name: Installing project dependencies (RTX 5080 Optimized)
-      run: python -m pip install --no-cache-dir -r requirements-common.txt -r requirements-cuda-5080.txt
+    - name: Setup Virtual Environment
+      if: steps.cache-venv.outputs.cache-hit != 'true'
+      run: |
+        python -m venv .venv
+        .venv\Scripts\python -m pip install --upgrade pip wheel setuptools pyinstaller
+
+    - name: Install Common Dependencies
+      if: steps.cache-venv.outputs.cache-hit != 'true'
       working-directory: ./server
+      run: |
+        ..\.venv\Scripts\python -m pip install -r requirements-common.txt
+
+    - name: Install CUDA Dependencies (Full Build Only)
+      if: steps.cache-venv.outputs.cache-hit != 'true' && matrix.build_type == 'full'
+      working-directory: ./server
+      run: |
+        ..\.venv\Scripts\python -m pip install -r requirements-cuda-5080.txt
 
     - name: Building executable (RTX 5080 Spec)
-      run: pyinstaller --clean -y --dist ./dist --workpath /tmp MMVCServerSIO.spec
       working-directory: ./server
+      run: |
+        ..\.venv\Scripts\python -m PyInstaller --clean -y --dist ./dist MMVCServerSIO.spec
+      env:
+        LIGHTWEIGHT_BUILD: ${{ matrix.build_type == 'lightweight' }}
 
     - name: Copy utils
       run: cp ./server/{force_gpu_clocks.bat,reset_gpu_clocks.bat} ./server/dist/
@@ -82,7 +102,12 @@ jobs:
       shell: bash
       run: |
         mkdir ./server/artifacts
-        7z a -mx=5 -v2000m ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z ./server/dist/* > /dev/null 2>&1
+        ARCHIVE_NAME="voice-changer-windows-amd64-cuda-5080"
+        if [ "${{ matrix.build_type }}" = "lightweight" ]; then
+          ARCHIVE_NAME="${ARCHIVE_NAME}-lightweight"
+        fi
+        echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
+        7z a -mx=5 -v2000m ./server/artifacts/${ARCHIVE_NAME}.7z ./server/dist/* > /dev/null 2>&1
 
     - name: Rename single asset
       shell: bash
@@ -90,7 +115,7 @@ jobs:
         ls -al ./server/artifacts/
         COUNT=$(ls -1q ./server/artifacts/ | wc -l | sed -r 's/[[:space:]]+//g')
         if [ $COUNT = 1 ]; then
-          mv ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z.001 ./server/artifacts/voice-changer-windows-amd64-cuda-5080.7z
+          mv ./server/artifacts/${{ env.ARCHIVE_NAME }}.7z.001 ./server/artifacts/${{ env.ARCHIVE_NAME }}.7z
         fi
 
     - name: Upload release

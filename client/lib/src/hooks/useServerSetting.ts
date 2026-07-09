@@ -117,6 +117,9 @@ export const useServerSetting = (props: UseServerSettingProps): ServerSettingSta
             const stringKeys = (Object.values(ServerSettingKey).filter((v) => typeof v === 'string') as string[]) as (keyof VoiceChangerServerSetting)[];
             for (let i = 0; i < stringKeys.length; i++) {
                 const k = stringKeys[i] as keyof VoiceChangerServerSetting;
+                if (k === 'embedders' || k === 'pitchExtractors') {
+                    continue;
+                }
                 const cur_v = serverSettingRef.current[k];
                 const new_v = setting[k];
 

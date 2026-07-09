@@ -72,6 +72,7 @@ class SimpleEffect(AudioEffect):
     def _apply_lowpass(self, audio: torch.Tensor, sample_rate: int) -> torch.Tensor:
         """Apply optimized Butterworth low-pass filter using SciPy"""
         cutoff = self.parameters.get("cutoff", 1000.0)
+        cutoff = min(max(cutoff, 20.0), sample_rate * 0.48)
         import scipy.signal
         
         audio_np = audio.detach().cpu().numpy().copy().astype(np.float32)
@@ -81,11 +82,13 @@ class SimpleEffect(AudioEffect):
             self._lowpass_zi = scipy.signal.sosfilt_zi(sos) * 0.0
             
         processed, self._lowpass_zi = scipy.signal.sosfilt(sos, audio_np, zi=self._lowpass_zi)
+        processed = np.nan_to_num(processed, nan=0.0, posinf=0.0, neginf=0.0)
         return torch.tensor(processed, dtype=audio.dtype, device=audio.device)
     
     def _apply_highpass(self, audio: torch.Tensor, sample_rate: int) -> torch.Tensor:
         """Apply optimized Butterworth high-pass filter using SciPy"""
         cutoff = self.parameters.get("cutoff", 1000.0)
+        cutoff = min(max(cutoff, 20.0), sample_rate * 0.48)
         import scipy.signal
         
         audio_np = audio.detach().cpu().numpy().copy().astype(np.float32)
@@ -95,6 +98,7 @@ class SimpleEffect(AudioEffect):
             self._highpass_zi = scipy.signal.sosfilt_zi(sos) * 0.0
             
         processed, self._highpass_zi = scipy.signal.sosfilt(sos, audio_np, zi=self._highpass_zi)
+        processed = np.nan_to_num(processed, nan=0.0, posinf=0.0, neginf=0.0)
         return torch.tensor(processed, dtype=audio.dtype, device=audio.device)
     
     def _apply_delay(self, audio: torch.Tensor, sample_rate: int) -> torch.Tensor:
@@ -129,6 +133,9 @@ class SimpleEffect(AudioEffect):
         drive = self.parameters.get("drive", 1.5)
         mix = self.parameters.get("mix", 0.15)
         
+        # Clamp cutoff to safe range [20, sample_rate * 0.48]
+        frequency = min(max(frequency, 20.0), sample_rate * 0.48)
+        
         audio_np = audio.detach().cpu().numpy().copy().astype(np.float32)
         import scipy.signal
         
@@ -152,6 +159,7 @@ class SimpleEffect(AudioEffect):
         
         # 4. Mix back
         processed = audio_np + mix * clean_harmonics
+        processed = np.nan_to_num(processed, nan=0.0, posinf=0.0, neginf=0.0)
         return torch.tensor(processed, dtype=audio.dtype, device=audio.device)
 
     def _apply_deesser(self, audio: torch.Tensor, sample_rate: int) -> torch.Tensor:
@@ -159,6 +167,9 @@ class SimpleEffect(AudioEffect):
         cutoff = self.parameters.get("cutoff", 5000.0)
         threshold_db = self.parameters.get("threshold", -30.0)
         ratio = self.parameters.get("ratio", 4.0)
+        
+        # Clamp cutoff to safe range [20, sample_rate * 0.48]
+        cutoff = min(max(cutoff, 20.0), sample_rate * 0.48)
         
         audio_np = audio.detach().cpu().numpy().copy().astype(np.float32)
         import scipy.signal
@@ -207,6 +218,7 @@ class SimpleEffect(AudioEffect):
         
         # 5. Recombine
         processed = low_band + compressed_high_band
+        processed = np.nan_to_num(processed, nan=0.0, posinf=0.0, neginf=0.0)
         return torch.tensor(processed, dtype=audio.dtype, device=audio.device)
 
     def _apply_resonance_suppressor(self, audio: torch.Tensor, sample_rate: int) -> torch.Tensor:
@@ -254,4 +266,5 @@ class SimpleEffect(AudioEffect):
         
         # 5. Inverse FFT
         processed = np.fft.irfft(fft_coeffs, n=n_samples)
+        processed = np.nan_to_num(processed, nan=0.0, posinf=0.0, neginf=0.0)
         return torch.tensor(processed, dtype=audio.dtype, device=audio.device)
