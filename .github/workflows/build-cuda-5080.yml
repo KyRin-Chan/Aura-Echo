@@ -115,13 +115,12 @@ jobs:
         .venv\Scripts\python -m pip install --upgrade pip wheel setuptools pyinstaller
 
     - name: Install Common Dependencies
-      if: steps.cache-venv.outputs.cache-hit != 'true'
       working-directory: ./server
       run: |
         ..\.venv\Scripts\python -m pip install -r requirements-common.txt
 
     - name: Install CUDA Dependencies (Full Build Only)
-      if: steps.cache-venv.outputs.cache-hit != 'true' && steps.determine_build.outputs.build_type != 'lightweight'
+      if: steps.determine_build.outputs.build_type != 'lightweight'
       working-directory: ./server
       run: |
         ..\.venv\Scripts\python -m pip install -r requirements-cuda-5080.txt
