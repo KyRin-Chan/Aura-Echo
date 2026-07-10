@@ -161,9 +161,12 @@ class MMVC_Rest_VoiceChanger:
             
         except Exception as e:
             logger.exception(e)
+            error_msg = str(e)
+            if "NoBackendError" in type(e).__name__ or "NoBackendError" in error_msg:
+                error_msg = "No audio decoding backend found (FFmpeg is required to load compressed formats like .m4a on Windows). Please install FFmpeg and add it to your system PATH, or convert your audio file to .wav format before uploading."
             return JSONResponse({
                 "success": False,
-                "error": str(e)
+                "error": error_msg
             }, status_code=500)
             
         finally:

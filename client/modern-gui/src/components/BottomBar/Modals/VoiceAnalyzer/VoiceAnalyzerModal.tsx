@@ -3,6 +3,7 @@ import { ClientState } from '@dannadori/voice-changer-client-js';
 import { CSS_CLASSES } from '../../../../styles/constants';
 import GenericModal from '../../../Modals/GenericModal';
 import { UIContextType } from '../../../../context/UIContext';
+import { t } from '../../../../locales';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSync, faMicrophone, faCheck, faMusic } from '@fortawesome/free-solid-svg-icons';
 
@@ -110,7 +111,7 @@ function VoiceAnalyzerModal({
       console.error("Voice analysis error:", error);
       guiState.showError(
         `Failed to analyze audio: ${error instanceof Error ? error.message : String(error)}`,
-        "Error"
+        t("errorTitle")
       );
     } finally {
       setIsAnalyzing(false);
@@ -123,7 +124,7 @@ function VoiceAnalyzerModal({
       ...appState.serverSetting.serverSetting,
       tran: result.recommended_pitch
     });
-    guiState.showError(`Applied recommended Pitch: ${result.recommended_pitch >= 0 ? '+' : ''}${result.recommended_pitch}`, "Confirm");
+    guiState.showError(`${t("voiceAnalyzerAppliedPitchSuccess")}${result.recommended_pitch >= 0 ? '+' : ''}${result.recommended_pitch}`, t("confirmTitle"));
   };
 
   const handleApplyFormant = () => {
@@ -132,7 +133,7 @@ function VoiceAnalyzerModal({
       ...appState.serverSetting.serverSetting,
       formantShift: result.recommended_formant_shift
     });
-    guiState.showError(`Applied recommended Formant Shift: ${result.recommended_formant_shift >= 0 ? '+' : ''}${result.recommended_formant_shift}`, "Confirm");
+    guiState.showError(`Applied recommended Formant Shift: ${result.recommended_formant_shift >= 0 ? '+' : ''}${result.recommended_formant_shift}`, t("confirmTitle"));
   };
 
   const handleApplyAll = () => {
@@ -143,8 +144,8 @@ function VoiceAnalyzerModal({
       formantShift: result.recommended_formant_shift
     });
     guiState.showError(
-      `Applied both parameters! Pitch: ${result.recommended_pitch >= 0 ? '+' : ''}${result.recommended_pitch}, Formant: ${result.recommended_formant_shift >= 0 ? '+' : ''}${result.recommended_formant_shift}`,
-      "Confirm"
+      `${t("voiceAnalyzerAppliedBothSuccess")}${result.recommended_pitch >= 0 ? '+' : ''}${result.recommended_pitch}, Formant: ${result.recommended_formant_shift >= 0 ? '+' : ''}${result.recommended_formant_shift}`,
+      t("confirmTitle")
     );
   };
 
@@ -168,7 +169,7 @@ function VoiceAnalyzerModal({
     >
       <div className="space-y-6 text-slate-800 dark:text-gray-100 p-2">
         <p className="text-sm text-slate-600 dark:text-gray-400">
-          Upload a target reference sample (e.g. the voice model's original speaker) and your own voice input sample. The analyzer will automatically calculate recommendations for your Pitch (transpose) and Formant Shift.
+          {t("voiceAnalyzerDesc")}
         </p>
 
         {/* Upload Panels */}
@@ -262,7 +263,7 @@ function VoiceAnalyzerModal({
             {/* Diagnostic Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
               <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] space-y-2">
-                <p className="font-bold text-[var(--macaron-mint)]">Pitch (F0) Comparison</p>
+                <p className="font-bold text-[var(--macaron-mint)]">{t("voiceAnalyzerPitchComparison")}</p>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Standard Target:</span>
                   <span className="font-semibold">{hzToNote(result.target_f0)}</span>
@@ -292,7 +293,7 @@ function VoiceAnalyzerModal({
               
               <div className="flex flex-col md:flex-row md:items-center justify-between p-3 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                 <div className="mb-2 md:mb-0">
-                  <span className="font-semibold">Recommended Pitch Shift:</span>
+                  <span className="font-semibold">{t("voiceAnalyzerRecommendedPitch")}</span>
                   <span className="ml-2 text-lg font-black text-[var(--macaron-mint)]">
                     {result.recommended_pitch >= 0 ? '+' : ''}{result.recommended_pitch}
                   </span>
@@ -303,7 +304,7 @@ function VoiceAnalyzerModal({
                   className="flex items-center space-x-1 px-4 py-1.5 bg-[var(--macaron-mint)] text-[#3a3530] text-xs font-semibold rounded-full hover:opacity-90 active:scale-95 transition-all"
                 >
                   <FontAwesomeIcon icon={faCheck} />
-                  <span>Apply Pitch</span>
+                  <span>{t("voiceAnalyzerApplyPitch")}</span>
                 </button>
               </div>
 

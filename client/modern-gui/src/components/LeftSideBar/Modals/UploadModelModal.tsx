@@ -3,6 +3,7 @@ import { ClientState, ModelFileKind, ModelUploadSetting, RVCModelSlot, ModelInfo
 import { CSS_CLASSES } from '../../../styles/constants';
 import GenericModal from '../../Modals/GenericModal';
 import { UIContextType } from '../../../context/UIContext';
+import { t } from '../../../locales';
 
 export interface UploadFinalForm {
   modelName: string
@@ -149,12 +150,12 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
   // Execute the complete model upload workflow
   const handleUploadModal = async () => {
     if (!uploadSettings.files) {
-      guiState.showError('Please select a model file.', "Error");
+      guiState.showError(t("modelUploadSelectFile"), t("errorTitle"));
       return;
     }
     const trimmedModelName = uploadSettings.modelName.trim();
     if (!trimmedModelName) {
-      guiState.showError('Please enter a model name.', "Error");
+      guiState.showError(t("modelUploadEnterName"), t("errorTitle"));
       return;
     }
 
@@ -168,7 +169,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
       }
 
       if (emptySlotIndex === -1) {
-        guiState.showError('No empty model slot available. Please clear a slot or manage existing ones.', "Error");
+        guiState.showError(t("modelUploadNoSlot"), t("errorTitle"));
         return;
       }
 
@@ -203,8 +204,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
 
       // Upload main model files (model + optional index file)
       console.log('Uploading model with settings:', uploadSettingsData);
-      await appState.serverSetting.uploadModel(uploadSettingsData);
-      const serverInfo = await appState.getInfo();
+      const serverInfo = await appState.serverSetting.uploadModel(uploadSettingsData);
       
       // Verify that the model was actually uploaded by checking if the slot has a model file
       const uploadedModel = serverInfo?.modelSlots?.[emptySlotIndex];
@@ -226,11 +226,11 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
         }
 
         // Notify user of successful upload
-        guiState.showError("Model uploaded successfully!", "Confirm");
+        guiState.showError(t("modelUploadSuccess"), t("confirmTitle"));
 
         // Automatically switch to the newly uploaded model if requested
         if (autoSelectModel) {
-          guiState.startLoading("Swapping to model: " + uploadSettings.modelName);
+          guiState.startLoading(t("loadingSwappingModel") + uploadSettings.modelName);
           await appState.serverSetting.updateServerSettings({
             ...appState.serverSetting.serverSetting,
             modelSlotIndex: emptySlotIndex
@@ -239,7 +239,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
         }
       } else {
         console.error('Model upload failed - no model file found in slot after upload');
-        guiState.showError("Failed to upload model. The model file was not properly saved.", "Error");
+        guiState.showError(t("modelUploadFailed"), t("errorTitle"));
         return; // Exit early if model upload failed
       }
 

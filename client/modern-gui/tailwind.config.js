@@ -6,6 +6,9 @@ module.exports = {
     "./src/**/*.{js,jsx,ts,tsx}",
   ],
   theme: {
+    fontFamily: {
+      sans: ['Comfortaa', 'Outfit', '"Noto Sans SC"', '"Microsoft YaHei"', 'sans-serif'],
+    },
     colors: {
       ...colors,
       transparent: 'transparent',

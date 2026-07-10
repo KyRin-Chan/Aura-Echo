@@ -4,6 +4,7 @@ import { CSS_CLASSES } from '../../../../styles/constants';
 import GenericModal from '../../../Modals/GenericModal';
 import { UIContextType } from '../../../../context/UIContext';
 import MergeFilter from './MergeFilter';
+import { t } from '../../../../locales';
 import MergeModelList from './MergeModelList';
 import MergeConfiguration from './MergeConfiguration';
 
@@ -170,15 +171,15 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
           };
 
           await appState.serverSetting.uploadModel(uploadSettingsData);
-          guiState.showError('Models uploaded successfully!', 'Confirm');
+          guiState.showError(t("mergeSuccess"), t("confirmTitle"));
           handleClose();
         }
       } else {
-        guiState.showError('No action selected. Please select at least one action.', 'Error');
+        guiState.showError(t("mergeNoAction"), t("errorTitle"));
       }
     } catch (error) {
       console.error('Error merging models:', error);
-      guiState.showError(`Error merging models: ${error instanceof Error ? error.message : String(error)}`, 'Error');
+      guiState.showError(`${t("mergeError")}${error instanceof Error ? error.message : String(error)}`, t("errorTitle"));
     }
   };
 
