@@ -50,7 +50,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        build_type: [lightweight, full]
+        build_type: [patch, full]
     env:
       BACKEND: cuda
       BUILD_NAME: ${{ needs.create-tag.outputs.name }}
@@ -89,7 +89,7 @@ jobs:
       id: cache-venv
       with:
         path: .venv
-        key: venv-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('server/requirements-common.txt', 'server/requirements-cuda-5080.txt') }}
+        key: venv-${{ runner.os }}-full-${{ hashFiles('server/requirements-common.txt', 'server/requirements-cuda-5080.txt') }}
 
     - name: Setup Virtual Environment
       if: steps.cache-venv.outputs.cache-hit != 'true'
@@ -103,7 +103,6 @@ jobs:
         ..\.venv\Scripts\python -m pip install -r requirements-common.txt
 
     - name: Install CUDA Dependencies (Full Build Only)
-      if: matrix.build_type == 'full'
       working-directory: ./server
       run: |
         ..\.venv\Scripts\python -m pip install -r requirements-cuda-5080.txt
@@ -113,7 +112,7 @@ jobs:
       run: |
         ..\.venv\Scripts\python -m PyInstaller --clean -y --dist ./dist MMVCServerSIO.spec
       env:
-        LIGHTWEIGHT_BUILD: ${{ matrix.build_type == 'lightweight' }}
+        LIGHTWEIGHT_BUILD: false
 
     - name: Copy utils
       run: cp ./server/{force_gpu_clocks.bat,reset_gpu_clocks.bat} ./server/dist/
@@ -124,11 +123,15 @@ jobs:
       run: |
         mkdir ./server/artifacts
         ARCHIVE_NAME="voice-changer-windows-amd64-cuda-5080"
-        if [ "${{ matrix.build_type }}" = "lightweight" ]; then
-          ARCHIVE_NAME="${ARCHIVE_NAME}-lightweight"
+        EXTRA_7Z_ARGS=""
+        VOLUME_ARG="-v2000m"
+        if [ "${{ matrix.build_type }}" = "patch" ]; then
+          ARCHIVE_NAME="${ARCHIVE_NAME}-patch"
+          EXTRA_7Z_ARGS="-xr!torch -xr!torchaudio -xr!tensorrt -xr!onnxruntime -xr!onnx -xr!onnxscript -xr!onnxslim -xr!torchcrepe -xr!torchfcpe -xr!scipy -xr!faiss -xr!cublas*.dll -xr!cudnn*.dll -xr!cufft*.dll -xr!curand*.dll -xr!cusparse*.dll -xr!cusolver*.dll -xr!npp*.dll -xr!nvrtc*.dll -xr!libonnxruntime*.dll -xr!nvinfer*.dll -xr!tensorrt*.dll -xr!libnv*.dll"
+          VOLUME_ARG=""
         fi
         echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
-        7z a -mx=5 -v2000m ./server/artifacts/${ARCHIVE_NAME}.7z ./server/dist/* > /dev/null 2>&1
+        7z a $EXTRA_7Z_ARGS $VOLUME_ARG ./server/artifacts/${ARCHIVE_NAME}.7z ./server/dist/* > /dev/null 2>&1
 
     - name: Rename single asset
       shell: bash

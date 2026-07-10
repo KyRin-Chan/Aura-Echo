@@ -146,7 +146,11 @@ class MMVC_Rest_VoiceChanger:
                 
             recommended_formant = 0.0
             if cent_tgt > 0 and cent_in > 0:
-                recommended_formant = 12 * np.log2(cent_tgt / cent_in)
+                # RVC converts speaker identity (formants) automatically.
+                # Formant shift is used to compensate for input formant leakage (typically ~35% leakage).
+                # Using 100% of the difference would cause extreme double-correction.
+                leakage_coefficient = 0.35
+                recommended_formant = leakage_coefficient * 12 * np.log2(cent_tgt / cent_in)
                 recommended_formant = round(recommended_formant, 2)
                 
             return JSONResponse({
@@ -196,9 +200,39 @@ class MMVC_Rest_VoiceChanger:
         
         f0_median = np.median(voiced_f0) if len(voiced_f0) > 0 else 0.0
         
-        # 2. Spectral Centroid extraction
-        cent = librosa.feature.spectral_centroid(y=y, sr=sr)
-        voiced_cent = cent[0][voiced_frames] if np.any(voiced_frames) else cent[0]
+        # 2. Cepstral Envelope Centroid extraction (pitch-decoupled formant proxy)
+        # Compute STFT magnitude spectrogram
+        S = np.abs(librosa.stft(y))
+        log_S = np.log(S + 1e-8)
+        
+        # Compute real inverse FFT along frequency bins (axis 0) to get cepstrum
+        cepstrum = np.fft.irfft(log_S, axis=0)
+        n_fft_samples = cepstrum.shape[0]
+        
+        # Keep only the lower quefrency coefficients (first 20 coefficients) representing vocal tract shape (formants),
+        # and zero out the high quefrency components representing fundamental pitch harmonics.
+        quefrency_cutoff = 20
+        if n_fft_samples > 2 * quefrency_cutoff:
+            cepstrum[quefrency_cutoff : -quefrency_cutoff, :] = 0
+            
+        # Compute forward real FFT back to frequency domain to get the smoothed log envelope
+        log_envelope = np.fft.rfft(cepstrum, axis=0)
+        # Handle shape mismatch if any
+        if log_envelope.shape[0] > log_S.shape[0]:
+            log_envelope = log_envelope[:log_S.shape[0], :]
+        elif log_envelope.shape[0] < log_S.shape[0]:
+            pass
+        envelope = np.exp(log_envelope)
+        
+        # Spectral Centroid of the smoothed envelope
+        frequencies = librosa.fft_frequencies(sr=sr, n_fft=2 * (S.shape[0] - 1))
+        
+        # Compute centroid for each frame using the pitch-independent envelope
+        sum_envelope = np.sum(envelope, axis=0)
+        sum_envelope[sum_envelope == 0] = 1e-8
+        centroid_frames = np.sum(envelope * frequencies[:, np.newaxis], axis=0) / sum_envelope
+        
+        voiced_cent = centroid_frames[voiced_frames] if np.any(voiced_frames) else centroid_frames
         cent_median = np.median(voiced_cent) if len(voiced_cent) > 0 else 0.0
         
         return f0_median, cent_median

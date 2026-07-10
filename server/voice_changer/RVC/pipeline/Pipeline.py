@@ -146,7 +146,7 @@ class Pipeline:
             HUBERT_SAMPLE_RATE,
             WINDOW_SIZE,
         )
-        f0 *= 2 ** ((f0_up_key - formant_shift) / 12)
+        f0 *= 2 ** (f0_up_key / 12)
 
         f0_mel = 1127.0 * torch.log(1.0 + f0 / 700.0)
         f0_mel = torch.clip(
@@ -281,7 +281,7 @@ class Pipeline:
             feats = self._upscale(feats)[:, :audio_feats_len, :]
             if self.use_f0:
                 pitch = pitch[:, -audio_feats_len:]
-                pitchf = pitchf[:, -audio_feats_len:] * (formant_length / return_length)
+                pitchf = pitchf[:, -audio_feats_len:]
                 # pitchの推定が上手くいかない(pitchf=0)場合、検索前の特徴を混ぜる
                 # pitchffの作り方の疑問はあるが、本家通りなので、このまま使うことにする。
                 # https://github.com/w-okada/voice-changer/pull/276#issuecomment-1571336929

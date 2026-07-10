@@ -8,13 +8,12 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: 'Build Type (auto, lightweight, full, full-patch)'
+        description: 'Build Type (auto, full, full-patch)'
         required: true
         default: 'auto'
         type: choice
         options:
         - auto
-        - lightweight
         - full
         - full-patch
 
@@ -39,11 +38,11 @@ jobs:
         BUILD_TYPE="${{ inputs.build_type || 'auto' }}"
         
         if [ "$BUILD_TYPE" = "auto" ]; then
-          BUILD_TYPE="lightweight"
+          BUILD_TYPE="full-patch"
           
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
-          elif [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+          elif [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.event.before }}" ] && [ "${{ github.event_name }}" != "0000000000000000000000000000000000000000" ]; then
             CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null || echo "ALL")
           else
             CHANGED_FILES="ALL"
@@ -53,13 +52,13 @@ jobs:
           echo "$CHANGED_FILES"
           
           if echo "$CHANGED_FILES" | grep -qE "requirements.*\.txt|MMVCServerSIO\.spec|\.github/workflows/"; then
-            echo "Build configuration or dependency file changed. Selecting FULL-PATCH build."
-            BUILD_TYPE="full-patch"
+            echo "Build configuration or dependency file changed. Selecting FULL build."
+            BUILD_TYPE="full"
           elif [ "$CHANGED_FILES" = "ALL" ]; then
-            echo "Could not fetch diff. Selecting FULL-PATCH build as fallback."
-            BUILD_TYPE="full-patch"
+            echo "Could not fetch diff. Selecting FULL build as fallback."
+            BUILD_TYPE="full"
           else
-            echo "Only logic files changed. Selecting LIGHTWEIGHT build."
+            echo "Only logic files changed. Selecting FULL-PATCH build."
           fi
         fi
         
@@ -98,7 +97,7 @@ jobs:
       id: cache-venv
       with:
         path: .venv
-        key: venv-${{ runner.os }}-${{ steps.determine_build.outputs.build_type }}-${{ hashFiles('server/requirements-common.txt', 'server/requirements-cuda-5080.txt') }}
+        key: venv-${{ runner.os }}-full-${{ hashFiles('server/requirements-common.txt', 'server/requirements-cuda-5080.txt') }}
 
     - name: Cache PyInstaller Build Cache
       uses: actions/cache@v4
@@ -120,7 +119,6 @@ jobs:
         ..\.venv\Scripts\python -m pip install -r requirements-common.txt
 
     - name: Install CUDA Dependencies (Full Build Only)
-      if: steps.determine_build.outputs.build_type != 'lightweight'
       working-directory: ./server
       run: |
         ..\.venv\Scripts\python -m pip install -r requirements-cuda-5080.txt
@@ -140,7 +138,7 @@ jobs:
       run: |
         ..\.venv\Scripts\python -m PyInstaller --clean -y --dist ./dist MMVCServerSIO.spec
       env:
-        LIGHTWEIGHT_BUILD: ${{ steps.determine_build.outputs.build_type == 'lightweight' }}
+        LIGHTWEIGHT_BUILD: false
 
     - name: Copy utils
       run: cp ./server/{force_gpu_clocks.bat,reset_gpu_clocks.bat} ./server/dist/
@@ -153,9 +151,7 @@ jobs:
         ARCHIVE_NAME="voice-changer-windows-amd64-cuda-5080"
         EXTRA_7Z_ARGS=""
         VOLUME_ARG="-v2000m"
-        if [ "${{ steps.determine_build.outputs.build_type }}" = "lightweight" ]; then
-          ARCHIVE_NAME="${ARCHIVE_NAME}-lightweight"
-        elif [ "${{ steps.determine_build.outputs.build_type }}" = "full-patch" ]; then
+        if [ "${{ steps.determine_build.outputs.build_type }}" = "full-patch" ]; then
           ARCHIVE_NAME="${ARCHIVE_NAME}-patch"
           EXTRA_7Z_ARGS="-xr!torch -xr!torchaudio -xr!tensorrt -xr!onnxruntime -xr!onnx -xr!onnxscript -xr!onnxslim -xr!torchcrepe -xr!torchfcpe -xr!scipy -xr!faiss -xr!cublas*.dll -xr!cudnn*.dll -xr!cufft*.dll -xr!curand*.dll -xr!cusparse*.dll -xr!cusolver*.dll -xr!npp*.dll -xr!nvrtc*.dll -xr!libonnxruntime*.dll -xr!nvinfer*.dll -xr!tensorrt*.dll -xr!libnv*.dll"
           VOLUME_ARG=""

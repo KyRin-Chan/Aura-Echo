@@ -1,4 +1,5 @@
-import { RVCModelSlot } from "@dannadori/voice-changer-client-js";
+import { useState, useEffect } from "react";
+import { RVCModelSlot, ClientState } from "@dannadori/voice-changer-client-js";
 import { CSS_CLASSES } from "../../styles/constants"
 import DebouncedSlider from "../Helpers/DebouncedSlider"
 import { useAppState } from "../../context/AppContext"
@@ -13,8 +14,25 @@ interface ModelSettingsProps {
 }
 
 function ModelSettings({ model, handlePitchChange, handleFormatShiftChange, handleIndexRatioChange, handleSpeakerChange, setModel }: ModelSettingsProps) {
-  const appState = useAppState();
+  const appState = useAppState() as ClientState;
+  
   // ---------------- State ----------------
+  const [immediatePitch, setImmediatePitch] = useState<number>(appState.serverSetting?.serverSetting?.tran ?? 0);
+  const [immediateFormant, setImmediateFormant] = useState<number>(appState.serverSetting?.serverSetting?.formantShift ?? 0);
+  const [immediateIndexRatio, setImmediateIndexRatio] = useState<number>(appState.serverSetting?.serverSetting?.indexRatio ?? 0.5);
+
+  useEffect(() => {
+    if (appState.serverSetting?.serverSetting) {
+      setImmediatePitch(appState.serverSetting.serverSetting.tran);
+      setImmediateFormant(appState.serverSetting.serverSetting.formantShift);
+      setImmediateIndexRatio(appState.serverSetting.serverSetting.indexRatio);
+    }
+  }, [
+    appState.serverSetting?.serverSetting?.tran,
+    appState.serverSetting?.serverSetting?.formantShift,
+    appState.serverSetting?.serverSetting?.indexRatio
+  ]);
+
   let speakerOptions: JSX.Element[] = [];
   if (model && model.speakers && Object.keys(model.speakers).length > 0) {
     speakerOptions = Object.entries(model.speakers).map(([id, name]) => (
@@ -36,13 +54,13 @@ function ModelSettings({ model, handlePitchChange, handleFormatShiftChange, hand
           min={-50}
           max={50}
           step={0.5}
-          value={model?.defaultTune || 0}
+          value={appState.serverSetting?.serverSetting?.tran ?? 0}
           onChange={handlePitchChange}
-          onImmediateChange={(val) => setModel({ ...model, defaultTune: val })}
+          onImmediateChange={setImmediatePitch}
           className={CSS_CLASSES.range}
           disabled={!model}
         />
-        <p className={CSS_CLASSES.sliderValue}>{model?.defaultTune || 0}</p>
+        <p className={CSS_CLASSES.sliderValue}>{immediatePitch}</p>
       </div>
       <div>
         <label htmlFor="formatShift" className={CSS_CLASSES.label}>Formant Shift:</label>
@@ -52,13 +70,13 @@ function ModelSettings({ model, handlePitchChange, handleFormatShiftChange, hand
           min={-2.0}
           max={2.0}
           step={0.01}
-          value={model?.defaultFormantShift ?? 0}
+          value={appState.serverSetting?.serverSetting?.formantShift ?? 0}
           onChange={handleFormatShiftChange}
-          onImmediateChange={(val) => setModel({ ...model, defaultFormantShift: val })}
+          onImmediateChange={setImmediateFormant}
           className={CSS_CLASSES.range}
           disabled={!model}
         />
-        <p className={CSS_CLASSES.sliderValue}>{(model?.defaultFormantShift ?? 0).toFixed(2)}</p>
+        <p className={CSS_CLASSES.sliderValue}>{immediateFormant.toFixed(2)}</p>
       </div>
       {model.indexFile !== "" && (
         <div>
@@ -69,13 +87,13 @@ function ModelSettings({ model, handlePitchChange, handleFormatShiftChange, hand
             min={0}
             max={1}
             step={0.01}
-            value={model?.defaultIndexRatio ?? 0.5}
+            value={appState.serverSetting?.serverSetting?.indexRatio ?? 0.5}
             onChange={handleIndexRatioChange}
-            onImmediateChange={(val) => setModel({ ...model, defaultIndexRatio: val })}
+            onImmediateChange={setImmediateIndexRatio}
             className={CSS_CLASSES.range}
             disabled={!model}
           />
-          <p className={CSS_CLASSES.sliderValue}>{(model?.defaultIndexRatio ?? 0.5).toFixed(2)}</p>
+          <p className={CSS_CLASSES.sliderValue}>{immediateIndexRatio.toFixed(2)}</p>
         </div>
       )}
       {
@@ -100,4 +118,4 @@ function ModelSettings({ model, handlePitchChange, handleFormatShiftChange, hand
   )
 }
 
-export default ModelSettings
+export default ModelSettings;
