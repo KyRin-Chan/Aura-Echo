@@ -218,7 +218,8 @@ class MMVC_Rest_VoiceChanger:
             cepstrum[quefrency_cutoff : -quefrency_cutoff, :] = 0
             
         # Compute forward real FFT back to frequency domain to get the smoothed log envelope
-        log_envelope = np.fft.rfft(cepstrum, axis=0)
+        # Take the real part of the envelope to keep it real-valued and avoid imaginary warnings/errors
+        log_envelope = np.fft.rfft(cepstrum, axis=0).real
         # Handle shape mismatch if any
         if log_envelope.shape[0] > log_S.shape[0]:
             log_envelope = log_envelope[:log_S.shape[0], :]

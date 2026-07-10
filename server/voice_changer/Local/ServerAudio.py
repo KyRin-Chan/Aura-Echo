@@ -1,7 +1,8 @@
 import numpy as np
 from const import SERVER_DEVICE_SAMPLE_RATES
 
-from queue import Queue
+from collections import deque
+import threading
 import logging
 from voice_changer.VoiceChangerSettings import VoiceChangerSettings
 from voice_changer.Local.AudioDeviceList import checkSamplingRate, list_audio_device
@@ -34,7 +35,9 @@ class ServerAudio:
         self.mon_wav = None
         self.serverAudioInputDevices = None
         self.serverAudioOutputDevices = None
-        self.monQueue = Queue()
+        self.mon_lock = threading.Lock()
+        self.mon_deque = deque()
+        self.mon_residual = np.empty(0, dtype=np.float32)
         self.performance = [0, 0, 0]
 
         self.stream = None
@@ -85,7 +88,18 @@ class ServerAudio:
     def audio_stream_callback_mon_queue(self, indata: np.ndarray, outdata: np.ndarray, frames, times, status):
         try:
             out_wav = self._processDataWithTime(indata)
-            self.monQueue.put(out_wav)
+            
+            with self.mon_lock:
+                self.mon_deque.append(out_wav)
+                sample_rate = getattr(self.settings, 'serverMonitorAudioSampleRate', 48000)
+                if not sample_rate:
+                    sample_rate = 48000
+                max_samples = int(sample_rate * 0.5)
+                total_samples = sum(len(x) for x in self.mon_deque) + len(self.mon_residual)
+                while total_samples > max_samples and len(self.mon_deque) > 0:
+                    dropped = self.mon_deque.popleft()
+                    total_samples -= len(dropped)
+
             outputChannels = outdata.shape[1]
             outdata[:] = (np.repeat(out_wav, outputChannels).reshape(-1, outputChannels) * self.settings.serverOutputAudioGain)
         except Exception as e:
@@ -94,10 +108,43 @@ class ServerAudio:
 
     def audio_monitor_callback(self, outdata: np.ndarray, frames, times, status):
         try:
-            mon_wav = self.monQueue.get()
-            while self.monQueue.qsize() > 0:
-                self.monQueue.get()
             outputChannels = outdata.shape[1]
+            with self.mon_lock:
+                samples_needed = frames
+                collected = []
+                
+                if len(self.mon_residual) > 0:
+                    if len(self.mon_residual) >= samples_needed:
+                        collected.append(self.mon_residual[:samples_needed])
+                        self.mon_residual = self.mon_residual[samples_needed:]
+                        samples_needed = 0
+                    else:
+                        collected.append(self.mon_residual)
+                        samples_needed -= len(self.mon_residual)
+                        self.mon_residual = np.empty(0, dtype=np.float32)
+                
+                while samples_needed > 0 and len(self.mon_deque) > 0:
+                    chunk = self.mon_deque.popleft()
+                    if len(chunk) >= samples_needed:
+                        collected.append(chunk[:samples_needed])
+                        self.mon_residual = chunk[samples_needed:]
+                        samples_needed = 0
+                    else:
+                        collected.append(chunk)
+                        samples_needed -= len(chunk)
+                
+                if len(collected) > 0:
+                    mon_wav = np.concatenate(collected)
+                else:
+                    mon_wav = np.empty(0, dtype=np.float32)
+                
+                if samples_needed > 0:
+                    silence = np.zeros(samples_needed, dtype=np.float32)
+                    if len(mon_wav) > 0:
+                        mon_wav = np.concatenate([mon_wav, silence])
+                    else:
+                        mon_wav = silence
+            
             outdata[:] = (np.repeat(mon_wav, outputChannels).reshape(-1, outputChannels) * self.settings.serverMonitorAudioGain)
         except Exception as e:
             self.callbacks.emit_to(0, self.performance, ('ERR_GENERIC_SERVER_AUDIO_ERROR', ERR_GENERIC_SERVER_AUDIO_ERROR))
@@ -150,6 +197,9 @@ class ServerAudio:
         if self.monitor is not None:
             self.monitor.close()
             self.monitor = None
+        with self.mon_lock:
+            self.mon_deque.clear()
+            self.mon_residual = np.empty(0, dtype=np.float32)
 
     ###########################################
     # Start Section
