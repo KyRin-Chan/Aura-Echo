@@ -1,6 +1,6 @@
 import sounddevice as sd
 from dataclasses import dataclass, field
-
+import sys
 import numpy as np
 
 from const import ServerAudioDeviceType
@@ -69,20 +69,26 @@ def list_audio_device():
     serverAudioInputDevices: list[ServerAudioDevice] = []
     serverAudioOutputDevices: list[ServerAudioDevice] = []
     for d in inputAudioDeviceList:
+        host_api_name = hostapis[d["hostapi"]]["name"]
+        if sys.platform == "win32" and host_api_name not in ["Windows WASAPI", "ASIO"]:
+            continue
         serverInputAudioDevice: ServerAudioDevice = ServerAudioDevice(
             index=d["index"],
             name=d["name"],
-            hostAPI=hostapis[d["hostapi"]]["name"],
+            hostAPI=host_api_name,
             maxInputChannels=d["max_input_channels"],
             maxOutputChannels=d["max_output_channels"],
             default_samplerate=d["default_samplerate"],
         )
         serverAudioInputDevices.append(serverInputAudioDevice)
     for d in outputAudioDeviceList:
+        host_api_name = hostapis[d["hostapi"]]["name"]
+        if sys.platform == "win32" and host_api_name not in ["Windows WASAPI", "ASIO"]:
+            continue
         serverOutputAudioDevice: ServerAudioDevice = ServerAudioDevice(
             index=d["index"],
             name=d["name"],
-            hostAPI=hostapis[d["hostapi"]]["name"],
+            hostAPI=host_api_name,
             maxInputChannels=d["max_input_channels"],
             maxOutputChannels=d["max_output_channels"],
             default_samplerate=d["default_samplerate"],

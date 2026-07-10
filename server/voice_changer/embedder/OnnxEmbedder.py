@@ -39,16 +39,23 @@ class OnnxEmbedder(Embedder):
 
             self.onnx_session.run_with_iobinding(binding)
 
-            units = [output.numpy() for output in binding.get_outputs()]
+            outputs = binding.get_outputs()
+            from torch.utils.dlpack import from_dlpack
+            units = []
+            for out_val in outputs:
+                if hasattr(out_val, 'to_dlpack'):
+                    units.append(from_dlpack(out_val.to_dlpack()))
+                elif hasattr(out_val, '_ortvalue') and hasattr(out_val._ortvalue, 'to_dlpack'):
+                    units.append(from_dlpack(out_val._ortvalue.to_dlpack()))
+                else:
+                    units.append(torch.from_numpy(out_val.numpy()).to(feats.device))
         else:
-            units = self.onnx_session.run(
+            output_np = self.onnx_session.run(
                 ['units9', 'unit12', 'unit12s'],
                 { 'audio': feats.detach().cpu().numpy() }
             )
+            units = [torch.as_tensor(u, dtype=self.fp_dtype_t, device=feats.device) for u in output_np]
         # self.onnx_session.end_profiling()
 
-        return torch.as_tensor(
-            units[0] if embOutputLayer == 9 else units[1],
-            dtype=self.fp_dtype_t,
-            device=feats.device
-        )
+        res = units[0] if embOutputLayer == 9 else units[1]
+        return res.to(dtype=self.fp_dtype_t)

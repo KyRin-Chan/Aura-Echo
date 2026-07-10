@@ -54,7 +54,17 @@ class RMVPEOnnxPitchExtractor(PitchExtractor):
 
             self.onnx_session.run_with_iobinding(binding)
 
-            output = [output.numpy() for output in binding.get_outputs()]
+            outputs = binding.get_outputs()
+            from torch.utils.dlpack import from_dlpack
+            out_val = outputs[0]
+            if hasattr(out_val, 'to_dlpack'):
+                output_tensor = from_dlpack(out_val.to_dlpack())
+            elif hasattr(out_val, '_ortvalue') and hasattr(out_val._ortvalue, 'to_dlpack'):
+                output_tensor = from_dlpack(out_val._ortvalue.to_dlpack())
+            else:
+                output_tensor = torch.from_numpy(out_val.numpy()).to(audio.device)
+
+            return output_tensor.to(dtype=self.fp_dtype_t).squeeze()
         else:
             output: list[np.ndarray] = self.onnx_session.run(
                 ["pitchf"],
@@ -63,6 +73,6 @@ class RMVPEOnnxPitchExtractor(PitchExtractor):
                     "threshold": self.threshold,
                 },
             )
-        # self.onnx_session.end_profiling()
+            # self.onnx_session.end_profiling()
 
-        return torch.as_tensor(output[0], dtype=self.fp_dtype_t, device=audio.device).squeeze()
+            return torch.as_tensor(output[0], dtype=self.fp_dtype_t, device=audio.device).squeeze()

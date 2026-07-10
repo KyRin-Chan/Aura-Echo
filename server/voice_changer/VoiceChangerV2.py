@@ -120,6 +120,7 @@ class VoiceChangerV2:
 
         # ひとつ前の結果とサイズが変わるため、記録は消去する。
         self.sola_buffer = torch.zeros(self.crossfade_frame, device=self.device_manager.device, dtype=torch.float32)
+        self.sola_ones = torch.ones(1, 1, self.crossfade_frame, device=self.device_manager.device, dtype=torch.float32)
         logger.info(f'Allocated SOLA buffer size: {self.crossfade_frame}')
 
     def get_processing_sampling_rate(self) -> int:
@@ -153,7 +154,7 @@ class VoiceChangerV2:
         cor_den = torch.sqrt(
             F.conv1d(
                 conv_input ** 2,
-                torch.ones(1, 1, self.crossfade_frame, device=self.device_manager.device),
+                self.sola_ones,
             )
             + 1e-8
         )
@@ -193,8 +194,8 @@ class VoiceChangerV2:
 
         # 後処理
         if self.settings.recordIO:
-            self.io_recorder.write_input((audio_in * 32767).astype(np.int16).tobytes())
-            self.io_recorder.write_output((result * 32767).astype(np.int16).tobytes())
+            self.io_recorder.write_input((np.clip(audio_in, -1.0, 1.0) * 32767).astype(np.int16).tobytes())
+            self.io_recorder.write_output((np.clip(result, -1.0, 1.0) * 32767).astype(np.int16).tobytes())
 
         return result, vol, [0, mainprocess_time, 0]
 

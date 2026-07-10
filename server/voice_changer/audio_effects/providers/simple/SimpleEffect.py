@@ -106,29 +106,41 @@ class SimpleEffect(AudioEffect):
         return torch.tensor(processed, dtype=audio.dtype, device=audio.device)
     
     def _apply_delay(self, audio: torch.Tensor, sample_rate: int) -> torch.Tensor:
-        """Apply simple delay effect"""
+        """Apply simple delay effect (Vectorized and corrected)"""
         delay_time = self.parameters.get("delayTime", 300.0) / 1000.0  # Convert ms to seconds
         feedback = self.parameters.get("feedback", 0.3)
         wet_level = self.parameters.get("wetLevel", 0.3)
         
         delay_samples = int(delay_time * sample_rate)
-        if delay_samples >= len(self._delay_buffer):
-            delay_samples = len(self._delay_buffer) - 1
+        delay_samples = max(1, delay_samples)
         
+        # Ensure delay buffer is allocated with the correct parameter size on the same device
+        if not hasattr(self, "_delay_buffer") or self._delay_buffer is None or len(self._delay_buffer) != delay_samples:
+            self._delay_buffer = torch.zeros(delay_samples, device=audio.device, dtype=audio.dtype)
+            self._delay_index = 0
+            
+        if self._delay_buffer.device != audio.device:
+            self._delay_buffer = self._delay_buffer.to(audio.device)
+            
+        N = len(audio)
         output = audio.clone()
-        for i in range(len(audio)):
-            # Get delayed sample
-            delayed_sample = self._delay_buffer[self._delay_index]
-            
-            # Mix dry and wet signals
-            output[i] = audio[i] + wet_level * delayed_sample
-            
-            # Update delay buffer with input + feedback
-            self._delay_buffer[self._delay_index] = audio[i] + feedback * delayed_sample
-            
-            # Advance delay index
-            self._delay_index = (self._delay_index + 1) % len(self._delay_buffer)
         
+        # Fast path: Vectorized block processing
+        if delay_samples >= N:
+            indices = (self._delay_index + torch.arange(N, device=audio.device)) % delay_samples
+            delayed_samples = self._delay_buffer[indices]
+            
+            output = audio + wet_level * delayed_samples
+            self._delay_buffer[indices] = audio + feedback * delayed_samples
+            self._delay_index = (self._delay_index + N) % delay_samples
+        else:
+            # Fallback for extremely short delays (less than block size)
+            for i in range(N):
+                delayed_sample = self._delay_buffer[self._delay_index]
+                output[i] = audio[i] + wet_level * delayed_sample
+                self._delay_buffer[self._delay_index] = audio[i] + feedback * delayed_sample
+                self._delay_index = (self._delay_index + 1) % delay_samples
+                
         return output
 
     def _apply_exciter(self, audio: torch.Tensor, sample_rate: int) -> torch.Tensor:

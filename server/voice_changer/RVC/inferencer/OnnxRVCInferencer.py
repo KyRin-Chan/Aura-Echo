@@ -62,7 +62,15 @@ class OnnxRVCInferencer(Inferencer):
 
             self.model.run_with_iobinding(binding)
 
-            output = [output.numpy() for output in binding.get_outputs()]
+            outputs = binding.get_outputs()
+            from torch.utils.dlpack import from_dlpack
+            out_val = outputs[0]
+            if hasattr(out_val, 'to_dlpack'):
+                res = from_dlpack(out_val.to_dlpack())
+            elif hasattr(out_val, '_ortvalue') and hasattr(out_val._ortvalue, 'to_dlpack'):
+                res = from_dlpack(out_val._ortvalue.to_dlpack())
+            else:
+                res = torch.from_numpy(out_val.numpy()).to(feats.device)
         else:
             output = self.model.run(
                 ["audio"],
@@ -77,9 +85,10 @@ class OnnxRVCInferencer(Inferencer):
                     "formant_length": np.array(formant_length, dtype=np.int64),
                 },
             )
+            res = torch.as_tensor(output[0], dtype=self.fp_dtype_t, device=feats.device)
         # self.model.end_profiling()
 
-        res = torch.as_tensor(output[0], dtype=self.fp_dtype_t, device=feats.device)
+        res = res.to(dtype=self.fp_dtype_t)
 
         if self.inferencerTypeVersion == "2.1" or self.inferencerTypeVersion == "2.2" or self.inferencerTypeVersion == "1.1":
             return res

@@ -72,8 +72,6 @@ class Pipeline:
         self.use_gpu_index = sys.platform == 'linux' and '+cu' in torch.__version__ and self.device.type == 'cuda'
         self.use_f0 = use_f0
 
-        self.onnx_upscaler = self.make_onnx_upscaler(embChannels) if self.device.type == 'privateuseone' else None
-
         self.model_sr = model_sr
         self.model_window = model_sr // 100
 
@@ -89,32 +87,7 @@ class Pipeline:
             logger.error(f"Failed to initialize AudioEffectsManager: {e}")
             self.audio_effects_manager = None
 
-    def make_onnx_upscaler(self, dim_size: int):
-        # Inputs
-        input = make_tensor_value_info('in', TensorProto.FLOAT16 if self.is_half else TensorProto.FLOAT, [1, dim_size, None])
-        scales = make_tensor_value_info('scales', TensorProto.FLOAT, [None])
-        # Outputs
-        output = make_tensor_value_info('out', TensorProto.FLOAT16 if self.is_half else TensorProto.FLOAT, [1, dim_size, None])
 
-        resize_node = make_node(
-            "Resize",
-            inputs=["in", "", "scales"],
-            outputs=["out"],
-            mode="nearest",
-            axes=[2]
-        )
-
-        graph = make_graph([resize_node], 'upscaler', [input, scales], [output])
-
-        onnx_model = make_model(graph, opset_imports=[make_opsetid("", 21)])
-
-        (
-            providers,
-            provider_options,
-        ) = self.device_manager.get_onnx_execution_provider()
-        so = onnxruntime.SessionOptions()
-        so.log_severity_level = 3
-        return onnxruntime.InferenceSession(onnx_model.SerializeToString(), sess_options=so, providers=providers, provider_options=provider_options)
 
     def getPipelineInfo(self):
         inferencerInfo = self.inferencer.getInferencerInfo() if self.inferencer else {}
@@ -182,10 +155,9 @@ class Pipeline:
         return torch.sum(self.index_reconstruct[ix] * weight.unsqueeze(2), dim=1)
 
     def _upscale(self, feats: torch.Tensor) -> torch.Tensor:
-        if self.onnx_upscaler is not None:
-            feats = self.onnx_upscaler.run(['out'], { 'in': feats.permute(0, 2, 1).detach().cpu().numpy(), 'scales': np.array([2], dtype=np.float32) })
-            return torch.as_tensor(feats[0], dtype=self.dtype, device=self.device).permute(0, 2, 1).contiguous()
-        return F.interpolate(feats.permute(0, 2, 1), scale_factor=2, mode='nearest').permute(0, 2, 1).contiguous()
+        # Vectorized nearest-neighbor upscaling (scale_factor=2) using native PyTorch operations.
+        # This is fully device-agnostic, works on all devices, and avoids GPU-CPU roundtrips.
+        return torch.stack([feats, feats], dim=2).flatten(1, 2)
 
     def exec(
         self,

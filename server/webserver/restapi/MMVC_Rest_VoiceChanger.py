@@ -43,6 +43,8 @@ class MMVC_Rest_VoiceChanger:
             unpackedData = np.frombuffer(voice, dtype=np.int16).astype(np.float32) / 32768
 
             out_audio, vol, perf, err = self.voiceChangerManager.change_voice(unpackedData)
+            out_audio = np.nan_to_num(out_audio)
+            out_audio = np.clip(out_audio, -1.0, 1.0)
             out_audio = (out_audio * 32767).astype(np.int16).tobytes()
 
             if err is not None:
