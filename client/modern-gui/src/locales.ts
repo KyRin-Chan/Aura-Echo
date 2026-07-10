@@ -26,10 +26,20 @@ export const locales = {
         modelUploadedMsg: "Model uploaded successfully!",
         
         // Voice Analyzer
+        voiceAnalyzerTitle: "Voice Lab & Analyzer",
         voiceAnalyzerDesc: "Upload a target reference sample (e.g. the voice model's original speaker) and your own voice input sample. The analyzer will automatically calculate recommendations for your Pitch (transpose) and Formant Shift.",
+        voiceAnalyzerStandardTarget: "Standard Target Reference",
+        voiceAnalyzerYourInput: "Your Input Sample",
+        voiceAnalyzerComparing: "Comparing & Analyzing...",
+        voiceAnalyzerStartAnalysis: "Start Comparison Analysis",
+        voiceAnalyzerDiagnostics: "Analysis Diagnostics",
+        voiceAnalyzerRecommendedParams: "Recommended Adaptation Parameters",
         voiceAnalyzerPitchComparison: "Pitch (F0) Comparison",
         voiceAnalyzerRecommendedPitch: "Recommended Pitch Shift:",
         voiceAnalyzerApplyPitch: "Apply Pitch",
+        voiceAnalyzerRecommendedFormant: "Recommended Formant Shift:",
+        voiceAnalyzerApplyFormant: "Apply Formant",
+        voiceAnalyzerApplyAll: "Apply All Recommendations",
         voiceAnalyzerAppliedPitchSuccess: "Applied recommended Pitch: ",
         voiceAnalyzerAppliedBothSuccess: "Applied both parameters! Pitch: ",
         
@@ -58,10 +68,20 @@ export const locales = {
         modelUploadedMsg: "模型上传成功！",
         
         // Voice Analyzer
+        voiceAnalyzerTitle: "语音分析实验室 (Voice Lab)",
         voiceAnalyzerDesc: "上传目标参考音频（例如：声线模型原唱/原作者的说话声）以及你自己的输入音频。分析器将自动计算并推荐你的音高偏移（协变）与基频偏移（共振峰）。",
+        voiceAnalyzerStandardTarget: "标准参考样本 (Target)",
+        voiceAnalyzerYourInput: "输入样本音频 (Input)",
+        voiceAnalyzerComparing: "正在对比分析...",
+        voiceAnalyzerStartAnalysis: "开始对比分析",
+        voiceAnalyzerDiagnostics: "声学对比分析结果",
+        voiceAnalyzerRecommendedParams: "推荐的适配参数",
         voiceAnalyzerPitchComparison: "音高 (F0) 对比",
         voiceAnalyzerRecommendedPitch: "推荐音高偏移：",
         voiceAnalyzerApplyPitch: "应用音高",
+        voiceAnalyzerRecommendedFormant: "推荐共振峰偏移：",
+        voiceAnalyzerApplyFormant: "应用共振峰",
+        voiceAnalyzerApplyAll: "应用所有推荐",
         voiceAnalyzerAppliedPitchSuccess: "已应用推荐音高：",
         voiceAnalyzerAppliedBothSuccess: "已成功应用两个参数！音高：",
         
@@ -90,10 +110,20 @@ export const locales = {
         modelUploadedMsg: "モデルのアップロードに成功しました！",
         
         // Voice Analyzer
-        voiceAnalyzerDesc: "ターゲットの参照サンプル（例：ボイスモデルのオリジナル話者）と自身のボイス入力サンプルをアップロードします。アナライザーはピッチ（キー）およびフォルマントシフトの推奨値を自动的に计算します。",
+        voiceAnalyzerTitle: "音声分析ラボ (Voice Lab)",
+        voiceAnalyzerDesc: "ターゲットの参照サンプル（例：ボイスモデルのオリジナル話者）と自身のボイス入力サンプルをアップロードします。アナライザーはピッチ（キー）およびフォルマントシフトの推奨値を自動的に計算します。",
+        voiceAnalyzerStandardTarget: "標準参照サンプル (Target)",
+        voiceAnalyzerYourInput: "入力オーディオサンプル (Input)",
+        voiceAnalyzerComparing: "比較分析中...",
+        voiceAnalyzerStartAnalysis: "比較分析を開始",
+        voiceAnalyzerDiagnostics: "音響比較分析結果",
+        voiceAnalyzerRecommendedParams: "推奨のアダプテーションパラメータ",
         voiceAnalyzerPitchComparison: "ピッチ（F0）の比較",
         voiceAnalyzerRecommendedPitch: "推奨ピッチシフト：",
         voiceAnalyzerApplyPitch: "ピッチを適用",
+        voiceAnalyzerRecommendedFormant: "推奨フォルマントシフト：",
+        voiceAnalyzerApplyFormant: "フォルマントを適用",
+        voiceAnalyzerApplyAll: "すべての推奨値を適用",
         voiceAnalyzerAppliedPitchSuccess: "推奨ピッチを適用しました：",
         voiceAnalyzerAppliedBothSuccess: "両方のパラメータを適用しました！ピッチ：",
         

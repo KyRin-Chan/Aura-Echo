@@ -164,7 +164,7 @@ function VoiceAnalyzerModal({
     <GenericModal
       isOpen={showVoiceAnalyzer}
       onClose={handleClose}
-      title="Voice Lab & Analyzer (语音分析实验室)"
+      title={t("voiceAnalyzerTitle")}
       size="medium"
     >
       <div className="space-y-6 text-slate-800 dark:text-gray-100 p-2">
@@ -185,7 +185,7 @@ function VoiceAnalyzerModal({
             <div>
               <span className="flex items-center space-x-2 mb-2 font-medium text-[var(--macaron-mint)]">
                 <FontAwesomeIcon icon={faMusic} />
-                <label className={CSS_CLASSES.label}>Standard Target Reference (标准参考样本)</label>
+                <label className={CSS_CLASSES.label}>{t("voiceAnalyzerStandardTarget")}</label>
               </span>
               <input
                 type="file"
@@ -213,7 +213,7 @@ function VoiceAnalyzerModal({
             <div>
               <span className="flex items-center space-x-2 mb-2 font-medium text-[var(--macaron-blue)]">
                 <FontAwesomeIcon icon={faMicrophone} />
-                <label className={CSS_CLASSES.label}>Your Input Sample (输入样本音频)</label>
+                <label className={CSS_CLASSES.label}>{t("voiceAnalyzerYourInput")}</label>
               </span>
               <input
                 type="file"
@@ -243,7 +243,7 @@ function VoiceAnalyzerModal({
               }`}
           >
             <FontAwesomeIcon icon={faSync} className={isAnalyzing ? 'animate-spin' : ''} />
-            <span>{isAnalyzing ? "Comparing & Analyzing..." : "Start Comparison Analysis"}</span>
+            <span>{isAnalyzing ? t("voiceAnalyzerComparing") : t("voiceAnalyzerStartAnalysis")}</span>
           </button>
         </div>
 
@@ -257,7 +257,7 @@ function VoiceAnalyzerModal({
             }}
           >
             <h4 className="text-lg font-bold text-center border-b border-[var(--border-primary)] pb-2 mb-4">
-              Analysis Diagnostics (声学对比分析结果)
+              {t("voiceAnalyzerDiagnostics")}
             </h4>
 
             {/* Diagnostic Metrics */}
@@ -289,7 +289,7 @@ function VoiceAnalyzerModal({
 
             {/* Recommendations */}
             <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl p-5 space-y-4">
-              <p className="font-bold text-center text-slate-700 dark:text-slate-300">Recommended Adaptation Parameters</p>
+              <p className="font-bold text-center text-slate-700 dark:text-slate-300">{t("voiceAnalyzerRecommendedParams")}</p>
               
               <div className="flex flex-col md:flex-row md:items-center justify-between p-3 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                 <div className="mb-2 md:mb-0">
@@ -310,7 +310,7 @@ function VoiceAnalyzerModal({
 
               <div className="flex flex-col md:flex-row md:items-center justify-between p-3 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                 <div className="mb-2 md:mb-0">
-                  <span className="font-semibold">Recommended Formant Shift:</span>
+                  <span className="font-semibold">{t("voiceAnalyzerRecommendedFormant")}</span>
                   <span className="ml-2 text-lg font-black text-[var(--macaron-blue)]">
                     {result.recommended_formant_shift >= 0 ? '+' : ''}{result.recommended_formant_shift}
                   </span>
@@ -321,7 +321,7 @@ function VoiceAnalyzerModal({
                   className="flex items-center space-x-1 px-4 py-1.5 bg-[var(--macaron-blue)] text-[#3a3530] text-xs font-semibold rounded-full hover:opacity-90 active:scale-95 transition-all"
                 >
                   <FontAwesomeIcon icon={faCheck} />
-                  <span>Apply Formant</span>
+                  <span>{t("voiceAnalyzerApplyFormant")}</span>
                 </button>
               </div>
 
@@ -331,7 +331,7 @@ function VoiceAnalyzerModal({
                   className="flex items-center space-x-2 px-6 py-2.5 bg-gradient-to-r from-[var(--macaron-mint)] to-[var(--macaron-blue)] text-[#3a3530] text-sm font-bold rounded-full hover:opacity-90 hover:scale-103 active:scale-97 transition-all shadow-sm"
                 >
                   <FontAwesomeIcon icon={faCheck} />
-                  <span>Apply All Recommendations</span>
+                  <span>{t("voiceAnalyzerApplyAll")}</span>
                 </button>
               </div>
             </div>

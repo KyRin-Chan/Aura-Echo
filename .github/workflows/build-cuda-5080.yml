@@ -167,7 +167,7 @@ jobs:
       shell: bash
       run: |
         ls -al ./server/artifacts/
-        if [ -f "./server/artifacts/${{ env.ARCHIVE_NAME }}.7z.001" ]; then
+        if [ -f "./server/artifacts/${{ env.ARCHIVE_NAME }}.7z.001" ] && [ ! -f "./server/artifacts/${{ env.ARCHIVE_NAME }}.7z.002" ]; then
           mv ./server/artifacts/${{ env.ARCHIVE_NAME }}.7z.001 ./server/artifacts/${{ env.ARCHIVE_NAME }}.7z
         fi
 

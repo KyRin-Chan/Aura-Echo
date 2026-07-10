@@ -134,8 +134,7 @@ jobs:
       shell: bash
       run: |
         ls -al ./server/artifacts/
-        COUNT=$(ls -1q ./server/artifacts/ | wc -l | sed -r 's/[[:space:]]+//g')
-        if [ $COUNT = 1 ]; then
+        if [ -f "./server/artifacts/${{ env.ARCHIVE_NAME }}.7z.001" ] && [ ! -f "./server/artifacts/${{ env.ARCHIVE_NAME }}.7z.002" ]; then
           mv ./server/artifacts/${{ env.ARCHIVE_NAME }}.7z.001 ./server/artifacts/${{ env.ARCHIVE_NAME }}.7z
         fi
 
