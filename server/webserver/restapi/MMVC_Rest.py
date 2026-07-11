@@ -1,5 +1,6 @@
 import logging
 import os
+import asyncio
 
 from webserver.restapi.mods.TrustedOrigin import TrustedOriginMiddleware
 from fastapi import FastAPI, Request, Response, HTTPException, WebSocket, WebSocketDisconnect
@@ -133,7 +134,7 @@ class MMVC_Rest:
                         input_audio = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768
                         logger.debug(f"[WS] Received data len: {len(data)}, raw_audio len: {len(raw_audio)}, input_audio len: {len(input_audio)}")
 
-                        out_audio, vol, perf, err = voiceChangerManager.change_voice(input_audio)
+                        out_audio, vol, perf, err = await asyncio.to_thread(voiceChangerManager.change_voice, input_audio)
                         if err is not None:
                             error_code, error_message = err
                             logger.error(f"[WS] change_voice error: {error_code}: {error_message}")

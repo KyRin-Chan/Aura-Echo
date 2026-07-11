@@ -323,6 +323,16 @@ class VoiceChangerManager(ServerAudioCallbacks):
             return np.zeros(1, dtype=np.float32), 0, [0, 0, 0], ('PipelineNotInitializedException', format_exc())
         except Exception as e:
             logger.exception(e)
+            err_str = str(e).lower()
+            if "cuda" in err_str or "device-side assert" in err_str:
+                try:
+                    logger.warning("CUDA context error/corruption detected. Attempting auto-recovery...")
+                    import torch
+                    torch.cuda.empty_cache()
+                    # Force re-initialize of the active slot to rebuild pipeline
+                    self.initialize(self.settings.modelSlotIndex)
+                except Exception as reinit_err:
+                    logger.error(f"Failed to auto-recover CUDA context: {reinit_err}")
             return np.zeros(1, dtype=np.float32), 0, [0, 0, 0], ('Exception', format_exc())
 
 

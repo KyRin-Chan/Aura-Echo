@@ -32,6 +32,7 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
     private isRecording = false;
     private lastPlaySample = 0;
     private wasPlaying = false;
+    private unpushedF32Data: Float32Array = new Float32Array(0);
 
     playBuffer: Float32Array[] = [];
     /**
@@ -77,23 +78,29 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
             return;
         } else if (request.requestType === "trancateBuffer") {
             this.trancateBuffer(0, 0);
+            this.unpushedF32Data = new Float32Array(0);
             return;
         }
 
         const f32Data = request.voice;
-        const chunkSize = Math.floor(f32Data.length / this.BLOCK_SIZE);
-        // Allow a jitter buffer headroom (chunkSize + 8 blocks, which is ~16ms of delay tolerance at 48kHz)
+        const concatedF32Data = new Float32Array(this.unpushedF32Data.length + f32Data.length);
+        concatedF32Data.set(this.unpushedF32Data);
+        concatedF32Data.set(f32Data, this.unpushedF32Data.length);
+
+        const chunkSize = Math.floor(concatedF32Data.length / this.BLOCK_SIZE);
+        // Allow a jitter buffer headroom (chunkSize + 48 blocks, which is ~100ms of delay tolerance at 48kHz)
         // to prevent packet arrival jitter from constantly dropping samples and causing robotic metallic sound.
-        const maxBufferBlocks = chunkSize + 8;
+        const maxBufferBlocks = chunkSize + 48;
         if (this.playBuffer.length > maxBufferBlocks) {
             // console.log(`[worklet] Truncate ${this.playBuffer.length} > ${maxBufferBlocks}`);
             this.trancateBuffer(this.playBuffer.length - (chunkSize + 2)); // keep a small safety cushion
         }
 
         for (let i = 0; i < chunkSize; i++) {
-            const block = f32Data.subarray(i * this.BLOCK_SIZE, (i + 1) * this.BLOCK_SIZE);
+            const block = concatedF32Data.slice(i * this.BLOCK_SIZE, (i + 1) * this.BLOCK_SIZE);
             this.playBuffer.push(block);
         }
+        this.unpushedF32Data = concatedF32Data.slice(chunkSize * this.BLOCK_SIZE);
     }
 
     pushData = (inputData: Float32Array) => {
