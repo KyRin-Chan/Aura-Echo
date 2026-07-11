@@ -280,7 +280,7 @@ function BottomBar(): JSX.Element {
                         className="w-3.5 h-3.5 rounded-full border border-outline-variant/30 flex-shrink-0"
                         style={{ backgroundColor: c.hex }}
                       />
-                      <span>{c.name}</span>
+                      <span>{t(c.langKey)}</span>
                     </button>
                   ))}
                 </div>

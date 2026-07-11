@@ -227,10 +227,17 @@ export function applyMD3Theme(palettes: MD3Palettes, mode: 'light' | 'dark') {
 }
 
 // Preset color options for configuring themes
-export const PRESET_SEED_COLORS = [
-  { name: 'Mint Green', hex: '#3ae1a5' },
-  { name: 'Aura Violet', hex: '#b792e8' },
-  { name: 'Ocean Blue', hex: '#00b4d8' },
-  { name: 'Crimson Pink', hex: '#ff6083' },
-  { name: 'Citron Gold', hex: '#ffd066' }
+export interface PresetColor {
+  name: string;
+  hex: string;
+  langKey: 'colorSageGreen' | 'colorLavenderWisteria' | 'colorSlateBlue' | 'colorDustyRose' | 'colorSoftSand' | 'colorSakuraSnow';
+}
+
+export const PRESET_SEED_COLORS: PresetColor[] = [
+  { name: 'Sage Green', hex: '#8fa89c', langKey: 'colorSageGreen' },
+  { name: 'Lavender Wisteria', hex: '#b5a6c9', langKey: 'colorLavenderWisteria' },
+  { name: 'Slate Blue', hex: '#8da9c4', langKey: 'colorSlateBlue' },
+  { name: 'Dusty Rose', hex: '#d9a0a0', langKey: 'colorDustyRose' },
+  { name: 'Soft Sand', hex: '#d6b785', langKey: 'colorSoftSand' },
+  { name: 'Sakura Snow', hex: '#f9bfc6', langKey: 'colorSakuraSnow' }
 ];

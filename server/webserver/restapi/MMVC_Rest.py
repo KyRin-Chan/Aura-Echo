@@ -131,7 +131,7 @@ class MMVC_Rest:
                         ts = struct.unpack("<q", data[:8])[0]
                         raw_audio = data[8:]
                         input_audio = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768
-                        logger.info(f"[WS] Received data len: {len(data)}, raw_audio len: {len(raw_audio)}, input_audio len: {len(input_audio)}")
+                        logger.debug(f"[WS] Received data len: {len(data)}, raw_audio len: {len(raw_audio)}, input_audio len: {len(input_audio)}")
 
                         out_audio, vol, perf, err = voiceChangerManager.change_voice(input_audio)
                         if err is not None:
@@ -147,7 +147,7 @@ class MMVC_Rest:
                             out_audio = (out_audio * 32767).astype(np.int16).tobytes()
                             send_timestamp = round(time() * 1000)
                             header = struct.pack("<qiffffBB", send_timestamp, ping, vol, float(perf[0]), float(perf[1]), float(perf[2]), 0, 0)
-                            logger.info(f"[WS] Sending out_audio len: {len(out_audio)}")
+                            logger.debug(f"[WS] Sending out_audio len: {len(out_audio)}")
                             await websocket.send_bytes(header + out_audio)
                 except WebSocketDisconnect:
                     logger.debug("WebSocket client disconnected from /ws/voice")

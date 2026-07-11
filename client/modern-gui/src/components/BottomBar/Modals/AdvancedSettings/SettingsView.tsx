@@ -240,22 +240,46 @@ function SettingsView(): JSX.Element {
         />
       </div>
 
-      <div className="border border-error/50 p-4 rounded-lg bg-error/5 space-y-2 mt-2">
-        <div className="flex items-center text-error mb-2 text-sm font-semibold">
-          <FontAwesomeIcon icon={faExclamationTriangle} className="mr-2" />
+      <div className="border border-error/30 p-4 rounded-xl bg-error/5 space-y-4 mt-4">
+        {/* Title */}
+        <div className="flex items-center text-error text-xs font-bold uppercase tracking-wider pb-2 border-b border-error/10">
+          <FontAwesomeIcon icon={faExclamationTriangle} className="mr-2 text-sm" />
           <span>{t('dangerZoneLabel')}</span>
         </div>
-        <MD3Checkbox
-          checked={appState.setting.voiceChangerClientSetting.passThroughConfirmationSkip ?? false}
-          onChange={handlePassThroughConfirmationSkipChange}
-          label={t('skipPassthroughConfirmLabel')}
-        />
-        <button
-          onClick={handleResetSettings}
-          className="w-full mt-3 px-4 py-2 bg-error hover:bg-error/90 text-on-error font-semibold rounded-full shadow-elevation-1 transition-all duration-150 text-xs text-center"
-        >
-          {t('resetSettings')}
-        </button>
+
+        {/* Row 1: Skip Passthrough Confirmation */}
+        <div className="flex items-center justify-between py-1">
+          <div className="flex flex-col space-y-0.5 max-w-[70%]">
+            <span className="text-sm font-semibold text-on-surface">
+              {t('skipPassthroughConfirmLabel')}
+            </span>
+            <span className="text-[11px] text-on-surface-variant/70">
+              {t('skipPassthroughConfirmDesc')}
+            </span>
+          </div>
+          <MD3Switch
+            checked={appState.setting.voiceChangerClientSetting.passThroughConfirmationSkip ?? false}
+            onChange={handlePassThroughConfirmationSkipChange}
+          />
+        </div>
+
+        {/* Row 2: Reset Settings */}
+        <div className="flex items-center justify-between py-2 border-t border-outline-variant/30">
+          <div className="flex flex-col space-y-0.5 max-w-[70%]">
+            <span className="text-sm font-semibold text-on-surface">
+              {t('resetSettingsLabel')}
+            </span>
+            <span className="text-[11px] text-on-surface-variant/70">
+              {t('resetSettingsDesc')}
+            </span>
+          </div>
+          <button
+            onClick={handleResetSettings}
+            className="px-4 py-2 bg-error hover:bg-error/90 text-on-error text-xs font-semibold rounded-full shadow-elevation-1 hover:shadow-elevation-2 active:scale-97 transition-all duration-150 whitespace-nowrap"
+          >
+            {t('resetSettings')}
+          </button>
+        </div>
       </div>
     </div>
   );

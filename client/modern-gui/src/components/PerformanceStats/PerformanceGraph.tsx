@@ -13,9 +13,9 @@ function PerformanceGraph({ chartData }: PerformanceGraphProps) {
   // ---------------- State ----------------
   const { theme } = useThemeContext();
 
-  // Vibrant accent colors matching our new themes
-  const strokeColor = theme === 'dark' ? '#0df2a3' : '#26ca8f'; // glowing cyber-mint / modern mint
-  const refLineColor = theme === 'dark' ? '#00b4d8' : '#7ac6e6'; // glowing sky-blue / modern blue
+  // Accent colors dynamically matching the current selected theme
+  const strokeColor = 'var(--md-sys-color-primary)';
+  const refLineColor = 'var(--md-sys-color-secondary)';
   const gridColor = theme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
 
   // ---------------- Render ----------------

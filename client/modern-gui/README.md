@@ -38,7 +38,7 @@ This is a modern, redesigned web client for the Voice Changer application that r
 
 ## Releases
 
-Download the latest compiled release from the [GitHub Releases page](https://github.com/tg-develop/RVC-Modern-GUI/releases/tag/release) to get pre-built files ready for installation.
+Download the latest compiled release from the [GitHub Releases page](https://github.com/KyRin-Chan/Aura-Echo/releases/tag/release) to get pre-built files ready for installation.
 
 ## Installation
 
@@ -49,7 +49,7 @@ To use the modern GUI client as a replacement for the original interface:
 
 1. **Download the latest release:**
    
-   Download the compiled release from the [GitHub Releases page](https://github.com/tg-develop/RVC-Modern-GUI/releases/tag/release) and extract the files.
+   Download the compiled release from the [GitHub Releases page](https://github.com/KyRin-Chan/Aura-Echo/releases/tag/release) and extract the files.
 
 2. **Replace the original client files:**
    

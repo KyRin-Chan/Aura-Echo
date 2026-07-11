@@ -286,6 +286,10 @@ export const locales = {
         dangerZoneLabel: "Danger Zone",
         skipPassthroughConfirmLabel: "Skip Pass through confirmation",
         protectLabel: "Protect",
+        closeLabel: "Close",
+        skipPassthroughConfirmDesc: "Bypass confirmation dialog when enabling audio passthrough",
+        resetSettingsLabel: "Reset Application Settings",
+        resetSettingsDesc: "Clear all cached options and revert settings to factory defaults",
         modelsMergedSuccess: "Models merged successfully!",
         modelsDownloadedSuccess: "Models downloaded successfully!",
         noEmptySlotsForSaving: "No empty slots available for saving.",
@@ -317,7 +321,13 @@ export const locales = {
         changeSeedColorTooltip: "Change Seed Color",
         themeColorsLabel: "Theme Colors",
         switchToDarkMode: "Switch to dark mode",
-        switchToLightMode: "Switch to light mode"
+        switchToLightMode: "Switch to light mode",
+        colorSageGreen: "Sage Green",
+        colorLavenderWisteria: "Lavender Wisteria",
+        colorSlateBlue: "Slate Blue",
+        colorDustyRose: "Dusty Rose",
+        colorSoftSand: "Soft Sand",
+        colorSakuraSnow: "Sakura Snow"
     },
     zh: {
         // UI Prompts
@@ -589,6 +599,10 @@ export const locales = {
         dangerZoneLabel: "危险区域",
         skipPassthroughConfirmLabel: "跳过直通确认提示",
         protectLabel: "保护 (Protect)",
+        closeLabel: "关闭",
+        skipPassthroughConfirmDesc: "开启直通模式时跳过确认警告提示",
+        resetSettingsLabel: "恢复应用默认设置",
+        resetSettingsDesc: "清除所有缓存配置并恢复到出厂默认值",
         modelsMergedSuccess: "模型成功融合！",
         modelsDownloadedSuccess: "模型成功下载！",
         noEmptySlotsForSaving: "没有可用的空插槽用于保存。",
@@ -620,7 +634,13 @@ export const locales = {
         changeSeedColorTooltip: "更改主题种子颜色",
         themeColorsLabel: "主题颜色",
         switchToDarkMode: "切换到暗黑模式",
-        switchToLightMode: "切换到亮色模式"
+        switchToLightMode: "切换到亮色模式",
+        colorSageGreen: "鼠尾草绿",
+        colorLavenderWisteria: "熏衣草紫",
+        colorSlateBlue: "石板暗蓝",
+        colorDustyRose: "落樱粉黛",
+        colorSoftSand: "暖砂金黄",
+        colorSakuraSnow: "和风樱雪"
     },
     ja: {
         // UI Prompts
@@ -892,6 +912,10 @@ export const locales = {
         dangerZoneLabel: "危険ゾーン",
         skipPassthroughConfirmLabel: "パススルーの確認をスキップ",
         protectLabel: "保護 (Protect)",
+        closeLabel: "閉じる",
+        skipPassthroughConfirmDesc: "パススルーを有効にする際の確認ダイアログをスキップします",
+        resetSettingsLabel: "アプリケーション設定のリセット",
+        resetSettingsDesc: "キャッシュされたすべてのオプションをクリアし、初期設定に戻します",
         modelsMergedSuccess: "モデルが正常にマージされました！",
         modelsDownloadedSuccess: "モデルが正常にダウンロードされました！",
         noEmptySlotsForSaving: "保存用の空きスロットがありません。",
@@ -923,7 +947,13 @@ export const locales = {
         changeSeedColorTooltip: "テーマシードカラーを変更",
         themeColorsLabel: "テーマカラー",
         switchToDarkMode: "ダークモードに切り替え",
-        switchToLightMode: "ライトモードに切り替え"
+        switchToLightMode: "ライトモードに切り替え",
+        colorSageGreen: "セージグリーン",
+        colorLavenderWisteria: "ラベンダー",
+        colorSlateBlue: "スレートブルー",
+        colorDustyRose: "ダスティローズ",
+        colorSoftSand: "ソフトサンド",
+        colorSakuraSnow: "和風桜雪"
     }
 };
 

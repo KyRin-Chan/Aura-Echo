@@ -46,7 +46,7 @@ function ClientInfoModal({ showClientInfo, setShowClientInfo }: ClientInfoModalP
               <div className="flex items-center mb-2">
                 <h4 className="text-base font-semibold text-blue-900 dark:text-blue-100 mr-2">{t('clientLabel')}</h4>
                 <span className="px-2 py-1 text-xs font-medium bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 rounded-full">
-                  tg-develop
+                  Aura-Echo
                 </span>
               </div>
 
@@ -67,7 +67,7 @@ function ClientInfoModal({ showClientInfo, setShowClientInfo }: ClientInfoModalP
             </div>
 
             <a
-              href="https://github.com/tg-develop/voice-changer"
+              href="https://github.com/KyRin-Chan/Aura-Echo"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center px-3 py-2 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 bg-white/50 dark:bg-black/20 hover:bg-white/80 dark:hover:bg-black/40 rounded-md transition-all duration-200"

@@ -38,7 +38,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   });
 
   const [seedColor, setSeedColorState] = useState<string>(() => {
-    return localStorage.getItem('seedColor') || '#3ae1a5'; // Default to mint green
+    return localStorage.getItem('seedColor') || '#8fa89c'; // Default to Sage Green
   });
 
   useEffect(() => {
