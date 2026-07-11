@@ -27,6 +27,12 @@ export type ClientState = {
     setAudioMonitorElementId: (elemId: string) => void;
     errorMessage: string;
     resetErrorMessage: () => void;
+    popLogs: {
+        type: string;
+        timestamp: string;
+        count: number;
+    }[];
+    clearPopLogs: () => void;
 };
 export type PerformanceStats = {
     vol: number;

@@ -3,6 +3,7 @@ import { useAppState } from "../../context/AppContext";
 import { useUIContext } from "../../context/UIContext";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faExclamationTriangle } from "@fortawesome/free-solid-svg-icons";
+import { t } from "../../locales";
 
 interface AudioModeProps {
   audioState: "client" | "server";
@@ -95,7 +96,7 @@ function AudioMode({ audioState, setAudioState }: AudioModeProps): JSX.Element {
     <div className="space-y-4">
       <div className="pb-3 border-b border-outline-variant">
         <div className="flex items-center mb-2.5">
-          <label className="block text-sm font-medium text-on-surface-variant">Audio Processing Mode</label>
+          <label className="block text-sm font-medium text-on-surface-variant">{t('audioProcessingModeLabel')}</label>
           {warningMessage && (
             <div className="ml-2 relative group cursor-help">
               <FontAwesomeIcon icon={faExclamationTriangle} className="text-error" />
@@ -117,7 +118,7 @@ function AudioMode({ audioState, setAudioState }: AudioModeProps): JSX.Element {
                   : "bg-transparent text-on-surface hover:bg-surface-variant/20"
               } ${(!isClientAudioAvailable || uiContext.isConverting) ? "opacity-50 cursor-not-allowed" : ""}`}
             >
-              Client Mode
+              {t('clientModeLabel')}
             </button>
             <div className="w-[1px] bg-outline" />
             <button
@@ -129,7 +130,7 @@ function AudioMode({ audioState, setAudioState }: AudioModeProps): JSX.Element {
                   : "bg-transparent text-on-surface hover:bg-surface-variant/20"
               } ${(!isServerAudioAvailable || uiContext.isConverting) ? "opacity-50 cursor-not-allowed" : ""}`}
             >
-              Server Mode
+              {t('serverModeLabel')}
             </button>
           </div>
 
@@ -139,7 +140,7 @@ function AudioMode({ audioState, setAudioState }: AudioModeProps): JSX.Element {
               className="px-4 py-1.5 text-xs font-semibold border border-outline text-primary rounded-full hover:bg-primary/8 active:scale-97 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={uiContext.isConverting || appState.serverSetting.serverSetting.serverAudioStated === 1}
             >
-              Reload Device List
+              {t('reloadDeviceListLabel')}
             </button>
           )}
         </div>

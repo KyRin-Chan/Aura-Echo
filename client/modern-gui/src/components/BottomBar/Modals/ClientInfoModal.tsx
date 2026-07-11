@@ -78,6 +78,49 @@ function ClientInfoModal({ showClientInfo, setShowClientInfo }: ClientInfoModalP
           </div>
         </div>
 
+        {/* Audio Diagnostics Section */}
+        <div className="border border-outline-variant rounded-lg p-4 bg-surface-container-low">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold text-on-surface">Audio Diagnostics (Real-time Logs)</h4>
+            {appState.popLogs && appState.popLogs.length > 0 && (
+              <button
+                onClick={appState.clearPopLogs}
+                className="px-2 py-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+              >
+                Clear Logs
+              </button>
+            )}
+          </div>
+
+          {(!appState.popLogs || appState.popLogs.length === 0) ? (
+            <div className="text-xs text-on-surface-variant italic p-2 bg-surface-container-highest/20 rounded border border-dashed border-outline-variant text-center">
+              No audio glitches detected. Audio stream is healthy.
+            </div>
+          ) : (
+            <div className="space-y-1.5 max-h-[150px] overflow-y-auto custom-scrollbar text-xs">
+              {appState.popLogs.slice().reverse().map((log, idx) => {
+                let badgeColor = "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
+                if (log.type === "clipping") badgeColor = "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300";
+                if (log.type === "underflow") badgeColor = "bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300";
+
+                return (
+                  <div key={idx} className="flex items-center justify-between p-2 rounded bg-surface-container border border-outline-variant/40">
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${badgeColor}`}>
+                        {log.type}
+                      </span>
+                      <span className="text-on-surface-variant font-mono">
+                        {log.type === "underflow" ? "Buffer Dry / Packet Drop" : `Count: ${log.count}`}
+                      </span>
+                    </div>
+                    <span className="text-on-surface-variant/70 text-[10px]">{log.timestamp}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg shadow-inner">
           <pre className="text-xs text-slate-700 dark:text-gray-300 overflow-auto max-h-[40vh] custom-scrollbar p-2 rounded-md bg-white dark:bg-slate-900">
             <code>{clientJson}</code>

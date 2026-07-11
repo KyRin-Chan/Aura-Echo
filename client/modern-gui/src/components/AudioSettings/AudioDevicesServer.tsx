@@ -266,7 +266,7 @@ function AudioDevicesServer() {
         <div className={selectedAudioDriver === 'ASIO' ? 'w-[70%]' : 'w-full'}>
           <MD3Select
             id="inputCh"
-            label="Input Device"
+            label={t('inputDeviceLabel')}
             value={appState.serverSetting.serverSetting.serverInputDeviceId}
             onChange={handleInputDeviceChange}
             options={inputOptions}
@@ -290,7 +290,7 @@ function AudioDevicesServer() {
         <div className={selectedAudioDriver === 'ASIO' ? 'w-[70%]' : 'w-full'}>
           <MD3Select
             id="outputCh"
-            label="Output Device"
+            label={t('outputDeviceLabel')}
             value={appState.serverSetting.serverSetting.serverOutputDeviceId}
             onChange={handleOutputDeviceChange}
             options={outputOptions}
@@ -324,7 +324,7 @@ function AudioDevicesServer() {
         <div className="w-[70%]">
           <MD3Select
             id="monCh"
-            label="Monitor Device"
+            label={t('monitorDeviceLabel')}
             value={appState.serverSetting.serverSetting.serverMonitorDeviceId}
             onChange={handleMonitorDeviceChange}
             options={monitorOptions}

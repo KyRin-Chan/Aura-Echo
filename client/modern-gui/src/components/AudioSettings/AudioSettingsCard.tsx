@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronUp, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import DragHandle from '../Helpers/DragHandle';
 import { AUDIO_KEYS, CSS_CLASSES } from '../../styles/constants';
+import { t } from '../../locales';
 import AudioMode from './AudioMode';
 import AudioDevicesServer from './AudioDevicesServer';
 import AudioVolume from './AudioVolume';
@@ -39,7 +40,7 @@ function AudioSettingsCard({ dndAttributes, dndListeners }: AudioSettingsCardPro
     >
       <div className={CSS_CLASSES.cardHeader}>
         <div className="flex items-center">
-          <h4 className={CSS_CLASSES.heading}>Audio Settings</h4>
+          <h4 className={CSS_CLASSES.heading}>{t('audioSettingsTitle')}</h4>
         </div>
         <div className="flex space-x-1 items-center">
           <button

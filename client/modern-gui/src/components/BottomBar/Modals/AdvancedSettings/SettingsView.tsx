@@ -7,8 +7,9 @@ import MD3Switch from '../../../Helpers/MD3Switch';
 import MD3Checkbox from '../../../Helpers/MD3Checkbox';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExclamationTriangle } from '@fortawesome/free-solid-svg-icons';
-import { Protocol } from '@dannadori/voice-changer-client-js';
+import { Protocol, useIndexedDB } from '@dannadori/voice-changer-client-js';
 import { CSS_CLASSES } from '../../../../styles/constants';
+import { t, currentLang, setLang, LangType } from '../../../../locales';
 
 function SettingsView(): JSX.Element {
   // ---------------- States ----------------
@@ -21,6 +22,8 @@ function SettingsView(): JSX.Element {
   const [localProtect, setLocalProtect] = useState<number>(
     appState.serverSetting?.serverSetting?.protect ?? 0
   );
+  const [localLang, setLocalLang] = useState<LangType>(currentLang);
+  const { removeItem } = useIndexedDB({ clientType: null });
 
   // ---------------- Hooks ----------------
 
@@ -104,15 +107,54 @@ function SettingsView(): JSX.Element {
     });
   };
 
+  const handleAGCChange = async (val: boolean) => {
+    appState.setVoiceChangerClientSetting({
+      ...appState.setting.voiceChangerClientSetting,
+      agcEnabled: val
+    });
+  };
+
+  const handleLangChange = (lang: LangType) => {
+    setLang(lang);
+    setLocalLang(lang);
+    window.location.reload();
+  };
+
+  const handleResetSettings = async () => {
+    await appState.clearSetting();
+    await removeItem('INDEXEDDB_KEY_AUDIO_INPUT');
+    await removeItem('INDEXEDDB_KEY_AUDIO_OUTPUT');
+    await removeItem('INDEXEDDB_KEY_AUDIO_MONITOR');
+    localStorage.removeItem('app_language');
+    window.location.reload();
+  };
+
   // ---------------- Render ----------------
 
   const protocolOptions = [
+    { value: 'ws', label: 'Raw WebSocket (High Performance)' },
     { value: 'sio', label: 'SIO (Socket.IO)' },
     { value: 'rest', label: 'REST (HTTP)' }
   ];
 
+  const languageOptions = [
+    { value: 'zh', label: '简体中文 (Chinese)' },
+    { value: 'en', label: 'English' },
+    { value: 'ja', label: '日本語 (Japanese)' }
+  ];
+
   return (
     <div className="space-y-4 py-2 bg-surface-container-low p-4 rounded-md border border-outline-variant max-h-[500px] overflow-y-auto pr-1.5">
+      <div>
+        <MD3Select
+          id="language"
+          label="Language / 语言"
+          value={localLang}
+          onChange={(e) => handleLangChange(e.target.value as LangType)}
+          options={languageOptions}
+        />
+      </div>
+
       <div>
         <MD3Select
           id="protocol"
@@ -171,6 +213,12 @@ function SettingsView(): JSX.Element {
           onChange={handleUseONNXChange}
           label="Convert to ONNX"
         />
+
+        <MD3Switch
+          checked={appState.setting.voiceChangerClientSetting.agcEnabled ?? false}
+          onChange={handleAGCChange}
+          label="Auto Gain Control (Limiter)"
+        />
       </div>
 
       <div>
@@ -202,6 +250,12 @@ function SettingsView(): JSX.Element {
           onChange={handlePassThroughConfirmationSkipChange}
           label="Skip Pass through confirmation"
         />
+        <button
+          onClick={handleResetSettings}
+          className="w-full mt-3 px-4 py-2 bg-error hover:bg-error/90 text-on-error font-semibold rounded-full shadow-elevation-1 transition-all duration-150 text-xs text-center"
+        >
+          {t('resetSettings')}
+        </button>
       </div>
     </div>
   );

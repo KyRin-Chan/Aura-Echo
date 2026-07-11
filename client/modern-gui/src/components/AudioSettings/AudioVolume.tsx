@@ -4,6 +4,7 @@ import { faMicrophone, faVolumeUp, faHeadphones } from '@fortawesome/free-solid-
 import { useAppState } from '../../context/AppContext';
 import { CSS_CLASSES } from '../../styles/constants';
 import MD3Slider from '../Helpers/MD3Slider';
+import { t } from '../../locales';
 
 function AudioVolume(): JSX.Element {
   // ---------------- States ----------------
@@ -76,7 +77,7 @@ function AudioVolume(): JSX.Element {
       <div>
         <label htmlFor="inputGain" className={CSS_CLASSES.label}>
           <FontAwesomeIcon icon={faMicrophone} className="mr-2 text-primary" />
-          Input Volume
+          {t('inputVolumeLabel')}
         </label>
         <MD3Slider
           id="inputGain"
@@ -93,7 +94,7 @@ function AudioVolume(): JSX.Element {
       <div>
         <label htmlFor="outputGain" className={CSS_CLASSES.label}>
           <FontAwesomeIcon icon={faVolumeUp} className="mr-2 text-primary" />
-          Output Volume
+          {t('outputVolumeLabel')}
         </label>
         <MD3Slider
           id="outputGain"
@@ -110,7 +111,7 @@ function AudioVolume(): JSX.Element {
       <div>
         <label htmlFor="monitorGain" className={CSS_CLASSES.label}>
           <FontAwesomeIcon icon={faHeadphones} className="mr-2 text-primary" />
-          Monitor Volume
+          {t('monitorVolumeLabel')}
         </label>
         <MD3Slider
           id="monitorGain"

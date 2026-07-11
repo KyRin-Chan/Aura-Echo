@@ -4,6 +4,7 @@ import { ClientState } from "@dannadori/voice-changer-client-js";
 import { CSS_CLASSES } from "../../styles/constants";
 import { useEffect, useState } from "react";
 import { UIContextType } from "../../context/UIContext";
+import { t } from "../../locales";
 
 interface SilenceThresholdProps {
   appState: ClientState;
@@ -52,7 +53,7 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
     <div className="flex flex-col space-y-3.5 bg-surface-container-low p-3 rounded-md border border-outline-variant">
       <div>
         <label htmlFor="inSens" className={CSS_CLASSES.label}>
-          Input Sensitivity (In. Sens):
+          {t('silentThresholdDesc')}
         </label>
         <MD3Slider
           id="inSens"
@@ -72,7 +73,7 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
           id="powerSavingMode"
           checked={appState.serverSetting?.serverSetting?.powerSavingMode === 1}
           onChange={handlePowerSavingChange}
-          label="Power Saving Mode (Skip inference)"
+          label={t('powerSavingModeLabel')}
         />
       </div>
     </div>

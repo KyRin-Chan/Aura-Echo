@@ -184,11 +184,17 @@ function VoiceAnalyzerModal({
           {/* Target / Reference Panel */}
           <div className="p-5 rounded-2xl border border-outline-variant bg-surface-container-low flex flex-col justify-between transition-all">
             <div>
-              <span className="flex items-center space-x-2 mb-2 font-semibold text-primary">
+              <span className="flex items-center space-x-2 mb-3 font-semibold text-primary">
                 <FontAwesomeIcon icon={faMusic} />
                 <label className={CSS_CLASSES.label}>{t('voiceAnalyzerStandardTarget')}</label>
               </span>
-              <input type="file" accept="audio/*" onChange={handleTargetChange} className={CSS_CLASSES.fileInput} />
+              <label className="flex flex-col items-center justify-center border border-dashed border-outline-variant hover:border-primary/50 bg-surface-container/40 hover:bg-primary/5 p-4 rounded-xl cursor-pointer transition-all duration-200 text-center">
+                <FontAwesomeIcon icon={faMusic} className="text-primary/70 text-lg mb-1.5" />
+                <span className="text-xs text-on-surface-variant font-medium select-none truncate max-w-full px-2">
+                  {targetFile ? targetFile.name : t('clickToChooseFile')}
+                </span>
+                <input type="file" accept="audio/*" onChange={handleTargetChange} className="hidden" />
+              </label>
             </div>
             {targetPreviewUrl && (
               <div className="mt-4">
@@ -201,11 +207,17 @@ function VoiceAnalyzerModal({
           {/* User Input Panel */}
           <div className="p-5 rounded-2xl border border-outline-variant bg-surface-container-low flex flex-col justify-between transition-all">
             <div>
-              <span className="flex items-center space-x-2 mb-2 font-semibold text-secondary">
+              <span className="flex items-center space-x-2 mb-3 font-semibold text-secondary">
                 <FontAwesomeIcon icon={faMicrophone} />
                 <label className={CSS_CLASSES.label}>{t('voiceAnalyzerYourInput')}</label>
               </span>
-              <input type="file" accept="audio/*" onChange={handleInputChange} className={CSS_CLASSES.fileInput} />
+              <label className="flex flex-col items-center justify-center border border-dashed border-outline-variant hover:border-secondary/50 bg-surface-container/40 hover:bg-secondary/5 p-4 rounded-xl cursor-pointer transition-all duration-200 text-center">
+                <FontAwesomeIcon icon={faMicrophone} className="text-secondary/70 text-lg mb-1.5" />
+                <span className="text-xs text-on-surface-variant font-medium select-none truncate max-w-full px-2">
+                  {inputFile ? inputFile.name : t('clickToChooseFile')}
+                </span>
+                <input type="file" accept="audio/*" onChange={handleInputChange} className="hidden" />
+              </label>
             </div>
             {inputPreviewUrl && (
               <div className="mt-4">

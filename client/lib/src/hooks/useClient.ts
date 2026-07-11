@@ -49,6 +49,8 @@ export type ClientState = {
 
     errorMessage: string;
     resetErrorMessage: () => void;
+    popLogs: { type: string; timestamp: string; count: number }[];
+    clearPopLogs: () => void;
 };
 
 export type PerformanceStats = {
@@ -128,6 +130,9 @@ export const useClient = (props: UseClientProps): ClientState => {
         loadSettings();
     }, [voiceChangerClient]);
 
+    const [popLogs, setPopLogs] = useState<{ type: string; timestamp: string; count: number }[]>([]);
+    const clearPopLogs = () => setPopLogs([]);
+
     // (2-1) クライアント初期化処理
     useEffect(() => {
         const initialized = async () => {
@@ -153,6 +158,15 @@ export const useClient = (props: UseClientProps): ClientState => {
                     // const serverError = `Error code: ${code}\n\n${mes}`
                     // console.error(serverError);
                     setErrorMessage(mes);
+                },
+                notifyPop: (type: string, timestamp: string, count: number) => {
+                    setPopLogs(prev => {
+                        const newLogs = [...prev, { type, timestamp, count }];
+                        if (newLogs.length > 50) {
+                            newLogs.shift();
+                        }
+                        return newLogs;
+                    });
                 }
             });
 
@@ -265,5 +279,7 @@ export const useClient = (props: UseClientProps): ClientState => {
 
         errorMessage,
         resetErrorMessage,
+        popLogs,
+        clearPopLogs,
     };
 };

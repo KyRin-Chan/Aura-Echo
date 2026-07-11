@@ -3,8 +3,13 @@
 
 export interface MD3Tones {
   0: string;
+  4: string;
+  6: string;
   10: string;
+  12: string;
+  17: string;
   20: string;
+  22: string;
   30: string;
   40: string;
   50: string;
@@ -12,7 +17,10 @@ export interface MD3Tones {
   70: string;
   80: string;
   90: string;
+  92: string;
+  94: string;
   95: string;
+  96: string;
   98: string;
   99: string;
   100: string;
@@ -86,15 +94,14 @@ function hslToHex(h: number, s: number, l: number): string {
 
 // Generate MD3 Tonal Palette for a given H, S and an adjustment factor for S
 function generateTonalPalette(h: number, s: number): MD3Tones {
-  const tonesList = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 99, 100] as const;
-  const tones = {} as MD3Tones;
+  const tonesList = [0, 4, 6, 10, 12, 17, 20, 22, 30, 40, 50, 60, 70, 80, 90, 92, 94, 95, 96, 98, 99, 100] as const;
+  const tones = {} as Record<number, string>;
 
   tonesList.forEach(t => {
-    const lightness = t;
-    tones[t as keyof MD3Tones] = hslToHex(h, s, lightness);
+    tones[t] = hslToHex(h, s, t);
   });
 
-  return tones;
+  return tones as unknown as MD3Tones;
 }
 
 // Main generation function

@@ -18,6 +18,7 @@ export type VoiceChangerWorkletListener = {
     code: VOICE_CHANGER_CLIENT_EXCEPTION,
     message: string
   ) => void;
+  notifyPop?: (type: string, timestamp: string, count: number) => void;
 };
 
 export class VoiceChangerWorkletNode extends AudioWorkletNode {
@@ -286,6 +287,13 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
 
       this.listener.notifySendBufferingTime(Date.now() - this.bufferStart);
       this.bufferStart = Date.now();
+    } else if (event.data.responseType === "pop_detected") {
+      const { type, count } = event.data;
+      const timestamp = new Date().toLocaleTimeString();
+      console.warn(`[Audio Diagnostic] Pop/Click detected! Type: ${type}, Count: ${count || 1} at ${timestamp}`);
+      if (this.listener.notifyPop) {
+        this.listener.notifyPop(type, timestamp, count || 1);
+      }
     } else {
       console.warn(
         `[worklet_node][voice-changer-worklet-processor] unknown response ${event.data.responseType}`,

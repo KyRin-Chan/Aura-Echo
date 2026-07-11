@@ -349,7 +349,7 @@ def convert(pt_model: torch.nn.Module, input_names: list[str], inputs: tuple[tor
             input_names=input_names,
             output_names=output_names,
         )
-        onnx_model = onnxslim.simplify(onnx.load_model_from_string(io.getvalue()))
+        onnx_model = onnxslim.slim(onnx.load_model_from_string(io.getvalue()))
     return onnx_model
 
 if __name__ == '__main__':

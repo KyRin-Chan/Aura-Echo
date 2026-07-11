@@ -13,6 +13,7 @@ export declare class VoiceChangerClient {
     private monitorGainNode;
     private vcInNode;
     private vcOutNode;
+    private compressorNode;
     private currentMediaStreamAudioDestinationNode;
     private currentMediaStreamAudioDestinationMonitorNode;
     private promiseForInitialize;
@@ -31,6 +32,7 @@ export declare class VoiceChangerClient {
     stop: () => Promise<void>;
     get isVoiceChanging(): boolean;
     setServerUrl: (serverUrl: string, openTab?: boolean) => void;
+    private updateOutputConnections;
     updateClientSetting: (setting: VoiceChangerClientSetting) => Promise<void>;
     setInputGain: (val: number) => void;
     setOutputGain: (val: number) => void;

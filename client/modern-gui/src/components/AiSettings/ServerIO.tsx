@@ -13,6 +13,7 @@ import { ClientState } from "@dannadori/voice-changer-client-js";
 import AudioPlayer from '../Helpers/AudioPlayer';
 import { useUIContext } from '../../context/UIContext';
 import MD3Select from '../Helpers/MD3Select';
+import { t } from '../../locales';
 
 interface ServerIOProps {
   appState: ClientState;
@@ -68,42 +69,29 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
     };
   }, [isRecording]);
 
+  // Set selected output device
+  useEffect(() => {
+    if (audioOutputForAnalyzer) {
+      setSelectedOutputDevice(audioOutputForAnalyzer);
+    }
+  }, [audioOutputForAnalyzer]);
+
   // ---------------- Functions ----------------
 
   // Record start
   const onServerIORecordStart = async () => {
+    appState.startOutputRecording();
     setIsRecording(true);
-    await appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      recordIO: 1
-    });
   };
 
   // Record stop
   const onServerIORecordStop = async () => {
+    const outputWav = await appState.stopOutputRecording();
     setIsRecording(false);
-    await appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      recordIO: 0
-    });
-
-    // Trigger reload of audio files by updating src with timestamp
-    const timestamp = new Date().getTime();
-    const wavInput = document.getElementById(
-      AUDIO_KEYS.AUDIO_ELEMENT_FOR_SAMPLING_INPUT
-    ) as HTMLAudioElement;
-    const wavOutput = document.getElementById(
-      AUDIO_KEYS.AUDIO_ELEMENT_FOR_SAMPLING_OUTPUT
-    ) as HTMLAudioElement;
-
-    if (wavInput) {
-      wavInput.src = "/tmp/in.wav?" + timestamp;
-      wavInput.load();
-    }
-
-    if (wavOutput) {
-      wavOutput.src = "/tmp/out.wav?" + timestamp;
-      wavOutput.load();
+    const wavUrl = URL.createObjectURL(new Blob([outputWav], { type: "audio/wav" }));
+    const audioInput = document.getElementById(AUDIO_KEYS.AUDIO_ELEMENT_FOR_SAMPLING_INPUT) as HTMLAudioElement;
+    if (audioInput) {
+      audioInput.src = wavUrl;
     }
   };
 
@@ -143,7 +131,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
       <div className="flex justify-between items-center mb-3">
         <h5 className="text-md font-semibold text-on-surface">
           <FontAwesomeIcon icon={faMicrophone} className="mr-2 text-primary" />
-          ServerIO Analyzer
+          {t('serverIoAnalyzerLabel')}
         </h5>
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
@@ -187,7 +175,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
           <div className="max-w-md pt-1">
             <MD3Select
               id="serverIOOutputDevice"
-              label="Output Device"
+              label={t('outputDeviceLabel')}
               value={selectedOutputDevice}
               onChange={(e) => handleOutputDeviceChange(e.target.value)}
               options={deviceOptions}

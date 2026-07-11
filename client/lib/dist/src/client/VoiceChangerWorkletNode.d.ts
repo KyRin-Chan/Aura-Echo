@@ -3,6 +3,7 @@ export type VoiceChangerWorkletListener = {
     notifySendBufferingTime: (time: number) => void;
     notifyPerformanceStats: (ping: number, vol: number, perf: number[]) => void;
     notifyException: (code: VOICE_CHANGER_CLIENT_EXCEPTION, message: string) => void;
+    notifyPop?: (type: string, timestamp: string, count: number) => void;
 };
 export declare class VoiceChangerWorkletNode extends AudioWorkletNode {
     private listener;

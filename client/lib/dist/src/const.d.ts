@@ -294,6 +294,7 @@ export type VoiceChangerClientSetting = {
     echoCancel: boolean;
     noiseSuppression: boolean;
     noiseSuppression2: boolean;
+    agcEnabled: boolean;
     inputGain: number;
     outputGain: number;
     monitorGain: number;

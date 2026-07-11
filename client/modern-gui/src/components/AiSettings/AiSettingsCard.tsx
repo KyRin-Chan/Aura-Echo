@@ -4,9 +4,9 @@ import { faChevronUp, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import DragHandle from '../Helpers/DragHandle';
 import { useAppState } from '../../context/AppContext';
 import { useUIContext } from '../../context/UIContext';
-import { useIndexedDB } from '@dannadori/voice-changer-client-js';
 import { CSS_CLASSES } from '../../styles/constants';
 import { useAppRoot } from '../../context/AppRootProvider';
+import { t } from '../../locales';
 import NoiseReduction from './NoiseReduction';
 import F0Extraction from './F0Extraction';
 import ChunkConfig from './ChunkConfig';
@@ -26,7 +26,6 @@ function AiSettingsCard({ dndAttributes, dndListeners }: AiSettingsCardProps): J
   const { appGuiSettingState } = useAppRoot();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { getItem, setItem } = useIndexedDB({ clientType: null });
 
   // ---------------- Render ----------------
 
@@ -35,7 +34,7 @@ function AiSettingsCard({ dndAttributes, dndListeners }: AiSettingsCardProps): J
       className={`${CSS_CLASSES.card} flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : 'overflow-y-auto'}`}
     >
       <div className={CSS_CLASSES.cardHeader}>
-        <h4 className={CSS_CLASSES.heading}>AI Settings</h4>
+        <h4 className={CSS_CLASSES.heading}>{t('aiSettingsTitle')}</h4>
         <div className="flex space-x-1 items-center">
           <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? "Expand" : "Collapse"}>
             <FontAwesomeIcon icon={isCollapsed ? faChevronDown : faChevronUp} className="h-5 w-5" />
@@ -48,8 +47,6 @@ function AiSettingsCard({ dndAttributes, dndListeners }: AiSettingsCardProps): J
           <div className="space-y-3">
             <NoiseReduction
               appState={appState}
-              getItem={getItem}
-              setItem={setItem}
             />
             <SilentThreshold
               appState={appState}

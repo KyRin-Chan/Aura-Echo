@@ -438,6 +438,7 @@ export type VoiceChangerClientSetting = {
     echoCancel: boolean;
     noiseSuppression: boolean;
     noiseSuppression2: boolean;
+    agcEnabled: boolean;
 
     inputGain: number;
     outputGain: number;
@@ -470,6 +471,7 @@ export const DefaultClientSettng: ClientSetting = {
         echoCancel: false,
         noiseSuppression: false,
         noiseSuppression2: false,
+        agcEnabled: false,
         inputGain: 1.0,
         outputGain: 1.0,
         monitorGain: 1.0,

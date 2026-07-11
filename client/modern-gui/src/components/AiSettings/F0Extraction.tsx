@@ -3,6 +3,7 @@ import { AppGuiSettingState } from "../../scripts/useAppGuiSetting";
 import MD3Select from "../Helpers/MD3Select";
 import { ClientState } from "@dannadori/voice-changer-client-js";
 import { F0Detector } from "@dannadori/voice-changer-client-js";
+import { t } from "../../locales";
 
 interface F0ExtractionProps {
   appState: ClientState;
@@ -41,7 +42,7 @@ function F0Extraction({ appState, uiState, appGuiSettingState }: F0ExtractionPro
 
     // If no downloaded extractors are available
     if (extractors.length === 0) {
-      return [{ value: "", label: "No downloaded extractors" }];
+      return [{ value: "", label: t('noPitchExtractors') }];
     }
 
     // Map to options
@@ -57,7 +58,7 @@ function F0Extraction({ appState, uiState, appGuiSettingState }: F0ExtractionPro
     <div className="bg-surface-container-low p-3 rounded-md border border-outline-variant">
       <MD3Select
         id="f0Detector"
-        label="Pitch Extraction Algorithm"
+        label={t('f0DetectorLabel')}
         value={appState.serverSetting?.serverSetting?.f0Detector ?? ''}
         disabled={uiState.isConverting}
         onChange={async (e) => {

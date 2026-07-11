@@ -4,6 +4,7 @@ import { useAppState } from '../../context/AppContext';
 import { useIndexedDB } from '@dannadori/voice-changer-client-js';
 import { useUIContext } from '../../context/UIContext';
 import MD3Select from '../Helpers/MD3Select';
+import { t } from '../../locales';
 
 function AudioDevicesClient(): JSX.Element {
   // ---------------- States ----------------
@@ -191,7 +192,7 @@ function AudioDevicesClient(): JSX.Element {
       {/* Input Device */}
       <MD3Select
         id="inputCh"
-        label="Input Device"
+        label={t('inputDeviceLabel')}
         value={uiState.audioInputForGUI}
         onChange={handleInputDeviceChange}
         options={inputOptions}
@@ -200,7 +201,7 @@ function AudioDevicesClient(): JSX.Element {
       {/* Output Device */}
       <MD3Select
         id="outputCh"
-        label="Output Device"
+        label={t('outputDeviceLabel')}
         value={uiState.audioOutputForGUI}
         onChange={handleOutputDeviceChange}
         options={outputOptions}
@@ -209,7 +210,7 @@ function AudioDevicesClient(): JSX.Element {
       {/* Monitor Device */}
       <MD3Select
         id="monCh"
-        label="Monitor Device"
+        label={t('monitorDeviceLabel')}
         value={uiState.audioMonitorForGUI}
         onChange={handleMonitorDeviceChange}
         options={monitorOptions}

@@ -26,6 +26,7 @@ export class VoiceChangerClient {
     private monitorGainNode: GainNode | null = null;
     private vcInNode!: VoiceChangerWorkletNode;
     private vcOutNode!: VoiceChangerWorkletNode;
+    private compressorNode: DynamicsCompressorNode | null = null;
     private currentMediaStreamAudioDestinationNode!: MediaStreamAudioDestinationNode;
     private currentMediaStreamAudioDestinationMonitorNode!: MediaStreamAudioDestinationNode;
 
@@ -66,14 +67,19 @@ export class VoiceChangerClient {
             this.currentMediaStreamAudioDestinationNode = this.ctx.createMediaStreamDestination(); // output node
             this.outputGainNode = this.ctx.createGain();
             this.outputGainNode.gain.value = this.setting.outputGain;
-            this.vcOutNode.connect(this.outputGainNode); // vc node -> output node
-            this.outputGainNode.connect(this.currentMediaStreamAudioDestinationNode);
 
             this.currentMediaStreamAudioDestinationMonitorNode = this.ctx.createMediaStreamDestination(); // output node
             this.monitorGainNode = this.ctx.createGain();
             this.monitorGainNode.gain.value = this.setting.monitorGain;
-            this.vcOutNode.connect(this.monitorGainNode); // vc node -> monitor node
-            this.monitorGainNode.connect(this.currentMediaStreamAudioDestinationMonitorNode);
+
+            this.compressorNode = this.ctx.createDynamicsCompressor();
+            this.compressorNode.threshold.value = -12;
+            this.compressorNode.knee.value = 30;
+            this.compressorNode.ratio.value = 12;
+            this.compressorNode.attack.value = 0.003;
+            this.compressorNode.release.value = 0.25;
+
+            this.updateOutputConnections();
 
             if (this.vfEnable) {
                 this.vf = await VoiceFocusDeviceTransformer.create({ variant: "c20" });
@@ -253,6 +259,26 @@ export class VoiceChangerClient {
         }).catch(() => {/* ignore */});
     };
 
+    private updateOutputConnections = () => {
+        try {
+            this.vcOutNode.disconnect();
+            if (this.compressorNode) {
+                this.compressorNode.disconnect();
+            }
+        } catch (e) {
+            console.warn("disconnect error", e);
+        }
+
+        if (this.setting.agcEnabled && this.compressorNode) {
+            this.vcOutNode.connect(this.compressorNode);
+            this.compressorNode.connect(this.outputGainNode!);
+            this.compressorNode.connect(this.monitorGainNode!);
+        } else {
+            this.vcOutNode.connect(this.outputGainNode!);
+            this.vcOutNode.connect(this.monitorGainNode!);
+        }
+    };
+
     updateClientSetting = async (setting: VoiceChangerClientSetting) => {
         let reconstructInputRequired = false;
         if (this.setting.audioInput != setting.audioInput || this.setting.echoCancel != setting.echoCancel || this.setting.noiseSuppression != setting.noiseSuppression || this.setting.noiseSuppression2 != setting.noiseSuppression2 || this.setting.sampleRate != setting.sampleRate) {
@@ -269,7 +295,13 @@ export class VoiceChangerClient {
             this.setMonitorGain(setting.monitorGain);
         }
 
+        let agcChanged = this.setting.agcEnabled !== setting.agcEnabled;
+
         this.setting = setting;
+        if (agcChanged) {
+            this.updateOutputConnections();
+        }
+
         if (reconstructInputRequired) {
             await this.setup();
         }

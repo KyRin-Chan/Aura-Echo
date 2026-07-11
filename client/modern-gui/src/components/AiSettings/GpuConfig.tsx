@@ -1,6 +1,7 @@
 import { ClientState } from "@dannadori/voice-changer-client-js";
 import { UIContextType } from "../../context/UIContext";
 import MD3Select from "../Helpers/MD3Select";
+import { t } from "../../locales";
 
 interface GpuInfo {
   id: number;
@@ -42,7 +43,7 @@ function GPUConfig({ appState, uiState }: GPUConfigProps) {
     <div className="bg-surface-container-low p-3 rounded-md border border-outline-variant">
       <MD3Select
         id="gpu"
-        label="Processing Unit (GPU)"
+        label={t('gpuConfigLabel')}
         value={appState.serverSetting?.serverSetting?.gpu ?? -1}
         onChange={async (e) => {
           await handleChangeGpu(parseInt(e.target.value));

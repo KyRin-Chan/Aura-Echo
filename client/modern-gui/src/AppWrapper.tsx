@@ -36,10 +36,15 @@ const AppContent: React.FC = () => {
         <>
           {/* Welcome screen background gradient overlay */}
           <div
-            className={`fixed inset-0 z-30 w-screen h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/15 via-surface to-surface transition-all duration-300 ease-in-out ${
+            className={`fixed inset-0 z-30 w-screen h-screen bg-surface transition-all duration-300 ease-in-out ${
               fadeOut ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100'
             }`}
-          />
+          >
+            {/* Subtle primary radial gradient glow at the top */}
+            <div
+              className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary to-transparent opacity-15 pointer-events-none"
+            />
+          </div>
           <GenericModal
             isOpen={true}
             transparent={true}

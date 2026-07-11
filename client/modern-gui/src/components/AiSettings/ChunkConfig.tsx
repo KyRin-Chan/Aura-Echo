@@ -3,6 +3,7 @@ import { CSS_CLASSES } from "../../styles/constants";
 import MD3Slider from "../Helpers/MD3Slider";
 import { ClientState } from "@dannadori/voice-changer-client-js";
 import { UIContextType } from "../../context/UIContext";
+import { t } from "../../locales";
 
 interface ChunkConfigProps {
   appState: ClientState;
@@ -66,7 +67,7 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
     <div className="flex flex-col space-y-4 bg-surface-container-low p-3 rounded-md border border-outline-variant">
       <div>
         <label htmlFor="chunk" className={CSS_CLASSES.label}>
-          Chunk Size:
+          {t('chunkConfigLabel')}:
         </label>
         <MD3Slider
           id="chunk"
@@ -83,7 +84,7 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
       </div>
       <div>
         <label htmlFor="extra" className={CSS_CLASSES.label}>
-          Extra Processing Time (Extra):
+          {t('extraProcessingTimeLabel')}
         </label>
         <MD3Slider
           id="extra"
