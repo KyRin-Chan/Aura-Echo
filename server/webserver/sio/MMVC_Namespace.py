@@ -25,6 +25,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
     def __init__(self, namespace: str, voiceChangerManager: VoiceChangerManager):
         super().__init__(namespace)
         self.voiceChangerManager = voiceChangerManager
+        self.min_diffs = {}
         # self.voiceChangerManager.voiceChanger.emitTo = self.emit_coroutine
         self.voiceChangerManager.setEmitTo(self.emit_coroutine)
 
@@ -37,6 +38,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
     def on_connect(self, sid, environ, ext):
         self.sid = sid
         logger.info(f"Connected SID: {sid}")
+        self.min_diffs[sid] = None
 
     async def on_request_message(self, sid, msg):
         recv_timestamp = round(time() * 1000)
@@ -45,7 +47,24 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         # Receive and send int16 instead of float32 to reduce bandwidth requirement over websocket
         input_audio = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768
 
-        out_audio, vol, perf, err = await asyncio.to_thread(self.voiceChangerManager.change_voice, input_audio)
+        # Align clock offsets
+        diff = recv_timestamp - ts
+        min_diff = self.min_diffs.get(sid)
+        if min_diff is None or diff < min_diff:
+            self.min_diffs[sid] = diff
+            min_diff = diff
+        relative_age = diff - min_diff
+
+        if relative_age > 150:
+            # Packet is too stale, skip inference to catch up
+            logger.warning(f"[SIO] Stale packet detected (relative age: {relative_age}ms). Skipping inference.")
+            out_audio = np.zeros_like(input_audio)
+            vol = 0.0
+            perf = [0.0, 0.0, 0.0]
+            err = None
+        else:
+            out_audio, vol, perf, err = await asyncio.to_thread(self.voiceChangerManager.change_voice, input_audio)
+
         if err is not None:
             error_code, error_message = err
             await self.emit("error", [error_code, error_message], to=sid)
@@ -60,3 +79,5 @@ class MMVC_Namespace(socketio.AsyncNamespace):
     def on_disconnect(self, sid):
         self.sid = None
         logger.info(f"Disconnected SID: {sid}")
+        if sid in self.min_diffs:
+            del self.min_diffs[sid]

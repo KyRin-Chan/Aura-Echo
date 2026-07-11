@@ -122,6 +122,7 @@ class MMVC_Rest:
                         pass
                 await websocket.accept()
                 active_websockets.add(websocket)
+                min_diff = None
                 try:
                     while True:
                         data = await websocket.receive_bytes()
@@ -134,7 +135,21 @@ class MMVC_Rest:
                         input_audio = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768
                         logger.debug(f"[WS] Received data len: {len(data)}, raw_audio len: {len(raw_audio)}, input_audio len: {len(input_audio)}")
 
-                        out_audio, vol, perf, err = await asyncio.to_thread(voiceChangerManager.change_voice, input_audio)
+                        # Align clock offsets
+                        diff = recv_timestamp - ts
+                        if min_diff is None or diff < min_diff:
+                            min_diff = diff
+                        relative_age = diff - min_diff
+
+                        if relative_age > 150:
+                            # Packet is too stale, skip inference to catch up
+                            logger.warning(f"[WS] Stale packet detected (relative age: {relative_age}ms). Skipping inference.")
+                            out_audio = np.zeros_like(input_audio)
+                            vol = 0.0
+                            perf = [0.0, 0.0, 0.0]
+                            err = None
+                        else:
+                            out_audio, vol, perf, err = await asyncio.to_thread(voiceChangerManager.change_voice, input_audio)
                         if err is not None:
                             error_code, error_message = err
                             logger.error(f"[WS] change_voice error: {error_code}: {error_message}")
