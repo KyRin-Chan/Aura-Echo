@@ -1,20 +1,25 @@
 @echo off
 setlocal enabledelayedexpansion
 
-nvidia-smi --query-supported-clocks=graphics,memory --format=csv,noheader,nounits > temp_clocks.txt 2>nul
+REM Query supported memory clocks to temp_mem.txt
+nvidia-smi --query-supported-clocks=memory --format=csv,noheader,nounits > temp_mem.txt 2>nul
 
-if not exist temp_clocks.txt (
+if not exist temp_mem.txt (
     echo [ERROR] Failed to query supported clocks using nvidia-smi.
     echo Please make sure NVIDIA drivers are installed and nvidia-smi is in your PATH.
     pause
     exit /b 1
 )
 
-REM Read the first line from the temporary file for maximum clocks
-set /p firstLine=<temp_clocks.txt
+REM Query all supported clock combinations
+nvidia-smi --query-supported-clocks=graphics,memory --format=csv,noheader,nounits > temp_all.txt 2>nul
+
+REM Read maximum clocks from the first line of temp_all.txt
+set /p firstLine=<temp_all.txt
 if "%firstLine%"=="" (
     echo [ERROR] No supported clocks found.
-    del temp_clocks.txt
+    if exist temp_mem.txt del temp_mem.txt
+    if exist temp_all.txt del temp_all.txt
     pause
     exit /b 1
 )
@@ -43,7 +48,7 @@ if "%choice%"=="2" (
     goto enter_clocks
 )
 if "%choice%"=="3" (
-    goto list_clocks
+    goto list_mem_clocks
 )
 echo Invalid option selected. Defaulting to maximum clocks.
 set gpu_clock=%max_gpu%
@@ -52,63 +57,102 @@ goto lock_clocks
 
 :enter_clocks
 echo.
-echo Please specify frequencies in MHz (e.g., GPU: 1500, Memory: 5001)
+echo Please specify frequencies in MHz (e.g., GPU: 1500, Memory: 9001)
 set /p gpu_clock="Target GPU Clock (MHz): "
 set /p memory_clock="Target Memory Clock (MHz): "
 if "%gpu_clock%"=="" (
     echo GPU Clock cannot be empty.
-    del temp_clocks.txt
-    pause
-    exit /b 1
+    goto cleanup_and_exit
 )
 if "%memory_clock%"=="" (
     echo Memory Clock cannot be empty.
-    del temp_clocks.txt
-    pause
-    exit /b 1
+    goto cleanup_and_exit
 )
 goto lock_clocks
 
-:list_clocks
+:list_mem_clocks
 echo.
-echo Supported clock combinations (showing top 30):
+echo Supported Memory Clocks:
 echo ----------------------------------------------------------
-set count=0
-for /f "tokens=1,2 delims=, " %%a in (temp_clocks.txt) do (
-    set /a count+=1
-    set "clk_gpu[!count!]=%%a"
-    set "clk_mem[!count!]=%%b"
-    echo [!count!] GPU: %%a MHz, Memory: %%b MHz
-    if !count! geq 30 (
-        echo ... (List truncated, showing top 30)
-        goto choose_from_list
+set mem_count=0
+for /f "tokens=1" %%m in (temp_mem.txt) do (
+    set /a mem_count+=1
+    set "mem_val[!mem_count!]=%%m"
+    echo [!mem_count!] %%m MHz
+)
+echo ----------------------------------------------------------
+set /p mem_choice="Select Memory Clock (1-!mem_count!): "
+if "%mem_choice%"=="" (
+    echo No selection made.
+    goto cleanup_and_exit
+)
+
+set chosen_mem=
+for %%i in (!mem_choice!) do (
+    if defined mem_val[%%i] (
+        set chosen_mem=!mem_val[%%i]!
     )
 )
 
-:choose_from_list
-echo ----------------------------------------------------------
-set /p clk_choice="Select clock combination number (1-!count!): "
-if "%clk_choice%"=="" (
-    echo No selection made.
-    del temp_clocks.txt
-    pause
-    exit /b 1
+if "!chosen_mem!"=="" (
+    echo Invalid Memory Clock selection.
+    goto cleanup_and_exit
 )
-for %%i in (!clk_choice!) do (
-    set gpu_clock=!clk_gpu[%%i]!
-    set memory_clock=!clk_mem[%%i]!
+
+REM Now filter graphics clocks for the chosen memory clock
+set gpu_count=0
+for /f "tokens=1,2 delims=, " %%g in (temp_all.txt) do (
+    if "%%h"=="%chosen_mem%" (
+        set /a gpu_count+=1
+        set "gpu_val[!gpu_count!]=%%g"
+    )
+)
+
+if !gpu_count! equ 0 (
+    echo No supported GPU clocks found for Memory clock %chosen_mem% MHz.
+    goto cleanup_and_exit
+)
+
+echo.
+echo Supported GPU clocks for Memory %chosen_mem% MHz:
+echo ----------------------------------------------------------
+set display_limit=25
+if !gpu_count! lss 25 (
+    set display_limit=!gpu_count!
+)
+
+for /l %%i in (1,1,!display_limit!) do (
+    echo [%%i] !gpu_val[%%i]! MHz
+)
+if !gpu_count! gtr !display_limit! (
+    echo [Min] !gpu_val[%gpu_count%]! MHz (Minimum supported)
+)
+echo ----------------------------------------------------------
+set /p gpu_choice="Select GPU Clock (1-!display_limit!, or enter a custom MHz value): "
+if "%gpu_choice%"=="" (
+    echo No selection made.
+    goto cleanup_and_exit
+)
+
+set gpu_clock=
+for %%i in (!gpu_choice!) do (
+    if defined gpu_val[%%i] (
+        set gpu_clock=!gpu_val[%%i]!
+    )
 )
 
 if "!gpu_clock!"=="" (
-    echo Invalid selection index.
-    del temp_clocks.txt
-    pause
-    exit /b 1
+    REM Assume user typed a custom MHz value
+    set gpu_clock=!gpu_choice!
 )
+
+set memory_clock=%chosen_mem%
 goto lock_clocks
 
 :lock_clocks
-if exist temp_clocks.txt del temp_clocks.txt
+REM Clean up files
+if exist temp_mem.txt del temp_mem.txt
+if exist temp_all.txt del temp_all.txt
 
 echo.
 echo Locking GPU clock to %gpu_clock% MHz...
@@ -126,3 +170,10 @@ if %errorlevel% neq 0 (
 echo.
 echo Operation completed.
 pause
+exit /b 0
+
+:cleanup_and_exit
+if exist temp_mem.txt del temp_mem.txt
+if exist temp_all.txt del temp_all.txt
+pause
+exit /b 1
