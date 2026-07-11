@@ -156,6 +156,14 @@ function BottomBar(): JSX.Element {
     });
   };
 
+  // Handle enable pass through
+  const enablePassThrough = () => {
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      passThrough: true
+    });
+  };
+
   // ---------------- Render ----------------
 
   return (
@@ -224,6 +232,8 @@ function BottomBar(): JSX.Element {
             onClick={
               appState.serverSetting.serverSetting.passThrough
                 ? disablePassThrough
+                : appState.setting.voiceChangerClientSetting.passThroughConfirmationSkip
+                ? enablePassThrough
                 : () => setShowPassthroughConfirm(true)
             }
             className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-200 flex items-center space-x-2 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
