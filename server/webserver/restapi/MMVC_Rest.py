@@ -76,12 +76,51 @@ class MMVC_Rest:
 
             # Raw high-performance WebSocket route for binary audio streaming
             import struct
+            import asyncio
             from time import time
             import numpy as np
 
+            loop = None
+            active_websockets = set()
+
+            def emit_ws_stats(vol, perf, err):
+                nonlocal loop
+                if not active_websockets or not loop:
+                    return
+                
+                if err is not None:
+                    error_code, error_message = err
+                    error_msg = f"{error_code}: {error_message}".encode("utf-8")
+                    header = struct.pack("<qiffffBB", 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
+                    payload = header + error_msg
+                else:
+                    header = struct.pack("<qiffffBB", 0, 0, vol, float(perf[0]), float(perf[1]), float(perf[2]), 0, 1)
+                    payload = header
+                
+                async def send_all():
+                    for ws in list(active_websockets):
+                        try:
+                            await ws.send_bytes(payload)
+                        except Exception:
+                            pass
+                
+                try:
+                    asyncio.run_coroutine_threadsafe(send_all(), loop)
+                except Exception as e:
+                    logger.debug(f"Failed to schedule ws send: {e}")
+
+            voiceChangerManager.setEmitTo(emit_ws_stats)
+
             @app_fastapi.websocket("/ws/voice")
             async def websocket_voice(websocket: WebSocket):
+                nonlocal loop
+                if loop is None:
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except Exception:
+                        pass
                 await websocket.accept()
+                active_websockets.add(websocket)
                 try:
                     while True:
                         data = await websocket.receive_bytes()
@@ -111,6 +150,8 @@ class MMVC_Rest:
                     logger.debug("WebSocket client disconnected from /ws/voice")
                 except Exception as e:
                     logger.exception(f"Error in websocket_voice: {e}")
+                finally:
+                    active_websockets.discard(websocket)
 
             cls._instance = app_fastapi
             logger.info("Initialized.")

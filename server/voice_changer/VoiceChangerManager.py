@@ -46,13 +46,18 @@ class VoiceChangerManager(ServerAudioCallbacks):
         return self.change_voice(unpackedData)
 
     def emit_to(self, volume: float, performance: list[float], err):
-        self.emitToFunc(volume, performance, err)
+        for func in self.emitToFuncs:
+            try:
+                func(volume, performance, err)
+            except Exception as e:
+                logger.exception(f"Error in emitTo callback: {e}")
 
     ############################
     # VoiceChangerManager
     ############################
     def __init__(self):
         logger.info("Initializing...")
+        self.emitToFuncs = []
         self.params = get_settings()
 
         self.modelSlotManager = ModelSlotManager.get_instance(self.params.model_dir)
@@ -338,7 +343,8 @@ class VoiceChangerManager(ServerAudioCallbacks):
         return self.get_info()
 
     def setEmitTo(self, emitTo: Callable[[Any], None]):
-        self.emitToFunc = emitTo
+        if emitTo not in self.emitToFuncs:
+            self.emitToFuncs.append(emitTo)
 
     def update_model_default(self):
         # self.vc.update_model_default()

@@ -201,6 +201,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
         const perf1 = view.getFloat32(20, true);
         const perf2 = view.getFloat32(24, true);
         const hasError = view.getUint8(28) === 1;
+        const isServerStats = view.getUint8(29) === 1;
 
         const totalPing = Date.now() - sendTimestamp + ping;
 
@@ -208,6 +209,11 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
           const decoder = new TextDecoder("utf-8");
           const errorMsg = decoder.decode(new Uint8Array(arrayBuffer, 30));
           this.listener.notifyException("ERR_GENERIC_VOICE_CHANGER_EXCEPTION", errorMsg);
+          return;
+        }
+
+        if (isServerStats) {
+          this.listener.notifyPerformanceStats(0, vol, [perf0, perf1, perf2]);
           return;
         }
 
@@ -231,10 +237,11 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
   };
 
   postReceivedVoice = (u8data: Uint8Array) => {
-    // Zero-copy view mapping: since byteOffset is aligned to 30 (multiple of 2),
-    // we can construct an Int16Array directly on the underlying ArrayBuffer buffer.
-    const dataLength = Math.floor(u8data.length / 2);
-    const i16Data = new Int16Array(u8data.buffer, u8data.byteOffset, dataLength);
+    // Copy to a new Uint8Array to ensure a clean, aligned ArrayBuffer at byteOffset 0.
+    // This resolves any protocol-specific alignment or shared buffer issues.
+    const alignedData = new Uint8Array(u8data);
+    const dataLength = Math.floor(alignedData.length / 2);
+    const i16Data = new Int16Array(alignedData.buffer, 0, dataLength);
     const f32Data = new Float32Array(dataLength);
     
     // Fast hardware-friendly vector division instead of manual bit-shifting and sign checks
