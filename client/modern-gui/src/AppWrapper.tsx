@@ -10,37 +10,20 @@ import { AppRootProvider } from './context/AppRootProvider';
 const AppContent: React.FC = () => {
   // ---------------- State ----------------
   const [showWelcome, setShowWelcome] = React.useState<boolean>(true);
+  const [fadeOut, setFadeOut] = React.useState<boolean>(false);
 
   // ---------------- Functions ----------------
 
   // Handle welcome modal completion
   const handleWelcomeComplete = async () => {
-    setShowWelcome(false);
+    setFadeOut(true);
+    setTimeout(() => {
+      setShowWelcome(false);
+    }, 300); // 300ms matches the transition duration
   };
 
   // ---------------- Render ----------------
 
-  // Render welcome modal if showWelcome is true
-  if (showWelcome) {
-    return (
-      <div className="fixed inset-0 w-screen h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/15 via-surface to-surface flex justify-center items-center">
-        <GenericModal
-          isOpen={true}
-          transparent={true}
-          onClose={handleWelcomeComplete}
-          title="AuraEcho"
-          primaryButton={{
-            text: "Continue",
-            onClick: handleWelcomeComplete
-          }}
-        >
-          <WelcomeModal />
-        </GenericModal>
-      </div>
-    );
-  }
-
-  // Render app if showWelcome is false
   return (
     <>
       <AppContextProvider>
@@ -48,6 +31,27 @@ const AppContent: React.FC = () => {
           <App />
         </UIContextProvider>
       </AppContextProvider>
+
+      {showWelcome && (
+        <div
+          className={`fixed inset-0 z-50 w-screen h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/15 via-surface to-surface flex justify-center items-center transition-all duration-300 ease-in-out ${
+            fadeOut ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100'
+          }`}
+        >
+          <GenericModal
+            isOpen={true}
+            transparent={true}
+            onClose={handleWelcomeComplete}
+            title="AuraEcho"
+            primaryButton={{
+              text: "Continue",
+              onClick: handleWelcomeComplete
+            }}
+          >
+            <WelcomeModal />
+          </GenericModal>
+        </div>
+      )}
     </>
   );
 };

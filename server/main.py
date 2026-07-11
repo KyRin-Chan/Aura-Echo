@@ -63,14 +63,76 @@ def setup_arg_parser():
     )
     return parser
 
+def show_pre_boot_menu(timeout=5):
+    """Shows a 'Pre-Boot BIOS' style menu to choose HTTP or HTTPS mode."""
+    import time
+    
+    print("\n" + "=" * 60)
+    print("                 AURA-ECHO PRE-BOOT BIOS MENU                 ")
+    print("=" * 60)
+    print("  [1] Boot in standard HTTP mode (Unencrypted)")
+    print("  [2] Boot in secure HTTPS mode   (Self-signed SSL / TLS)")
+    print("-" * 60)
+    print("  Select option (1-2) or wait for auto-boot...")
+    print("=" * 60)
+
+    start_time = time.time()
+    choice = None
+
+    while time.time() - start_time < timeout:
+        remaining = int(timeout - (time.time() - start_time))
+        sys.stdout.write(f"\r  Auto-booting default (HTTP) in {remaining}s... ")
+        sys.stdout.flush()
+
+        try:
+            if sys.platform == 'win32':
+                import msvcrt
+                if msvcrt.kbhit():
+                    char = msvcrt.getch().decode('utf-8', errors='ignore')
+                    if char in ('1', '2'):
+                        choice = char
+                        print(f"\n\n  Selected option: [{choice}]")
+                        break
+            else:
+                import select
+                rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+                if rlist:
+                    char = sys.stdin.readline().strip()
+                    if char in ('1', '2'):
+                        choice = char
+                        print(f"\n  Selected option: [{choice}]")
+                        break
+        except Exception:
+            # If console isn't interactive, default to HTTP
+            break
+        time.sleep(0.05)
+
+    if choice is None:
+        print("\n\n  Timeout reached. Auto-booting default (HTTP)...")
+        choice = '1'
+
+    print("=" * 60 + "\n")
+    return 'http' if choice == '1' else 'https'
+
 async def main():
     """Main entry point for the application."""
+    # Show BIOS selection menu before starting the server
+    boot_mode = show_pre_boot_menu(timeout=5)
+
     parser = setup_arg_parser()
     args = parser.parse_args()
     
     # Setup logging
     global logger
     logger = setup_logging(args.log_level)
+
+    # Apply selected boot mode to settings
+    if boot_mode == 'https':
+        settings.ssl_enabled = True
+        logger.info("Selected Boot Mode: HTTPS (Encrypted SSL/TLS)")
+    else:
+        settings.ssl_enabled = False
+        logger.info("Selected Boot Mode: HTTP (Unencrypted)")
     
     logger.info(f"Python: {sys.version}")
     logger.info(f"Voice changer version: {get_version()} {get_edition()}")
@@ -89,9 +151,9 @@ async def main():
         log_level=args.log_level
     )
     
-    # Check for mandatory models
-    logger.info("Checking for mandatory models...")
-    await ModelManager.check_and_download_mandatory_models()
+    # Start checking and downloading mandatory models in the background asynchronously
+    logger.info("Initializing mandatory models check in the background...")
+    asyncio.create_task(ModelManager.check_and_download_mandatory_models())
     
     # Start the server
     await server.start(

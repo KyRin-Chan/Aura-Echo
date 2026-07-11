@@ -10,6 +10,7 @@ export declare class VoiceChangerWorkletNode extends AudioWorkletNode {
     private requestChunks;
     private chunkCounter;
     private socket;
+    private wsSocket;
     private bufferStart;
     private isOutputRecording;
     private recordingOutputChunk;

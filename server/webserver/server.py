@@ -79,12 +79,12 @@ class WebServer:
                     logger.info(f"Generating new self-signed certificate for {self.host}")
                     certargs = {
                         'Country': "US",
-                        'State': "x",
-                        'City': "x",
-                        'Organization': "x",
-                        'Org. Unit': "x",
-                        'CommonName': self.host,
-                        'Email': "x"
+                        'State': "California",
+                        'City': "San Francisco",
+                        'Organization': "AuraEcho",
+                        'Org. Unit': "AuraEcho CA",
+                        'CommonName': "AuraEcho ROOT CA",
+                        'Email': "info@auraecho.org"
                     }
                     create_self_signed_cert(
                         certfile=cert_path.name,

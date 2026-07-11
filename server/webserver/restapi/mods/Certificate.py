@@ -14,13 +14,13 @@ def create_self_signed_cert(certfile, keyfile, certargs, cert_dir="."):
         cert.get_subject().L = certargs["City"]
         cert.get_subject().O = certargs["Organization"]
         cert.get_subject().OU = certargs["Org. Unit"]
-        cert.get_subject().CN = 'Example'
+        cert.get_subject().CN = certargs["CommonName"]
         cert.set_serial_number(1000)
         cert.gmtime_adj_notBefore(0)
         cert.gmtime_adj_notAfter(315360000)
         cert.set_issuer(cert.get_subject())
         cert.set_pubkey(k)
-        cert.sign(k, 'sha1')
+        cert.sign(k, 'sha256')
         with open(C_F, "wb") as f:
             f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
         with open(K_F, "wb") as f:

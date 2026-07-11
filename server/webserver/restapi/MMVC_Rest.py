@@ -2,7 +2,7 @@ import logging
 import os
 
 from webserver.restapi.mods.TrustedOrigin import TrustedOriginMiddleware
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, Request, Response, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
@@ -73,6 +73,44 @@ class MMVC_Rest:
 
             pretrainDownloader = MMVC_Rest_PretrainDownloader()
             app_fastapi.include_router(pretrainDownloader.router)
+
+            # Raw high-performance WebSocket route for binary audio streaming
+            import struct
+            from time import time
+            import numpy as np
+
+            @app_fastapi.websocket("/ws/voice")
+            async def websocket_voice(websocket: WebSocket):
+                await websocket.accept()
+                try:
+                    while True:
+                        data = await websocket.receive_bytes()
+                        recv_timestamp = round(time() * 1000)
+                        if len(data) < 8:
+                            continue
+                        
+                        ts = struct.unpack("<q", data[:8])[0]
+                        raw_audio = data[8:]
+                        input_audio = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768
+
+                        out_audio, vol, perf, err = voiceChangerManager.change_voice(input_audio)
+                        if err is not None:
+                            error_code, error_message = err
+                            error_msg = f"{error_code}: {error_message}".encode("utf-8")
+                            header = struct.pack("<qiffffBB", 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
+                            await websocket.send_bytes(header + error_msg)
+                        else:
+                            ping = recv_timestamp - ts
+                            out_audio = np.nan_to_num(out_audio)
+                            out_audio = np.clip(out_audio, -1.0, 1.0)
+                            out_audio = (out_audio * 32767).astype(np.int16).tobytes()
+                            send_timestamp = round(time() * 1000)
+                            header = struct.pack("<qiffffBB", send_timestamp, ping, vol, float(perf[0]), float(perf[1]), float(perf[2]), 0, 0)
+                            await websocket.send_bytes(header + out_audio)
+                except WebSocketDisconnect:
+                    logger.debug("WebSocket client disconnected from /ws/voice")
+                except Exception as e:
+                    logger.exception(f"Error in websocket_voice: {e}")
 
             cls._instance = app_fastapi
             logger.info("Initialized.")

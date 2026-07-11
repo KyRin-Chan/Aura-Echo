@@ -27,6 +27,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
   private requestChunks: Int16Array = new Int16Array(this.setting.inputChunkNum * 128);
   private chunkCounter: number = 0;
   private socket: Socket<DefaultEventsMap, DefaultEventsMap> | null = null;
+  private wsSocket: WebSocket | null = null;
   // performance monitor
   private bufferStart = 0;
 
@@ -96,6 +97,11 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
   createSocketIO = () => {
     if (this.socket) {
       this.socket.close();
+      this.socket = null;
+    }
+    if (this.wsSocket) {
+      this.wsSocket.close();
+      this.wsSocket = null;
     }
     if (this.setting.protocol === "sio") {
       this.socket = io(this.setting.serverUrl + "/test", { parser: msgpackrParser });
@@ -155,17 +161,84 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
           this.listener.notifyPerformanceStats(totalPing, vol, perf);
         }
       });
+    } else if (this.setting.protocol === "ws") {
+      const wsUrl = this.setting.serverUrl.replace(/^http/, "ws") + "/ws/voice";
+      console.log(`[WS] Connecting to ${wsUrl}`);
+      this.wsSocket = new WebSocket(wsUrl);
+      this.wsSocket.binaryType = "arraybuffer";
+
+      this.wsSocket.onerror = (err) => {
+        this.listener.notifyException(
+          VOICE_CHANGER_CLIENT_EXCEPTION.ERR_SIO_CONNECT_FAILED,
+          `[WS] connection failed ${err}`
+        );
+      };
+
+      this.wsSocket.onopen = () => {
+        console.log(`[WS] connected to ${wsUrl}`);
+      };
+
+      this.wsSocket.onclose = () => {
+        console.log(`[WS] closed connection`);
+      };
+
+      this.wsSocket.onmessage = async (event: MessageEvent) => {
+        const arrayBuffer = event.data as ArrayBuffer;
+        if (arrayBuffer.byteLength < 30) {
+          this.listener.notifyException(
+            VOICE_CHANGER_CLIENT_EXCEPTION.ERR_SIO_INVALID_RESPONSE,
+            `[WS] Received data is too short ${arrayBuffer.byteLength}`
+          );
+          return;
+        }
+
+        const view = new DataView(arrayBuffer);
+        const sendTimestamp = Number(view.getBigInt64(0, true));
+        const ping = view.getInt32(8, true);
+        const vol = view.getFloat32(12, true);
+        const perf0 = view.getFloat32(16, true);
+        const perf1 = view.getFloat32(20, true);
+        const perf2 = view.getFloat32(24, true);
+        const hasError = view.getUint8(28) === 1;
+
+        const totalPing = Date.now() - sendTimestamp + ping;
+
+        if (hasError) {
+          const decoder = new TextDecoder("utf-8");
+          const errorMsg = decoder.decode(new Uint8Array(arrayBuffer, 30));
+          this.listener.notifyException("ERR_GENERIC_VOICE_CHANGER_EXCEPTION", errorMsg);
+          return;
+        }
+
+        const audio = new Uint8Array(arrayBuffer, 30);
+
+        if (audio.byteLength < 128 * 2) {
+          this.listener.notifyException(
+            VOICE_CHANGER_CLIENT_EXCEPTION.ERR_SIO_INVALID_RESPONSE,
+            `[WS] Received data is too short ${audio.byteLength}`
+          );
+        } else {
+          if (this.outputNode != null) {
+            this.outputNode.postReceivedVoice(audio);
+          } else {
+            this.postReceivedVoice(audio);
+          }
+          this.listener.notifyPerformanceStats(totalPing, vol, [perf0, perf1, perf2]);
+        }
+      };
     }
   };
 
   postReceivedVoice = (u8data: Uint8Array) => {
-    // Array view is Uint8, but received data is actually Int16.
-    const dataLength = Math.floor(u8data.length / 2)
+    // Zero-copy view mapping: since byteOffset is aligned to 30 (multiple of 2),
+    // we can construct an Int16Array directly on the underlying ArrayBuffer buffer.
+    const dataLength = Math.floor(u8data.length / 2);
+    const i16Data = new Int16Array(u8data.buffer, u8data.byteOffset, dataLength);
     const f32Data = new Float32Array(dataLength);
-    // console.log(`[worklet] f32DataLength${f32Data.length} i16DataLength${i16Data.length}`)
+    
+    // Fast hardware-friendly vector division instead of manual bit-shifting and sign checks
     for (let i = 0; i < dataLength; i++) {
-      const x = (u8data[i * 2 + 1] << 8) | u8data[i * 2];
-      f32Data[i] = x >= 0x8000 ? -(0x10000 - x) / 0x8000 : x / 0x7fff;
+      f32Data[i] = i16Data[i] / 32768.0;
     }
 
     if (this.isOutputRecording) {
@@ -223,7 +296,19 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
 
   private sendBuffer = async (newBuffer: ArrayBuffer) => {
     const timestamp = Date.now();
-    if (this.setting.protocol === "sio") {
+    if (this.setting.protocol === "ws") {
+      if (!this.wsSocket || this.wsSocket.readyState !== WebSocket.OPEN) {
+        console.warn(`ws is not initialized or not open`);
+        return;
+      }
+      const combined = new ArrayBuffer(8 + newBuffer.byteLength);
+      const view = new DataView(combined);
+      view.setBigInt64(0, BigInt(timestamp), true);
+      const dest = new Uint8Array(combined, 8);
+      const src = new Uint8Array(newBuffer);
+      dest.set(src);
+      this.wsSocket.send(combined);
+    } else if (this.setting.protocol === "sio") {
       if (!this.socket) {
         console.warn(`sio is not initialized`);
         return;

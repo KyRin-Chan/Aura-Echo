@@ -2,21 +2,13 @@ import React from 'react';
 
 const WelcomeModal: React.FC = () => {
   return (
-    <div className="text-center pt-2">
-      <div className="mb-6">
-        <h2 className="text-xl font-bold text-on-surface mb-2">
-          Welcome to AuraEcho
-        </h2>
-        <p className="text-xs text-on-surface-variant leading-relaxed">
-          Click on &quot;Continue&quot; to start the application and initialize the audio engine.
-        </p>
-      </div>
-
-      <div className="mb-2 p-4 bg-surface-container-low border border-outline-variant rounded-xl">
-        <p className="text-xs text-on-surface-variant leading-relaxed">
-          <strong className="text-primary font-bold">Note:</strong> For optimal functionality, this app requires access to your audio system.
-        </p>
-      </div>
+    <div className="text-center py-6 flex flex-col items-center select-none">
+      <h2 className="text-4xl font-black text-on-surface tracking-widest mb-4">
+        <span className="bg-gradient-to-r from-primary to-tertiary bg-clip-text text-transparent">AuraEcho</span>
+      </h2>
+      <p className="text-xs text-on-surface-variant tracking-wider max-w-xs leading-relaxed font-medium">
+        Initialize the real-time audio engine and start the application.
+      </p>
     </div>
   );
 };

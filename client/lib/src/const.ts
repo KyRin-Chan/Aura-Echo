@@ -397,6 +397,7 @@ export type WorkletSetting = {
 // Worklet Nodeセッティング
 ///////////////////////
 export const Protocol = {
+    ws: "ws",
     sio: "sio",
     rest: "rest"
 } as const;
@@ -458,7 +459,7 @@ export const DefaultClientSettng: ClientSetting = {
     },
     workletNodeSetting: {
         serverUrl: "",
-        protocol: "sio",
+        protocol: "ws",
         sendingSampleRate: 48000,
         inputChunkNum: 192,
         downSamplingMode: "average",

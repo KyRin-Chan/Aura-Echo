@@ -261,6 +261,7 @@ export type ServerInfo = VoiceChangerServerSetting & {
 export declare const DefaultServerSetting: ServerInfo;
 export type WorkletSetting = {};
 export declare const Protocol: {
+    readonly ws: "ws";
     readonly sio: "sio";
     readonly rest: "rest";
 };
