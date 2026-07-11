@@ -126,32 +126,56 @@ export function generateMD3Palettes(seedHex: string): MD3Palettes {
 }
 
 // Apply MD3 variables to the document root element
-export function applyMD3Theme(palettes: MD3Palettes, mode: 'light' | 'dark') {
+export function applyMD3Theme(palettes: MD3Palettes, mode: 'light' | 'dark', seedHex?: string) {
   const root = document.documentElement;
   const { primary, secondary, tertiary, neutral, neutralVariant, error } = palettes;
 
   const vars: Record<string, string> = {};
 
   if (mode === 'light') {
-    // Generate light beige neutral and neutralVariant (Hue: 38, Saturation: 10% / 16%)
-    const lightNeutral = generateTonalPalette(38, 10);
-    const lightNeutralVariant = generateTonalPalette(38, 16);
+    // Generate light neutral and neutralVariant
+    let lightNeutral = generateTonalPalette(38, 10);
+    let lightNeutralVariant = generateTonalPalette(38, 16);
+
+    if (seedHex === '#f9bfc6') {
+      // Sakura Snow: Soft pink (352) neutral hues for pinkish-white background
+      lightNeutral = generateTonalPalette(352, 6);
+      lightNeutralVariant = generateTonalPalette(352, 10);
+    }
 
     // MD3 Light theme colors
-    vars['--md-sys-color-primary'] = primary[40];
-    vars['--md-sys-color-on-primary'] = primary[100];
-    vars['--md-sys-color-primary-container'] = primary[90];
-    vars['--md-sys-color-on-primary-container'] = primary[10];
+    if (seedHex === '#f9bfc6') {
+      // For Sakura Snow, use soft pink/pastel tones with high contrast dark text
+      vars['--md-sys-color-primary'] = primary[80];
+      vars['--md-sys-color-on-primary'] = primary[20];
+      vars['--md-sys-color-primary-container'] = primary[95];
+      vars['--md-sys-color-on-primary-container'] = primary[10];
 
-    vars['--md-sys-color-secondary'] = secondary[40];
-    vars['--md-sys-color-on-secondary'] = secondary[100];
-    vars['--md-sys-color-secondary-container'] = secondary[90];
-    vars['--md-sys-color-on-secondary-container'] = secondary[10];
+      vars['--md-sys-color-secondary'] = secondary[70];
+      vars['--md-sys-color-on-secondary'] = secondary[20];
+      vars['--md-sys-color-secondary-container'] = secondary[90];
+      vars['--md-sys-color-on-secondary-container'] = secondary[10];
 
-    vars['--md-sys-color-tertiary'] = tertiary[40];
-    vars['--md-sys-color-on-tertiary'] = tertiary[100];
-    vars['--md-sys-color-tertiary-container'] = tertiary[90];
-    vars['--md-sys-color-on-tertiary-container'] = tertiary[10];
+      vars['--md-sys-color-tertiary'] = tertiary[80];
+      vars['--md-sys-color-on-tertiary'] = tertiary[20];
+      vars['--md-sys-color-tertiary-container'] = tertiary[95];
+      vars['--md-sys-color-on-tertiary-container'] = tertiary[10];
+    } else {
+      vars['--md-sys-color-primary'] = primary[40];
+      vars['--md-sys-color-on-primary'] = primary[100];
+      vars['--md-sys-color-primary-container'] = primary[90];
+      vars['--md-sys-color-on-primary-container'] = primary[10];
+
+      vars['--md-sys-color-secondary'] = secondary[40];
+      vars['--md-sys-color-on-secondary'] = secondary[100];
+      vars['--md-sys-color-secondary-container'] = secondary[90];
+      vars['--md-sys-color-on-secondary-container'] = secondary[10];
+
+      vars['--md-sys-color-tertiary'] = tertiary[40];
+      vars['--md-sys-color-on-tertiary'] = tertiary[100];
+      vars['--md-sys-color-tertiary-container'] = tertiary[90];
+      vars['--md-sys-color-on-tertiary-container'] = tertiary[10];
+    }
 
     vars['--md-sys-color-error'] = error[40];
     vars['--md-sys-color-on-error'] = error[100];

@@ -28,24 +28,22 @@ export const useAppGuiSetting = (): AppGuiSettingState => {
         getAppGuiSetting("assets/gui_settings/GUI.json");
     }, [])
 
-    // Initial loading of server version
+    // Initial loading of server version and edition
     useEffect(() => {
-        const getVersionInfo = async () => {
-            const res = await fetch('/version');
-            const version = await res.text();
-            setServerInfo({ ...serverInfo, version: version });
+        const getServerInfo = async () => {
+            try {
+                const [versionRes, editionRes] = await Promise.all([
+                    fetch('/version'),
+                    fetch('/edition')
+                ]);
+                const version = await versionRes.text();
+                const edition = await editionRes.text();
+                setServerInfo({ version, edition });
+            } catch (e) {
+                console.error("Failed to load server info:", e);
+            }
         }
-        getVersionInfo()
-    }, [])
-
-    // Initial loading of server edition
-    useEffect(() => {
-        const getVersionInfo = async () => {
-            const res = await fetch('/edition');
-            const edition = await res.text();
-            setServerInfo({ ...serverInfo, edition: edition });
-        }
-        getVersionInfo()
+        getServerInfo()
     }, [])
 
     // ---------------- Functions ----------------

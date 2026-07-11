@@ -66,7 +66,7 @@ ServerAudioDeviceType: TypeAlias = Literal["audioinput", "audiooutput"]
 
 def get_edition():
     if not os.path.exists(EDITION_FILE):
-        return '-'
+        return 'Nvidia-CUDA'
     with open(EDITION_FILE, 'r') as f:
         return f.read()
 

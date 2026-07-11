@@ -53,7 +53,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   // Apply MD3 palettes whenever theme or seedColor changes
   useEffect(() => {
     const palettes = generateMD3Palettes(seedColor);
-    applyMD3Theme(palettes, theme as 'light' | 'dark');
+    applyMD3Theme(palettes, theme as 'light' | 'dark', seedColor);
   }, [theme, seedColor]);
 
   const toggleTheme = () => {

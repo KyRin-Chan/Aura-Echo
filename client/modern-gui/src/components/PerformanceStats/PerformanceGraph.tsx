@@ -36,26 +36,26 @@ function PerformanceGraph({ chartData }: PerformanceGraphProps) {
           <XAxis
             dataKey="timestamp"
             tickFormatter={(unixTime: number) => new Date(unixTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            stroke="var(--text-tertiary)"
-            tick={{ fontSize: 9, fill: "var(--text-secondary)" }}
-            axisLine={{ stroke: "var(--border-primary)", strokeWidth: 1 }}
-            tickLine={{ stroke: "var(--border-primary)" }}
+            stroke="var(--md-sys-color-outline)"
+            tick={{ fontSize: 9, fill: "var(--md-sys-color-on-surface-variant)" }}
+            axisLine={{ stroke: "var(--md-sys-color-outline-variant)", strokeWidth: 1 }}
+            tickLine={{ stroke: "var(--md-sys-color-outline-variant)" }}
           />
           
           <YAxis
-            label={{ value: 'ms', angle: -90, position: 'insideLeft', fill: 'var(--text-secondary)', fontSize: 10, offset: 10 }}
-            stroke="var(--text-tertiary)"
-            tick={{ fontSize: 9, fill: "var(--text-secondary)" }}
+            label={{ value: 'ms', angle: -90, position: 'insideLeft', fill: 'var(--md-sys-color-on-surface-variant)', fontSize: 10, offset: 10 }}
+            stroke="var(--md-sys-color-outline)"
+            tick={{ fontSize: 9, fill: "var(--md-sys-color-on-surface-variant)" }}
             tickFormatter={(value: number) => String(Math.round(value))}
-            axisLine={{ stroke: "var(--border-primary)", strokeWidth: 1 }}
-            tickLine={{ stroke: "var(--border-primary)" }}
+            axisLine={{ stroke: "var(--md-sys-color-outline-variant)", strokeWidth: 1 }}
+            tickLine={{ stroke: "var(--md-sys-color-outline-variant)" }}
             domain={[0, (dataMax: number) => Math.max(Math.ceil(dataMax * 1.2 / 50) * 50, 150)]}
           />
           
           <Tooltip content={<CustomTooltip />} />
           
           <Legend 
-            wrapperStyle={{ fontSize: "11px", paddingTop: "5px", color: "var(--text-primary)" }} 
+            wrapperStyle={{ fontSize: "11px", paddingTop: "5px", color: "var(--md-sys-color-on-surface)" }} 
             verticalAlign="top"
             height={32}
           />

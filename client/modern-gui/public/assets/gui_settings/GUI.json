@@ -1,6 +1,6 @@
 {
     "version": "1.0.0",
-    "edition": "web-application",
+    "edition": "Web Version",
     "front": {
         "modelSlotControl": [
             {

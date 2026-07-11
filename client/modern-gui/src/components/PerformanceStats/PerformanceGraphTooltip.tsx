@@ -18,9 +18,9 @@ function CustomTooltip({ active, payload, label }: any) {
       const statusConfig = STATUS_LABELS[status];
 
       return (
-        <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl p-3.5 shadow-xl backdrop-blur-md flex flex-col gap-1.5 min-w-[200px]">
-          <div className="flex justify-between items-center pb-1.5 border-b border-[var(--border-primary)] mb-1">
-            <span className="text-[var(--text-secondary)] text-xs font-medium">
+        <div className="bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)] rounded-2xl p-3.5 shadow-xl backdrop-blur-md flex flex-col gap-1.5 min-w-[200px]">
+          <div className="flex justify-between items-center pb-1.5 border-b border-[var(--md-sys-color-outline-variant)] mb-1">
+            <span className="text-[var(--md-sys-color-on-surface-variant)] text-xs font-medium">
               {new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
             <span 
@@ -31,13 +31,13 @@ function CustomTooltip({ active, payload, label }: any) {
             </span>
           </div>
           <div className="flex justify-between text-xs">
-            <span className="text-[var(--text-secondary)]">{t('processTimeLabel')}</span>
-            <span className="text-[var(--text-primary)] font-semibold">{Math.round(mainProcessData.value)} ms</span>
+            <span className="text-[var(--md-sys-color-on-surface-variant)]">{t('processTimeLabel')}</span>
+            <span className="text-[var(--md-sys-color-on-surface)] font-semibold">{Math.round(mainProcessData.value)} ms</span>
           </div>
           {chunkData && (
             <div className="flex justify-between text-xs">
-              <span className="text-[var(--text-secondary)]">{t('chunkLimitLabel')}</span>
-              <span className="text-[var(--text-tertiary)] font-medium">{Math.round(chunkData.value)} ms</span>
+              <span className="text-[var(--md-sys-color-on-surface-variant)]">{t('chunkLimitLabel')}</span>
+              <span className="text-[var(--md-sys-color-outline)] font-medium">{Math.round(chunkData.value)} ms</span>
             </div>
           )}
         </div>

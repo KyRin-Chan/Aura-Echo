@@ -9,7 +9,7 @@ sys.setrecursionlimit(sys.getrecursionlimit() * 5)
 backend = os.environ.get('BACKEND', 'cuda')
 
 with open('edition.txt', 'w') as f:
-    f.write('NVIDIA-CUDA-RTX5080-Optimized')
+    f.write('Nvidia-CUDA')
 
 datas = [('../client/modern-gui/dist', './dist'), ('./edition.txt', '.')]
 
