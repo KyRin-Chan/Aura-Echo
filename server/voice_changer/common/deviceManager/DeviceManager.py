@@ -48,7 +48,7 @@ class DeviceManager(object):
         self.fp16_available = False
         self.force_fp32 = False
         self.disable_jit = False
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         logger.info('Initialized DeviceManager. Backend statuses:')
         logger.info(f'* DirectML: {self.dml_enabled}, device count: {torch_directml.device_count()}')
         logger.info(f'* CUDA: {self.cuda_enabled}, device count: {torch.cuda.device_count()}')

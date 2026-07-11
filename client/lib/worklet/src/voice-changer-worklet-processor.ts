@@ -33,6 +33,7 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
     private lastPlaySample = 0;
     private wasPlaying = false;
     private unpushedF32Data: Float32Array = new Float32Array(0);
+    private chunkSize = 4;
 
     playBuffer: Float32Array[] = [];
     /**
@@ -88,6 +89,7 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
         concatedF32Data.set(f32Data, this.unpushedF32Data.length);
 
         const chunkSize = Math.floor(concatedF32Data.length / this.BLOCK_SIZE);
+        this.chunkSize = chunkSize;
         // Allow a jitter buffer headroom (chunkSize + 48 blocks, which is ~100ms of delay tolerance at 48kHz)
         // to prevent packet arrival jitter from constantly dropping samples and causing robotic metallic sound.
         const maxBufferBlocks = chunkSize + 48;
@@ -123,7 +125,17 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
             }
         }
 
-        const voice = this.playBuffer.shift();
+        let voice: Float32Array | undefined = undefined;
+        // Warm-up buffer: when starting playback after silence/underflow, wait until we have
+        // accumulated at least 2 packets (chunkSize * 2) in the queue to absorb GPU wake-up latency.
+        const minStartBlocks = Math.max(8, this.chunkSize * 2);
+        if (!this.wasPlaying) {
+            if (this.playBuffer.length >= minStartBlocks) {
+                voice = this.playBuffer.shift();
+            }
+        } else {
+            voice = this.playBuffer.shift();
+        }
         if (voice) {
             outputs[0][0].set(voice);
             if (outputs[0].length == 2) {

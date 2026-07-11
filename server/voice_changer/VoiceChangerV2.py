@@ -51,6 +51,7 @@ class VoiceChangerV2:
 
     def set_slot_info(self, slot_info: ModelSlots):
         self.vcmodel.set_slot_info(slot_info)
+        self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
         self.vcmodel.initialize()
 
     def get_type(self) -> VoiceChangerType:
