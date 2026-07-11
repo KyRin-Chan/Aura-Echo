@@ -23,6 +23,7 @@ interface GenericModalProps {
   transparent?: boolean;
   closeOnOutsideClick?: boolean;
   size?: ModalSize;
+  className?: string;
 }
 
 function GenericModal({
@@ -34,7 +35,8 @@ function GenericModal({
   secondaryButton,
   transparent = false,
   closeOnOutsideClick = true,
-  size = 'medium'
+  size = 'medium',
+  className = ''
 }: GenericModalProps): JSX.Element | null {
   if (!isOpen) {
     return null;
@@ -63,7 +65,7 @@ function GenericModal({
     <div
       className={`fixed inset-0 ${
         transparent === false ? 'bg-black bg-opacity-50 backdrop-blur-sm' : 'opacity-100'
-      } flex justify-center items-center z-40 p-4 transition-opacity duration-300 ease-in-out`}
+      } flex justify-center items-center z-40 p-4 transition-opacity duration-300 ease-in-out ${className}`}
       onClick={closeOnOutsideClick ? onClose : undefined}
     >
       <div

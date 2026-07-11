@@ -33,16 +33,21 @@ const AppContent: React.FC = () => {
       </AppContextProvider>
 
       {showWelcome && (
-        <div
-          className={`fixed inset-0 z-50 w-screen h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/15 via-surface to-surface flex justify-center items-center transition-all duration-300 ease-in-out ${
-            fadeOut ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100'
-          }`}
-        >
+        <>
+          {/* Welcome screen background gradient overlay */}
+          <div
+            className={`fixed inset-0 z-30 w-screen h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/15 via-surface to-surface transition-all duration-300 ease-in-out ${
+              fadeOut ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100'
+            }`}
+          />
           <GenericModal
             isOpen={true}
             transparent={true}
             onClose={handleWelcomeComplete}
             title="AuraEcho"
+            className={`transition-all duration-300 ease-in-out ${
+              fadeOut ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100'
+            }`}
             primaryButton={{
               text: "Continue",
               onClick: handleWelcomeComplete
@@ -50,7 +55,7 @@ const AppContent: React.FC = () => {
           >
             <WelcomeModal />
           </GenericModal>
-        </div>
+        </>
       )}
     </>
   );
