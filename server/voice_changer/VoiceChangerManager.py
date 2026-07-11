@@ -53,12 +53,20 @@ class VoiceChangerManager(ServerAudioCallbacks):
             except Exception as e:
                 logger.exception(f"Error in emitTo callback: {e}")
 
+    def emit_progress(self, step: int, total: int, label: str):
+        for func in self.progressEmitFuncs:
+            try:
+                func(step, total, label)
+            except Exception as e:
+                logger.exception(f"Error in progressEmit callback: {e}")
+
     ############################
     # VoiceChangerManager
     ############################
     def __init__(self):
         logger.info("Initializing...")
         self.emitToFuncs = []
+        self.progressEmitFuncs = []
         self.params = get_settings()
 
         self.modelSlotManager = ModelSlotManager.get_instance(self.params.model_dir)
@@ -225,11 +233,17 @@ class VoiceChangerManager(ServerAudioCallbacks):
                 'protect': slotInfo.defaultProtect
             })
 
+            # Build a progress callback that fans out to all registered emitters
+            def _progress_callback(step: int, total: int, label: str):
+                self.emit_progress(step, total, label)
+
             if slotInfo.voiceChangerType == self.vc.get_type():
                 self.vc.set_slot_info(slotInfo)
             elif slotInfo.voiceChangerType == "RVC":
                 logger.info("Loading RVC...")
-                self.vc.initialize(RVCr2(slotInfo, self.settings))
+                rvc = RVCr2(slotInfo, self.settings)
+                rvc.set_progress_callback(_progress_callback)
+                self.vc.initialize(rvc)
             else:
                 logger.error(f"Unknown voice changer model: {slotInfo.voiceChangerType}")
 
@@ -359,6 +373,10 @@ class VoiceChangerManager(ServerAudioCallbacks):
     def setEmitTo(self, emitTo: Callable[[Any], None]):
         if emitTo not in self.emitToFuncs:
             self.emitToFuncs.append(emitTo)
+
+    def setProgressEmitTo(self, fn: Callable[[int, int, str], None]):
+        if fn not in self.progressEmitFuncs:
+            self.progressEmitFuncs.append(fn)
 
     def update_model_default(self):
         # self.vc.update_model_default()

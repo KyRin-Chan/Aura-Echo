@@ -83,6 +83,7 @@ class MMVC_Rest:
 
             loop = None
             active_websockets = set()
+            active_progress_websockets = set()
 
             def emit_ws_stats(vol, perf, err):
                 nonlocal loop
@@ -110,7 +111,27 @@ class MMVC_Rest:
                 except Exception as e:
                     logger.debug(f"Failed to schedule ws send: {e}")
 
+            def emit_ws_progress(step: int, total: int, label: str):
+                nonlocal loop
+                if not active_progress_websockets or not loop:
+                    return
+                import json as _json
+                payload = _json.dumps({"step": step, "total": total, "label": label})
+
+                async def send_progress_all():
+                    for ws in list(active_progress_websockets):
+                        try:
+                            await ws.send_text(payload)
+                        except Exception:
+                            pass
+
+                try:
+                    asyncio.run_coroutine_threadsafe(send_progress_all(), loop)
+                except Exception as e:
+                    logger.debug(f"Failed to schedule ws progress send: {e}")
+
             voiceChangerManager.setEmitTo(emit_ws_stats)
+            voiceChangerManager.setProgressEmitTo(emit_ws_progress)
 
             @app_fastapi.websocket("/ws/voice")
             async def websocket_voice(websocket: WebSocket):
@@ -199,6 +220,30 @@ class MMVC_Rest:
                         duration = current_time - last_stale_log_time
                         avg_age = sum(stale_ages) // len(stale_ages)
                         logger.warning(f"[WS] Stale packets detected: {stale_count} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
+
+            @app_fastapi.websocket("/ws/progress")
+            async def websocket_progress(websocket: WebSocket):
+                """Dedicated channel for model loading progress (JSON text frames)."""
+                nonlocal loop
+                if loop is None:
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except Exception:
+                        pass
+                await websocket.accept()
+                active_progress_websockets.add(websocket)
+                logger.debug("WebSocket client connected to /ws/progress")
+                try:
+                    # Keep the connection alive; this endpoint is receive-only from server side
+                    while True:
+                        # Wait for client close or any message (we don't process client messages)
+                        await websocket.receive_text()
+                except WebSocketDisconnect:
+                    logger.debug("WebSocket client disconnected from /ws/progress")
+                except Exception:
+                    pass
+                finally:
+                    active_progress_websockets.discard(websocket)
 
             cls._instance = app_fastapi
             logger.info("Initialized.")

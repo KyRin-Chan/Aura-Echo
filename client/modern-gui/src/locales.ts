@@ -588,7 +588,7 @@ export const locales = {
         disablingJit: "正在禁用 JIT 编译",
         enablingUseOnnx: "正在启用转换为 ONNX",
         disablingUseOnnx: "正在禁用转换为 ONNX",
-        websocketProtocolLabel: "原生 WebSocket (高性能)",
+        websocketProtocolLabel: "Echo 通讯协议",
         languageLabel: "语言 (Language)",
         crossfadeOverlapLabel: "淡入淡出重叠",
         silenceFrontLabel: "静音前导",

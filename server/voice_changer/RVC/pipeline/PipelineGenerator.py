@@ -4,6 +4,7 @@ import faiss
 import faiss.contrib.torch_utils
 import torch
 from data.ModelSlot import RVCModelSlot
+from typing import Callable, Optional
 
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.embedder.EmbedderManager import EmbedderManager
@@ -15,9 +16,26 @@ from settings import get_settings
 import logging
 logger = logging.getLogger(__name__)
 
-def createPipeline(modelSlot: RVCModelSlot, f0Detector: str, useONNX: bool, force_reload: bool):
+_TOTAL_STEPS = 4
+
+def createPipeline(
+    modelSlot: RVCModelSlot,
+    f0Detector: str,
+    useONNX: bool,
+    force_reload: bool,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+):
+    def _report(step: int, label: str):
+        if progress_callback:
+            try:
+                progress_callback(step, _TOTAL_STEPS, label)
+            except Exception:
+                pass
+
     model_dir = get_settings().model_dir
-    # Inferencer 生成
+
+    # Step 1: Inferencer 生成
+    _report(1, "Loading voice model...")
     if useONNX:
         modelPath = os.path.join(model_dir, str(modelSlot.slotIndex), os.path.basename(modelSlot.modelFileOnnx))
         inferencer = InferencerManager.getInferencer(modelSlot.modelTypeOnnx, modelPath)
@@ -25,13 +43,16 @@ def createPipeline(modelSlot: RVCModelSlot, f0Detector: str, useONNX: bool, forc
         modelPath = os.path.join(model_dir, str(modelSlot.slotIndex), os.path.basename(modelSlot.modelFile))
         inferencer = InferencerManager.getInferencer(modelSlot.modelType, modelPath)
 
-    # Embedder 生成
+    # Step 2: Embedder 生成
+    _report(2, "Loading embedder...")
     embedder = EmbedderManager.get_embedder(modelSlot.embedder, force_reload)
 
-    # pitchExtractor
+    # Step 3: pitchExtractor
+    _report(3, "Loading pitch extractor...")
     pitchExtractor = PitchExtractorManager.getPitchExtractor(f0Detector, force_reload)
 
-    # index, feature
+    # Step 4: index, feature
+    _report(4, "Loading FAISS index...")
     indexPath = os.path.join(model_dir, str(modelSlot.slotIndex), os.path.basename(modelSlot.indexFile))
     index, index_reconstruct = _loadIndex(indexPath)
 

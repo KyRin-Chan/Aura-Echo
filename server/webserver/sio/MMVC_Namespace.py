@@ -1,3 +1,4 @@
+import json
 import numpy as np
 import socketio
 from time import time
@@ -22,6 +23,14 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         if self.sid:
             asyncio.run(self.emitTo(vol, perf, err))
 
+    async def emitProgress(self, step: int, total: int, label: str):
+        if self.sid:
+            await self.emit("model_loading_progress", {"step": step, "total": total, "label": label}, to=self.sid)
+
+    def emit_progress_coroutine(self, step: int, total: int, label: str):
+        if self.sid:
+            asyncio.run(self.emitProgress(step, total, label))
+
     def __init__(self, namespace: str, voiceChangerManager: VoiceChangerManager):
         super().__init__(namespace)
         self.voiceChangerManager = voiceChangerManager
@@ -29,6 +38,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         self.stale_stats = {}
         # self.voiceChangerManager.voiceChanger.emitTo = self.emit_coroutine
         self.voiceChangerManager.setEmitTo(self.emit_coroutine)
+        self.voiceChangerManager.setProgressEmitTo(self.emit_progress_coroutine)
 
     @classmethod
     def get_instance(cls, voiceChangerManager: VoiceChangerManager):

@@ -6,6 +6,7 @@ from data.ModelSlot import RVCModelSlot, saveSlotInfo
 from const import EnumInferenceTypes
 import logging
 import os
+from typing import Callable, Optional
 from voice_changer.embedder.EmbedderManager import EmbedderManager
 from voice_changer.utils.VoiceChangerModel import (
     AudioInOutFloat,
@@ -64,17 +65,26 @@ class RVCr2(VoiceChangerModel):
 
         self.is_half = self.device_manager.use_fp16()
         self.dtype = torch.float16 if self.is_half else torch.float32
+        self._progress_callback: Optional[Callable[[int, int, str], None]] = None
 
-    def initialize(self, force_reload: bool = False):
+    def set_progress_callback(self, callback: Optional[Callable[[int, int, str], None]]):
+        """Register a callback to receive model loading progress updates."""
+        self._progress_callback = callback
+
+    def initialize(self, force_reload: bool = False, progress_callback: Optional[Callable[[int, int, str], None]] = None):
         logger.info("Initializing...")
 
         if self.settings.useONNX and not self.slotInfo.modelFileOnnx:
             self.export2onnx()
 
+        # Use provided callback or fall back to the one registered via set_progress_callback
+        _cb = progress_callback if progress_callback is not None else self._progress_callback
+
         # pipelineの生成
         try:
             self.pipeline = createPipeline(
-                self.slotInfo, self.settings.f0Detector, self.settings.useONNX, force_reload
+                self.slotInfo, self.settings.f0Detector, self.settings.useONNX, force_reload,
+                progress_callback=_cb,
             )
             
             # Configure initial audio effects from settings

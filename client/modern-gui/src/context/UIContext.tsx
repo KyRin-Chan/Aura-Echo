@@ -2,6 +2,7 @@ import React, { createContext, ReactNode, useContext, useState, useRef, useCallb
 import LoadingScreen from '../components/Modals/LoadingScreen';
 import ErrorNotifications from '../components/Modals/ErrorNotifications';
 import { useAppState } from './AppContext';
+import { useModelLoadingProgress, LoadingProgress } from '../scripts/useModelLoadingProgress';
 
 type ErrorType = 'Error' | 'Warning' | 'Confirm';
 
@@ -17,6 +18,8 @@ export interface UIContextType {
   showError: (message: string, type?: ErrorType) => void;
   setIsConverting: (isConverting: boolean) => void;
   isConverting: boolean;
+
+  loadingProgress: LoadingProgress | null;
 
   reloadDeviceInfo: () => Promise<void>;
   inputAudioDeviceInfo: MediaDeviceInfo[];
@@ -50,6 +53,7 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
 
   const [isLoading, setIsLoading] = useState(false);
   const [isConverting, setIsConverting] = useState<boolean>(false);
+  const [loadingProgress, setLoadingProgress] = useState<LoadingProgress | null>(null);
   const [inputAudioDeviceInfo, setInputAudioDeviceInfo] = useState<MediaDeviceInfo[]>([]);
   const [outputAudioDeviceInfo, setOutputAudioDeviceInfo] = useState<MediaDeviceInfo[]>([]);
   const [audioOutputForAnalyzer, setAudioOutputForAnalyzer] = useState<string>("none");
@@ -66,6 +70,7 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
   // Start loading screen
   const startLoading = useCallback((message?: string) => {
     setLoadingMessage(message);
+    setLoadingProgress(null);
     setIsLoading(true);
   }, []);
 
@@ -73,6 +78,7 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
   const stopLoading = useCallback(() => {
     setIsLoading(false);
     setLoadingMessage(undefined);
+    setLoadingProgress(null);
   }, []);
 
   // Show error toast (top right)
@@ -132,6 +138,19 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
   };
 
   // ---------------- Hooks ----------------
+
+  // Subscribe to model loading progress events
+  const protocol = (appState.setting?.workletNodeSetting?.protocol ?? 'sio') as 'sio' | 'ws' | 'rest';
+  const serverUrl = appState.setting?.workletNodeSetting?.serverUrl ?? '';
+  useModelLoadingProgress({
+    protocol,
+    serverUrl,
+    onProgress: (progress) => {
+      if (isLoading) {
+        setLoadingProgress(progress);
+      }
+    },
+  });
 
   // Check if server is running (needed if page is reloaded and servermode still enabled)
   useEffect(() => {
@@ -201,11 +220,11 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
   return (
     <UIContext.Provider value={{
       startLoading, stopLoading, showError, setIsConverting, reloadDeviceInfo,
-      isConverting, setAudioInputForGUI, setAudioOutputForGUI, setAudioMonitorForGUI,
+      isConverting, loadingProgress, setAudioInputForGUI, setAudioOutputForGUI, setAudioMonitorForGUI,
       inputAudioDeviceInfo, outputAudioDeviceInfo, audioInputForGUI, audioOutputForGUI, audioMonitorForGUI, audioOutputForAnalyzer, setAudioOutputForAnalyzer
     }}>
       {children}
-      {isLoading && <LoadingScreen message={loadingMessage} />}
+      {isLoading && <LoadingScreen message={loadingMessage} progress={loadingProgress} />}
       <ErrorNotifications errors={errors} removeError={removeError} />
     </UIContext.Provider>
   );
