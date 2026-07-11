@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo } from 'react';
-import { CSS_CLASSES } from '../../styles/constants';
 import { useAppState } from '../../context/AppContext';
 import { useState } from 'react';
 import { ServerAudioDevice } from '@dannadori/voice-changer-client-js/const';
 import { useUIContext } from '../../context/UIContext';
+import MD3Select from '../Helpers/MD3Select';
 
 function AudioDevicesServer() {
   // ---------------- States ----------------
@@ -14,35 +14,41 @@ function AudioDevicesServer() {
 
   const [availableAudioDrivers, setAvailableAudioDrivers] = useState<string[]>([]);
   const [selectedAudioDriver, setSelectedAudioDriver] = useState<string>('');
-
   const [selectedMonitorAudioDriver, setSelectedMonitorAudioDriver] = useState<string>('');
 
   // ---------------- Hooks ----------------
 
   // Get Server Input Devices based on selected Audio Driver
   const serverInputDevices = useMemo(() => {
-    return appState.serverSetting?.serverSetting?.serverAudioInputDevices
-      .filter(device => device.hostAPI === selectedAudioDriver);
+    return appState.serverSetting?.serverSetting?.serverAudioInputDevices.filter(
+      (device) => device.hostAPI === selectedAudioDriver
+    ) || [];
   }, [appState.serverSetting, selectedAudioDriver]);
 
   // Get Server Output Devices based on selected Audio Driver
   const serverOutputDevices = useMemo(() => {
-    return appState.serverSetting?.serverSetting?.serverAudioOutputDevices
-      .filter(device => device.hostAPI === selectedAudioDriver);
+    return appState.serverSetting?.serverSetting?.serverAudioOutputDevices.filter(
+      (device) => device.hostAPI === selectedAudioDriver
+    ) || [];
   }, [appState.serverSetting, selectedAudioDriver]);
 
   // Get Server Monitor Devices based on selected Monitor Audio Driver
   const serverMonitorDevices = useMemo(() => {
     if (!selectedMonitorAudioDriver) return [];
-    return appState.serverSetting?.serverSetting?.serverAudioOutputDevices
-      .filter(device => device.hostAPI === selectedMonitorAudioDriver);
+    return appState.serverSetting?.serverSetting?.serverAudioOutputDevices.filter(
+      (device) => device.hostAPI === selectedMonitorAudioDriver
+    ) || [];
   }, [appState.serverSetting, selectedMonitorAudioDriver]);
 
   // Set selected monitor audio driver based on selected audio driver
   useEffect(() => {
     if (availableAudioDrivers.length > 0) {
-      const monitor = appState.serverSetting.serverSetting.serverAudioOutputDevices.find(x => x.index === appState.serverSetting.serverSetting.serverMonitorDeviceId);
-      setSelectedMonitorAudioDriver(availableAudioDrivers.find(x => x === monitor?.hostAPI) || availableAudioDrivers[0]);
+      const monitor = appState.serverSetting.serverSetting.serverAudioOutputDevices.find(
+        (x) => x.index === appState.serverSetting.serverSetting.serverMonitorDeviceId
+      );
+      setSelectedMonitorAudioDriver(
+        availableAudioDrivers.find((x) => x === monitor?.hostAPI) || availableAudioDrivers[0]
+      );
     }
   }, [availableAudioDrivers]);
 
@@ -133,15 +139,17 @@ function AudioDevicesServer() {
 
       // Extract unique hostAPIs for Audio Driver dropdown
       const hostApis = new Set<string>();
-      inputs.forEach(device => device.hostAPI && hostApis.add(device.hostAPI));
-      outputs.forEach(device => device.hostAPI && hostApis.add(device.hostAPI));
+      inputs.forEach((device) => device.hostAPI && hostApis.add(device.hostAPI));
+      outputs.forEach((device) => device.hostAPI && hostApis.add(device.hostAPI));
       const uniqueHostApis = Array.from(hostApis);
       setAvailableAudioDrivers(uniqueHostApis);
 
       // Set selected audio driver based on server input device
       if (uniqueHostApis.length > 0) {
-        const input = appState.serverSetting.serverSetting.serverAudioInputDevices.find(x => x.index === appState.serverSetting.serverSetting.serverInputDeviceId);
-        setSelectedAudioDriver(uniqueHostApis.find(x => x === input?.hostAPI) || uniqueHostApis[0]);
+        const input = appState.serverSetting.serverSetting.serverAudioInputDevices.find(
+          (x) => x.index === appState.serverSetting.serverSetting.serverInputDeviceId
+        );
+        setSelectedAudioDriver(uniqueHostApis.find((x) => x === input?.hostAPI) || uniqueHostApis[0]);
       }
     } catch (err) {
       console.error('Error fetching server devices:', err);
@@ -150,225 +158,181 @@ function AudioDevicesServer() {
 
   // ---------------- Render ----------------
 
+  const sampleRateOptions = sampleRates.map((rate) => ({
+    value: rate,
+    label: `${rate} Hz`
+  }));
+
+  const audioDriverOptions =
+    availableAudioDrivers.length === 0
+      ? [{ value: '', label: 'No drivers available' }]
+      : availableAudioDrivers.map((driver) => ({
+          value: driver,
+          label: driver
+        }));
+
+  const inputOptions =
+    serverInputDevices.length === 0
+      ? [{ value: -1, label: 'No input devices found' }]
+      : [
+          ...(!serverInputDevices.find(
+            (device) => device.index === appState.serverSetting.serverSetting.serverInputDeviceId
+          )
+            ? [{ value: -1, label: 'No device selected' }]
+            : []),
+          ...serverInputDevices.map((device) => ({
+            value: device.index,
+            label: `[${device.hostAPI}] ${device.name}`
+          }))
+        ];
+
+  const selectedInputDeviceObj = serverInputDevices.find(
+    (device) => device.index === appState.serverSetting.serverSetting.serverInputDeviceId
+  );
+  const inputChannelCount = selectedInputDeviceObj?.maxInputChannels || 0;
+  const inputChannelOptions = [
+    { value: -1, label: 'Default' },
+    ...Array.from({ length: inputChannelCount }, (_, index) => ({
+      value: index,
+      label: String(index)
+    }))
+  ];
+
+  const outputOptions =
+    serverOutputDevices.length === 0
+      ? [{ value: -1, label: 'No output devices found' }]
+      : [
+          ...(!serverOutputDevices.find(
+            (device) => device.index === appState.serverSetting.serverSetting.serverOutputDeviceId
+          )
+            ? [{ value: -1, label: 'No device selected' }]
+            : []),
+          ...serverOutputDevices.map((device) => ({
+            value: device.index,
+            label: `[${device.hostAPI}] ${device.name}`
+          }))
+        ];
+
+  const selectedOutputDeviceObj = serverOutputDevices.find(
+    (device) => device.index === appState.serverSetting.serverSetting.serverOutputDeviceId
+  );
+  const outputChannelCount = selectedOutputDeviceObj?.maxOutputChannels || 0;
+  const outputChannelOptions = [
+    { value: -1, label: 'Default' },
+    ...Array.from({ length: outputChannelCount }, (_, index) => ({
+      value: index,
+      label: String(index)
+    }))
+  ];
+
+  const monitorDriverOptions =
+    availableAudioDrivers.length === 0
+      ? [{ value: '', label: 'No drivers available' }]
+      : availableAudioDrivers.map((driver) => ({
+          value: driver,
+          label: driver
+        }));
+
+  const monitorOptions =
+    serverMonitorDevices.length === 0
+      ? [{ value: -1, label: 'No devices for driver' }]
+      : [
+          { value: -1, label: 'No device selected' },
+          ...serverMonitorDevices.map((device) => ({
+            value: device.index,
+            label: `[${device.hostAPI}] ${device.name}`
+          }))
+        ];
+
   return (
-    <>
-      <div>
-        <label htmlFor="sampleRate" className={CSS_CLASSES.label}>Sample Rate</label>
-        <select id="sampleRate" className={CSS_CLASSES.select} value={appState.serverSetting?.serverSetting?.serverAudioSampleRate} onChange={handleSampleRateChange}>
-          {sampleRates.map(rate => (
-            <option key={rate} value={rate}>{rate} Hz</option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label htmlFor="audioDriver" className={CSS_CLASSES.label}>Audio Driver</label>
-        <select
-          id="audioDriver"
-          className={CSS_CLASSES.select}
-          value={selectedAudioDriver}
-          onChange={handleAudioDriverChange}
-        >
-          {availableAudioDrivers.length === 0 ? (
-            <option value="">No drivers available</option>
-          ) : (
-            availableAudioDrivers.map(driver => (
-              <option key={driver} value={driver}>{driver}</option>
-            ))
-          )}
-        </select>
-      </div>
+    <div className="flex flex-col space-y-4 bg-surface-container-low p-3 rounded-md border border-outline-variant">
+      <MD3Select
+        id="sampleRate"
+        label="Sample Rate"
+        value={appState.serverSetting?.serverSetting?.serverAudioSampleRate}
+        onChange={handleSampleRateChange}
+        options={sampleRateOptions}
+      />
 
-      <div className="space-y-2">
-        <div className="flex items-end gap-2">
-          <div className={selectedAudioDriver === 'ASIO' ? 'w-[70%]' : 'w-full'}>
-            <label htmlFor="inputCh" className={CSS_CLASSES.label}>
-              Input Device
-            </label>
-            <select
-              id="inputCh"
-              className={`${CSS_CLASSES.select} w-full`}
-              value={appState.serverSetting.serverSetting.serverInputDeviceId}
-              onChange={handleInputDeviceChange}
-            >
-              {
-                serverInputDevices.length === 0 ? (
-                  <option value={-1}>No input devices found</option>
-                ) : (
-                  <>
-                    {
-                      !serverInputDevices.find(device => device.index === appState.serverSetting.serverSetting.serverInputDeviceId) && (
-                        <option value={-1}>No device selected</option>
-                      )
-                    }
-                    {
-                      serverInputDevices.map((device) => (
-                        <option
-                          key={device.index}
-                          value={device.index}
-                        >
-                          {`[${device.hostAPI}] ${device.name}`}
-                        </option>
-                      ))
-                    }
-                  </>
-                )
-              }
-            </select>
-          </div>
+      <MD3Select
+        id="audioDriver"
+        label="Audio Driver"
+        value={selectedAudioDriver}
+        onChange={handleAudioDriverChange}
+        options={audioDriverOptions}
+      />
 
-          {/* Input Channel (only visible when ASIO is selected) - 30% width */}
-          {selectedAudioDriver === 'ASIO' && serverInputDevices.find(device => device.index === appState.serverSetting.serverSetting.serverInputDeviceId) && (
-            <div className="w-[30%]">
-              <label htmlFor="inputChannel" className={CSS_CLASSES.label}>
-                Channel
-              </label>
-              <select
-                id="inputChannel"
-                className={`${CSS_CLASSES.select} w-full`}
-                value={appState.serverSetting.serverSetting.asioInputChannel}
-                onChange={handleInputChannelChange}
-              >
-                <option value={-1}>Default</option>
-                {
-                  Array.from({
-                    length: serverInputDevices.find(device => device.index === appState.serverSetting.serverSetting.serverInputDeviceId)?.maxInputChannels || 0
-                  },
-                    (_, index) => (
-                      <option key={index} value={index}>{index}</option>
-                    )
-                  )
-                }
-              </select>
-            </div>
-          )}
+      <div className="flex items-end gap-3">
+        <div className={selectedAudioDriver === 'ASIO' ? 'w-[70%]' : 'w-full'}>
+          <MD3Select
+            id="inputCh"
+            label="Input Device"
+            value={appState.serverSetting.serverSetting.serverInputDeviceId}
+            onChange={handleInputDeviceChange}
+            options={inputOptions}
+          />
         </div>
-      </div>
 
-      <div className="space-y-2">
-        <div className="flex items-end gap-2">
-          {/* Output Device - 70% width */}
-          <div className={selectedAudioDriver === 'ASIO' ? 'w-[70%]' : 'w-full'}>
-            <label htmlFor="outputCh" className={CSS_CLASSES.label}>
-              Output Device
-            </label>
-            <select
-              id="outputCh"
-              className={`${CSS_CLASSES.select} w-full`}
-              value={appState.serverSetting.serverSetting.serverOutputDeviceId}
-              onChange={handleOutputDeviceChange}
-            >
-              {
-                serverOutputDevices.length === 0 ? (
-                  <option value={-1}>No output devices found</option>
-                ) : (
-                  <>
-                    {
-                      !serverOutputDevices.find(device => device.index === appState.serverSetting.serverSetting.serverOutputDeviceId) && (
-                        <option value={-1}>No device selected</option>
-                      )
-                    }
-                    {
-                      serverOutputDevices.map((device) => (
-                        <option
-                          key={device.index}
-                          value={device.index}
-                        >
-                          {`[${device.hostAPI}] ${device.name}`}
-                        </option>
-                      ))
-                    }
-                  </>
-                )
-              }
-            </select>
+        {selectedAudioDriver === 'ASIO' && selectedInputDeviceObj && (
+          <div className="w-[30%]">
+            <MD3Select
+              id="inputChannel"
+              label="Channel"
+              value={appState.serverSetting.serverSetting.asioInputChannel}
+              onChange={handleInputChannelChange}
+              options={inputChannelOptions}
+            />
           </div>
-
-          {/* Output Channel (only visible when ASIO is selected) - 30% width */}
-          {selectedAudioDriver === 'ASIO' && serverOutputDevices.find(device => device.index === appState.serverSetting.serverSetting.serverOutputDeviceId) && (
-            <div className="w-[30%]">
-              <label htmlFor="outputChannel" className={CSS_CLASSES.label}>
-                Channel
-              </label>
-              <select
-                id="outputChannel"
-                className={`${CSS_CLASSES.select} w-full`}
-                value={appState.serverSetting.serverSetting.asioOutputChannel}
-                onChange={handleOutputChannelChange}
-              >
-                <option value={-1}>Default</option>
-                {
-                  Array.from({
-                    length: serverOutputDevices.find(device => device.index === appState.serverSetting.serverSetting.serverOutputDeviceId)?.maxOutputChannels || 0
-                  },
-                    (_, index) => (
-                      <option key={index} value={index}>{index}</option>
-                    )
-                  )
-                }
-              </select>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Monitor Device & Driver */}
-      <div className="flex items-end gap-2">
-        {/* Monitor Audio Driver Selector - 30% width */}
+      <div className="flex items-end gap-3">
+        <div className={selectedAudioDriver === 'ASIO' ? 'w-[70%]' : 'w-full'}>
+          <MD3Select
+            id="outputCh"
+            label="Output Device"
+            value={appState.serverSetting.serverSetting.serverOutputDeviceId}
+            onChange={handleOutputDeviceChange}
+            options={outputOptions}
+          />
+        </div>
+
+        {selectedAudioDriver === 'ASIO' && selectedOutputDeviceObj && (
+          <div className="w-[30%]">
+            <MD3Select
+              id="outputChannel"
+              label="Channel"
+              value={appState.serverSetting.serverSetting.asioOutputChannel}
+              onChange={handleOutputChannelChange}
+              options={outputChannelOptions}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-end gap-3">
         <div className="w-[30%]">
-          <label htmlFor="monitorAudioDriver" className={CSS_CLASSES.label}>
-            Monitor Driver
-          </label>
-          <select
+          <MD3Select
             id="monitorAudioDriver"
-            className={`${CSS_CLASSES.select} w-full`}
+            label="Monitor Driver"
             value={selectedMonitorAudioDriver}
             onChange={handleMonitorAudioDriverChange}
-          >
-            {availableAudioDrivers.length === 0 ? (
-              <option value="">No drivers available</option>
-            ) : (
-              availableAudioDrivers.map(driver => (
-                <option key={driver} value={driver}>{driver}</option>
-              ))
-            )}
-          </select>
+            options={monitorDriverOptions}
+          />
         </div>
 
-        {/* Monitor Device Selector - 70% width */}
         <div className="w-[70%]">
-          <label htmlFor="monCh" className={CSS_CLASSES.label}>
-            Monitor Device
-          </label>
-          <select
+          <MD3Select
             id="monCh"
-            className={`${CSS_CLASSES.select} w-full`}
+            label="Monitor Device"
             value={appState.serverSetting.serverSetting.serverMonitorDeviceId}
             onChange={handleMonitorDeviceChange}
+            options={monitorOptions}
             disabled={!selectedMonitorAudioDriver || serverMonitorDevices.length === 0}
-          >
-            {
-              serverMonitorDevices.length === 0 ? (
-                <option value={-1}>No devices for driver</option>
-              ) : (
-                <>
-                  <option value={-1}>No device selected</option>
-                  {
-                    serverMonitorDevices.map((device) => (
-                      <option
-                        key={device.index}
-                        value={device.index}
-                      >
-                        {`[${device.hostAPI}] ${device.name}`}
-                      </option>
-                    ))
-                  }
-                </>
-              )
-            }
-          </select>
+          />
         </div>
       </div>
-    </>
+    </div>
   );
 }
 

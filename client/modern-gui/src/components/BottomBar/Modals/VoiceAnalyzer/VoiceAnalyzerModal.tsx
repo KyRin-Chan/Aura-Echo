@@ -35,7 +35,7 @@ function VoiceAnalyzerModal({
   const [inputFile, setInputFile] = useState<File | null>(null);
   const [targetPreviewUrl, setTargetPreviewUrl] = useState<string>('');
   const [inputPreviewUrl, setInputPreviewUrl] = useState<string>('');
-  
+
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
 
@@ -49,10 +49,10 @@ function VoiceAnalyzerModal({
 
   // ---------------- Helpers ----------------
   const hzToNote = (hz: number): string => {
-    if (!hz || hz <= 0) return "N/A";
-    const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    if (!hz || hz <= 0) return 'N/A';
+    const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
     const midi = Math.round(12 * Math.log2(hz / 440) + 69);
-    const noteIndex = (midi % 12 + 12) % 12;
+    const noteIndex = ((midi % 12) + 12) % 12;
     const octave = Math.floor(midi / 12) - 1;
     return `${notes[noteIndex]}${octave} (${Math.round(hz)} Hz)`;
   };
@@ -80,7 +80,7 @@ function VoiceAnalyzerModal({
 
   const handleAnalyze = async () => {
     if (!targetFile || !inputFile) {
-      guiState.showError("Please upload both Reference and Input samples.", "Warning");
+      guiState.showError('Please upload both Reference and Input samples.', 'Warning');
       return;
     }
 
@@ -88,13 +88,13 @@ function VoiceAnalyzerModal({
     setResult(null);
 
     const formData = new FormData();
-    formData.append("target_file", targetFile);
-    formData.append("input_file", inputFile);
+    formData.append('target_file', targetFile);
+    formData.append('input_file', inputFile);
 
     try {
-      const response = await fetch("/analyze_voice", {
-        method: "POST",
-        body: formData,
+      const response = await fetch('/analyze_voice', {
+        method: 'POST',
+        body: formData
       });
 
       if (!response.ok) {
@@ -105,13 +105,13 @@ function VoiceAnalyzerModal({
       if (data.success) {
         setResult(data);
       } else {
-        throw new Error("Voice analysis returned unsuccessful status.");
+        throw new Error('Voice analysis returned unsuccessful status.');
       }
     } catch (error) {
-      console.error("Voice analysis error:", error);
+      console.error('Voice analysis error:', error);
       guiState.showError(
         `Failed to analyze audio: ${error instanceof Error ? error.message : String(error)}`,
-        t("errorTitle")
+        t('errorTitle')
       );
     } finally {
       setIsAnalyzing(false);
@@ -124,7 +124,12 @@ function VoiceAnalyzerModal({
       ...appState.serverSetting.serverSetting,
       tran: result.recommended_pitch
     });
-    guiState.showError(`${t("voiceAnalyzerAppliedPitchSuccess")}${result.recommended_pitch >= 0 ? '+' : ''}${result.recommended_pitch}`, t("confirmTitle"));
+    guiState.showError(
+      `${t('voiceAnalyzerAppliedPitchSuccess')}${result.recommended_pitch >= 0 ? '+' : ''}${
+        result.recommended_pitch
+      }`,
+      t('confirmTitle')
+    );
   };
 
   const handleApplyFormant = () => {
@@ -133,7 +138,12 @@ function VoiceAnalyzerModal({
       ...appState.serverSetting.serverSetting,
       formantShift: result.recommended_formant_shift
     });
-    guiState.showError(`Applied recommended Formant Shift: ${result.recommended_formant_shift >= 0 ? '+' : ''}${result.recommended_formant_shift}`, t("confirmTitle"));
+    guiState.showError(
+      `Applied recommended Formant Shift: ${result.recommended_formant_shift >= 0 ? '+' : ''}${
+        result.recommended_formant_shift
+      }`,
+      t('confirmTitle')
+    );
   };
 
   const handleApplyAll = () => {
@@ -144,8 +154,10 @@ function VoiceAnalyzerModal({
       formantShift: result.recommended_formant_shift
     });
     guiState.showError(
-      `${t("voiceAnalyzerAppliedBothSuccess")}${result.recommended_pitch >= 0 ? '+' : ''}${result.recommended_pitch}, Formant: ${result.recommended_formant_shift >= 0 ? '+' : ''}${result.recommended_formant_shift}`,
-      t("confirmTitle")
+      `${t('voiceAnalyzerAppliedBothSuccess')}${result.recommended_pitch >= 0 ? '+' : ''}${
+        result.recommended_pitch
+      }, Formant: ${result.recommended_formant_shift >= 0 ? '+' : ''}${result.recommended_formant_shift}`,
+      t('confirmTitle')
     );
   };
 
@@ -161,70 +173,43 @@ function VoiceAnalyzerModal({
   };
 
   return (
-    <GenericModal
-      isOpen={showVoiceAnalyzer}
-      onClose={handleClose}
-      title={t("voiceAnalyzerTitle")}
-      size="medium"
-    >
-      <div className="space-y-6 text-slate-800 dark:text-gray-100 p-2">
-        <p className="text-sm text-slate-600 dark:text-gray-400">
-          {t("voiceAnalyzerDesc")}
+    <GenericModal isOpen={showVoiceAnalyzer} onClose={handleClose} title={t('voiceAnalyzerTitle')} size="medium">
+      <div className="space-y-6 text-on-surface p-2 max-h-[70vh] overflow-y-auto pr-1.5">
+        <p className="text-xs text-on-surface-variant font-medium leading-relaxed">
+          {t('voiceAnalyzerDesc')}
         </p>
 
         {/* Upload Panels */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Target / Reference Panel */}
-          <div
-            className="p-5 rounded-2xl border flex flex-col justify-between transition-all"
-            style={{
-              backgroundColor: 'var(--bg-tertiary)',
-              borderColor: 'var(--border-primary)'
-            }}
-          >
+          <div className="p-5 rounded-2xl border border-outline-variant bg-surface-container-low flex flex-col justify-between transition-all">
             <div>
-              <span className="flex items-center space-x-2 mb-2 font-medium text-[var(--macaron-mint)]">
+              <span className="flex items-center space-x-2 mb-2 font-semibold text-primary">
                 <FontAwesomeIcon icon={faMusic} />
-                <label className={CSS_CLASSES.label}>{t("voiceAnalyzerStandardTarget")}</label>
+                <label className={CSS_CLASSES.label}>{t('voiceAnalyzerStandardTarget')}</label>
               </span>
-              <input
-                type="file"
-                accept="audio/*"
-                onChange={handleTargetChange}
-                className={CSS_CLASSES.fileInput}
-              />
+              <input type="file" accept="audio/*" onChange={handleTargetChange} className={CSS_CLASSES.fileInput} />
             </div>
             {targetPreviewUrl && (
               <div className="mt-4">
-                <p className="text-xs text-slate-500 mb-1">Preview Audio:</p>
+                <p className="text-[10px] text-on-surface-variant font-bold mb-1">Preview Audio:</p>
                 <audio src={targetPreviewUrl} controls className="w-full h-8" />
               </div>
             )}
           </div>
 
           {/* User Input Panel */}
-          <div
-            className="p-5 rounded-2xl border flex flex-col justify-between transition-all"
-            style={{
-              backgroundColor: 'var(--bg-tertiary)',
-              borderColor: 'var(--border-primary)'
-            }}
-          >
+          <div className="p-5 rounded-2xl border border-outline-variant bg-surface-container-low flex flex-col justify-between transition-all">
             <div>
-              <span className="flex items-center space-x-2 mb-2 font-medium text-[var(--macaron-blue)]">
+              <span className="flex items-center space-x-2 mb-2 font-semibold text-secondary">
                 <FontAwesomeIcon icon={faMicrophone} />
-                <label className={CSS_CLASSES.label}>{t("voiceAnalyzerYourInput")}</label>
+                <label className={CSS_CLASSES.label}>{t('voiceAnalyzerYourInput')}</label>
               </span>
-              <input
-                type="file"
-                accept="audio/*"
-                onChange={handleInputChange}
-                className={CSS_CLASSES.fileInput}
-              />
+              <input type="file" accept="audio/*" onChange={handleInputChange} className={CSS_CLASSES.fileInput} />
             </div>
             {inputPreviewUrl && (
               <div className="mt-4">
-                <p className="text-xs text-slate-500 mb-1">Preview Audio:</p>
+                <p className="text-[10px] text-on-surface-variant font-bold mb-1">Preview Audio:</p>
                 <audio src={inputPreviewUrl} controls className="w-full h-8" />
               </div>
             )}
@@ -236,102 +221,100 @@ function VoiceAnalyzerModal({
           <button
             onClick={handleAnalyze}
             disabled={isAnalyzing || !targetFile || !inputFile}
-            className={`flex items-center space-x-2 px-8 py-3 rounded-full text-base font-semibold shadow-md transition-all
-              ${(isAnalyzing || !targetFile || !inputFile)
-                ? 'opacity-50 cursor-not-allowed bg-slate-300 dark:bg-slate-700 text-slate-500'
-                : 'bg-[var(--macaron-mint)] hover:bg-[var(--macaron-mint-hover)] text-[#3a3530] hover:scale-105 active:scale-95'
-              }`}
+            className={`flex items-center space-x-2 px-8 py-2.5 rounded-full text-sm font-semibold transition-all duration-150 ${
+              isAnalyzing || !targetFile || !inputFile
+                ? 'bg-surface-container-highest text-on-surface-variant/30 cursor-not-allowed'
+                : 'bg-primary text-on-primary hover:shadow-elevation-1 hover:scale-103 active:scale-97'
+            }`}
           >
             <FontAwesomeIcon icon={faSync} className={isAnalyzing ? 'animate-spin' : ''} />
-            <span>{isAnalyzing ? t("voiceAnalyzerComparing") : t("voiceAnalyzerStartAnalysis")}</span>
+            <span>{isAnalyzing ? t('voiceAnalyzerComparing') : t('voiceAnalyzerStartAnalysis')}</span>
           </button>
         </div>
 
         {/* Results Section */}
         {result && (
-          <div
-            className="p-6 rounded-2xl border space-y-6 animate-fadeIn"
-            style={{
-              backgroundColor: 'var(--bg-tertiary)',
-              borderColor: 'var(--border-primary)'
-            }}
-          >
-            <h4 className="text-lg font-bold text-center border-b border-[var(--border-primary)] pb-2 mb-4">
-              {t("voiceAnalyzerDiagnostics")}
+          <div className="p-6 rounded-2xl border border-outline-variant bg-surface-container-low space-y-6 animate-fadeIn">
+            <h4 className="text-base font-bold text-center border-b border-outline-variant/30 pb-2.5 mb-4 text-on-surface uppercase tracking-wider">
+              {t('voiceAnalyzerDiagnostics')}
             </h4>
 
             {/* Diagnostic Metrics */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
-              <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] space-y-2">
-                <p className="font-bold text-[var(--macaron-mint)]">{t("voiceAnalyzerPitchComparison")}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+              <div className="p-4 rounded-xl bg-surface-container border border-outline-variant space-y-2">
+                <p className="font-bold text-primary">{t('voiceAnalyzerPitchComparison')}</p>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Standard Target:</span>
-                  <span className="font-semibold">{hzToNote(result.target_f0)}</span>
+                  <span className="text-on-surface-variant/70">Standard Target:</span>
+                  <span className="font-semibold text-on-surface">{hzToNote(result.target_f0)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Your Input:</span>
-                  <span className="font-semibold">{hzToNote(result.input_f0)}</span>
+                  <span className="text-on-surface-variant/70">Your Input:</span>
+                  <span className="font-semibold text-on-surface">{hzToNote(result.input_f0)}</span>
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] space-y-2">
-                <p className="font-bold text-[var(--macaron-blue)]">Formant Resonance (Spectral Centroid)</p>
+              <div className="p-4 rounded-xl bg-surface-container border border-outline-variant space-y-2">
+                <p className="font-bold text-secondary">Formant Resonance</p>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Standard Target:</span>
-                  <span className="font-semibold">{Math.round(result.target_centroid)} Hz</span>
+                  <span className="text-on-surface-variant/70">Standard Target:</span>
+                  <span className="font-semibold text-on-surface">{Math.round(result.target_centroid)} Hz</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Your Input:</span>
-                  <span className="font-semibold">{Math.round(result.input_centroid)} Hz</span>
+                  <span className="text-on-surface-variant/70">Your Input:</span>
+                  <span className="font-semibold text-on-surface">{Math.round(result.input_centroid)} Hz</span>
                 </div>
               </div>
             </div>
 
             {/* Recommendations */}
-            <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl p-5 space-y-4">
-              <p className="font-bold text-center text-slate-700 dark:text-slate-300">{t("voiceAnalyzerRecommendedParams")}</p>
-              
-              <div className="flex flex-col md:flex-row md:items-center justify-between p-3 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                <div className="mb-2 md:mb-0">
-                  <span className="font-semibold">{t("voiceAnalyzerRecommendedPitch")}</span>
-                  <span className="ml-2 text-lg font-black text-[var(--macaron-mint)]">
-                    {result.recommended_pitch >= 0 ? '+' : ''}{result.recommended_pitch}
+            <div className="bg-surface-container border border-outline-variant rounded-xl p-5 space-y-4">
+              <p className="font-bold text-center text-sm text-on-surface-variant">
+                {t('voiceAnalyzerRecommendedParams')}
+              </p>
+
+              <div className="flex flex-col md:flex-row md:items-center justify-between p-3 rounded-lg hover:bg-primary/4 transition-colors">
+                <div className="mb-2 md:mb-0 flex items-baseline">
+                  <span className="font-semibold text-xs text-on-surface">{t('voiceAnalyzerRecommendedPitch')}</span>
+                  <span className="ml-2 text-xl font-extrabold text-primary">
+                    {result.recommended_pitch >= 0 ? '+' : ''}
+                    {result.recommended_pitch}
                   </span>
-                  <span className="ml-1 text-xs text-slate-400">semitones</span>
+                  <span className="ml-1 text-[10px] text-on-surface-variant font-medium">semitones</span>
                 </div>
                 <button
                   onClick={handleApplyPitch}
-                  className="flex items-center space-x-1 px-4 py-1.5 bg-[var(--macaron-mint)] text-[#3a3530] text-xs font-semibold rounded-full hover:opacity-90 active:scale-95 transition-all"
+                  className="flex items-center space-x-1.5 px-4 py-1.5 bg-primary text-on-primary text-xs font-semibold rounded-full hover:shadow-elevation-1 active:scale-97 transition-all"
                 >
                   <FontAwesomeIcon icon={faCheck} />
-                  <span>{t("voiceAnalyzerApplyPitch")}</span>
+                  <span>{t('voiceAnalyzerApplyPitch')}</span>
                 </button>
               </div>
 
-              <div className="flex flex-col md:flex-row md:items-center justify-between p-3 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                <div className="mb-2 md:mb-0">
-                  <span className="font-semibold">{t("voiceAnalyzerRecommendedFormant")}</span>
-                  <span className="ml-2 text-lg font-black text-[var(--macaron-blue)]">
-                    {result.recommended_formant_shift >= 0 ? '+' : ''}{result.recommended_formant_shift}
+              <div className="flex flex-col md:flex-row md:items-center justify-between p-3 rounded-lg hover:bg-primary/4 transition-colors">
+                <div className="mb-2 md:mb-0 flex items-baseline">
+                  <span className="font-semibold text-xs text-on-surface">{t('voiceAnalyzerRecommendedFormant')}</span>
+                  <span className="ml-2 text-xl font-extrabold text-secondary">
+                    {result.recommended_formant_shift >= 0 ? '+' : ''}
+                    {result.recommended_formant_shift}
                   </span>
-                  <span className="ml-1 text-xs text-slate-400">semitones</span>
+                  <span className="ml-1 text-[10px] text-on-surface-variant font-medium">semitones</span>
                 </div>
                 <button
                   onClick={handleApplyFormant}
-                  className="flex items-center space-x-1 px-4 py-1.5 bg-[var(--macaron-blue)] text-[#3a3530] text-xs font-semibold rounded-full hover:opacity-90 active:scale-95 transition-all"
+                  className="flex items-center space-x-1.5 px-4 py-1.5 bg-secondary text-on-secondary text-xs font-semibold rounded-full hover:shadow-elevation-1 active:scale-97 transition-all"
                 >
                   <FontAwesomeIcon icon={faCheck} />
-                  <span>{t("voiceAnalyzerApplyFormant")}</span>
+                  <span>{t('voiceAnalyzerApplyFormant')}</span>
                 </button>
               </div>
 
-              <div className="flex justify-center pt-2">
+              <div className="flex justify-center pt-2 border-t border-outline-variant/30">
                 <button
                   onClick={handleApplyAll}
-                  className="flex items-center space-x-2 px-6 py-2.5 bg-gradient-to-r from-[var(--macaron-mint)] to-[var(--macaron-blue)] text-[#3a3530] text-sm font-bold rounded-full hover:opacity-90 hover:scale-103 active:scale-97 transition-all shadow-sm"
+                  className="flex items-center space-x-2 px-6 py-2.5 bg-primary text-on-primary text-xs font-bold rounded-full hover:shadow-elevation-2 hover:scale-103 active:scale-97 transition-all"
                 >
                   <FontAwesomeIcon icon={faCheck} />
-                  <span>{t("voiceAnalyzerApplyAll")}</span>
+                  <span>{t('voiceAnalyzerApplyAll')}</span>
                 </button>
               </div>
             </div>

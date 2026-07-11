@@ -3,7 +3,9 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faQuestionCircle } from '@fortawesome/free-solid-svg-icons';
 import { AudioEffect, AudioEffectParameterDefinition } from '@dannadori/voice-changer-client-js';
 import { CSS_CLASSES } from '../../styles/constants';
-import DebouncedSlider from '../Helpers/DebouncedSlider';
+import MD3Slider from '../Helpers/MD3Slider';
+import MD3Switch from '../Helpers/MD3Switch';
+import MD3Select from '../Helpers/MD3Select';
 import { getEffectDefinition } from './serverEffectsUtils';
 
 // UI type with index for client-side management
@@ -24,40 +26,39 @@ interface SliderParameterProps {
 
 function SliderParameter({ paramKey, definition, value, onChange }: SliderParameterProps) {
   const [displayValue, setDisplayValue] = useState(value);
-  
+
   // Update display value when parameter value changes from server
   useEffect(() => {
     setDisplayValue(value);
   }, [value]);
 
+  const decimalPlaces = definition.step && definition.step < 1 ? 2 : 0;
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-1">
-          <label className={CSS_CLASSES.label}>
-            {definition.name}
-          </label>
+        <div className="flex items-center space-x-1.5">
+          <label className={CSS_CLASSES.label}>{definition.name}</label>
           {definition.description && (
-            <FontAwesomeIcon 
-              icon={faQuestionCircle} 
-              className="h-3 w-3 text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300 cursor-help" 
+            <FontAwesomeIcon
+              icon={faQuestionCircle}
+              className="h-3.5 w-3.5 text-on-surface-variant/40 hover:text-on-surface-variant cursor-help transition-colors"
               title={definition.description}
             />
           )}
         </div>
-        <span className={CSS_CLASSES.sliderValue}>
-          {displayValue.toFixed(definition.step && definition.step < 1 ? 2 : 0)}
-          {definition.unit && ` ${definition.unit}`}
-        </span>
       </div>
-      <DebouncedSlider
+      <MD3Slider
         min={definition.min || 0}
         max={definition.max || 1}
         step={definition.step || 0.01}
         value={value}
         onChange={onChange}
         onImmediateChange={setDisplayValue}
-        className={CSS_CLASSES.range}
+        showValue={true}
+        valueFormatter={(val) =>
+          `${val.toFixed(decimalPlaces)}${definition.unit ? ` ${definition.unit}` : ''}`
+        }
       />
     </div>
   );
@@ -66,12 +67,12 @@ function SliderParameter({ paramKey, definition, value, onChange }: SliderParame
 function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigProps): JSX.Element {
   if (!effect) {
     return (
-      <div className="flex flex-col h-full">
-        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200 dark:border-gray-600">
-          <h5 className="font-medium text-slate-700 dark:text-gray-200">Configuration</h5>
+      <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-outline-variant">
+          <h5 className="font-semibold text-on-surface">Configuration</h5>
         </div>
-        <div className="flex-1 flex items-center justify-center text-slate-500 dark:text-gray-400 text-sm">
-          Select an effect to configure its parameters
+        <div className="flex-1 flex items-center justify-center text-on-surface-variant/60 text-sm italic">
+          Select an effect to configure parameters
         </div>
       </div>
     );
@@ -80,11 +81,11 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
   const effectDefinition = getEffectDefinition(effect.type, serverSchema);
   if (!effectDefinition) {
     return (
-      <div className="flex flex-col h-full">
-        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200 dark:border-gray-600">
-          <h5 className="font-medium text-slate-700 dark:text-gray-200">Unknown Effect</h5>
+      <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-outline-variant">
+          <h5 className="font-semibold text-on-surface">Unknown Effect</h5>
         </div>
-        <div className="flex-1 flex items-center justify-center text-slate-500 dark:text-gray-400 text-sm">
+        <div className="flex-1 flex items-center justify-center text-on-surface-variant/60 text-sm italic">
           Effect definition not found for type: {effect.type}
         </div>
       </div>
@@ -97,7 +98,7 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
 
   const renderParameter = (paramKey: string, definition: AudioEffectParameterDefinition) => {
     const value = effect.parameters[paramKey] ?? definition.defaultValue;
-    
+
     switch (definition.type) {
       case 'slider':
         return (
@@ -113,63 +114,47 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
       case 'toggle':
         const boolValue = value as boolean;
         return (
-          <div key={paramKey} className="flex items-center justify-between">
-            <div className="flex items-center space-x-1">
-              <label className={CSS_CLASSES.label}>
+          <div key={paramKey} className="flex items-center justify-between py-1.5">
+            <div className="flex items-center space-x-1.5">
+              <label className="text-sm font-medium text-on-surface-variant">
                 {definition.name}
               </label>
               {definition.description && (
-                <FontAwesomeIcon 
-                  icon={faQuestionCircle} 
-                  className="h-3 w-3 text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300 cursor-help" 
+                <FontAwesomeIcon
+                  icon={faQuestionCircle}
+                  className="h-3.5 w-3.5 text-on-surface-variant/40 hover:text-on-surface-variant cursor-help transition-colors"
                   title={definition.description}
                 />
               )}
             </div>
-            <button
-              onClick={() => handleChange(paramKey, !boolValue)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                boolValue 
-                  ? 'bg-blue-600' 
-                  : 'bg-slate-200 dark:bg-gray-600'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  boolValue ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
+            <MD3Switch
+              checked={boolValue}
+              onChange={(checked) => handleChange(paramKey, checked)}
+            />
           </div>
         );
 
       case 'select':
         const stringValue = value as string;
+        const selectOptions =
+          definition.options?.map((option) => ({
+            value: option,
+            label: option
+          })) || [];
+
         return (
-          <div key={paramKey} className="space-y-2">
-            <div className="flex items-center space-x-1">
-              <label className={CSS_CLASSES.label}>
-                {definition.name}
-              </label>
-              {definition.description && (
-                <FontAwesomeIcon 
-                  icon={faQuestionCircle} 
-                  className="h-3 w-3 text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300 cursor-help" 
-                  title={definition.description}
-                />
-              )}
-            </div>
-            <select
+          <div key={paramKey} className="py-1">
+            <MD3Select
+              label={definition.name}
               value={stringValue}
               onChange={(e) => handleChange(paramKey, e.target.value)}
-              className={CSS_CLASSES.select}
-            >
-              {definition.options?.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+              options={selectOptions}
+            />
+            {definition.description && (
+              <p className="text-[10px] text-on-surface-variant/70 mt-1 px-1">
+                {definition.description}
+              </p>
+            )}
           </div>
         );
 
@@ -179,34 +164,38 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
       {/* Header */}
-      <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200 dark:border-gray-600">
+      <div className="flex items-center justify-between mb-4 pb-3 border-b border-outline-variant">
         <div>
-          <h5 className="font-medium text-slate-700 dark:text-gray-200">{effectDefinition.name}</h5>
+          <h5 className="font-semibold text-on-surface text-base">{effectDefinition.name}</h5>
           <div className="flex items-center space-x-2 mt-1">
-            <p className="text-xs text-slate-500 dark:text-gray-400 capitalize">{effect.type} Effect</p>
-            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-              effect.channel === 'input'
-                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                : 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
-            }`}>
+            <p className="text-xs text-on-surface-variant capitalize">{effect.type} Effect</p>
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                effect.channel === 'input'
+                  ? 'bg-primary-container text-on-primary-container'
+                  : 'bg-secondary-container text-on-secondary-container'
+              }`}
+            >
               {effect.channel} channel
             </span>
           </div>
         </div>
-        <div className={`px-2 py-1 rounded text-xs font-medium ${
-          effect.enabled 
-            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-            : 'bg-slate-100 text-slate-600 dark:bg-gray-700 dark:text-gray-400'
-        }`}>
+        <div
+          className={`px-3 py-1 rounded-full text-xs font-semibold ${
+            effect.enabled
+              ? 'bg-primary-container text-on-primary-container'
+              : 'bg-surface-container-highest text-on-surface-variant'
+          }`}
+        >
           {effect.enabled ? 'Enabled' : 'Disabled'}
         </div>
       </div>
 
       {/* Parameters */}
-      <div className="flex-1 overflow-y-auto space-y-4">
-        {Object.entries(effectDefinition.parameters).map(([paramKey, definition]) => 
+      <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+        {Object.entries(effectDefinition.parameters).map(([paramKey, definition]) =>
           renderParameter(paramKey, definition)
         )}
       </div>

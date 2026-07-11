@@ -1,7 +1,15 @@
 import { JSX, useState, useEffect } from 'react';
 import { useThemeContext } from '../../context/ThemeContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSun, faMoon, faPlay, faStop, faVolumeUp, faVolumeMute } from '@fortawesome/free-solid-svg-icons';
+import {
+  faSun,
+  faMoon,
+  faPlay,
+  faStop,
+  faVolumeUp,
+  faVolumeMute,
+  faPalette
+} from '@fortawesome/free-solid-svg-icons';
 import { AppContextValue, useAppState } from '../../context/AppContext';
 import { useUIContext } from '../../context/UIContext';
 import MergeLabModal from './Modals/Merge/MergeLabModal';
@@ -11,10 +19,11 @@ import ClientInfoModal from './Modals/ClientInfoModal';
 import ServerInfoModal from './Modals/ServerInfoModal';
 import { CSS_CLASSES } from '../../styles/constants';
 import PassthroughConfirmModal from './Modals/PassthroughConfirmModal';
+import { PRESET_SEED_COLORS } from '../../styles/md3ColorEngine';
 
 function BottomBar(): JSX.Element {
   // ---------------- States ----------------
-  const { theme, toggleTheme } = useThemeContext();
+  const { theme, toggleTheme, seedColor, setSeedColor } = useThemeContext();
   const appState = useAppState() as AppContextValue;
   const uiContext = useUIContext();
 
@@ -24,6 +33,7 @@ function BottomBar(): JSX.Element {
   const [showPassthroughConfirm, setShowPassthroughConfirm] = useState<boolean>(false);
   const [showClientInfo, setShowClientInfo] = useState<boolean>(false);
   const [showServerInfo, setShowServerInfo] = useState<boolean>(false);
+  const [showColorPicker, setShowColorPicker] = useState<boolean>(false);
 
   const [startWithAudioContextCreate, setStartWithAudioContextCreate] = useState<boolean>(false);
 
@@ -47,28 +57,31 @@ function BottomBar(): JSX.Element {
     } else {
       handleStart();
     }
-  }
+  };
 
   // Handle start convert
   const handleStart = async () => {
     // Check if model is selected
     if (appState.serverSetting.serverSetting.modelSlotIndex === -1) {
-      uiContext.showError('Select a voice model first.', "Warning")
-      return
+      uiContext.showError('Select a voice model first.', "Warning");
+      return;
     }
 
     // Client Mode
     if (appState.serverSetting.serverSetting.enableServerAudio == 0) {
       // Check if audio input is selected
-      if (!appState.setting.voiceChangerClientSetting.audioInput || appState.setting.voiceChangerClientSetting.audioInput == 'none') {
-        uiContext.showError('Select an audio input device.', "Warning")
-        return
+      if (
+        !appState.setting.voiceChangerClientSetting.audioInput ||
+        appState.setting.voiceChangerClientSetting.audioInput == 'none'
+      ) {
+        uiContext.showError('Select an audio input device.', "Warning");
+        return;
       }
 
       // Check if audio output is selected
       if (uiContext.audioOutputForGUI == 'none') {
-        uiContext.showError('Select an audio output device.', "Warning")
-        return
+        uiContext.showError('Select an audio output device.', "Warning");
+        return;
       }
 
       // Check if audio context is initialized
@@ -92,19 +105,30 @@ function BottomBar(): JSX.Element {
     // Server Mode
     else {
       // Check if server audio input is selected
-      if (!appState.serverSetting.serverSetting.serverAudioInputDevices.find(device => device.index === appState.serverSetting.serverSetting.serverInputDeviceId)) {
-        uiContext.showError('Select an audio input device.', "Warning")
-        return
+      if (
+        !appState.serverSetting.serverSetting.serverAudioInputDevices.find(
+          (device) => device.index === appState.serverSetting.serverSetting.serverInputDeviceId
+        )
+      ) {
+        uiContext.showError('Select an audio input device.', "Warning");
+        return;
       }
 
       // Check if server audio output is selected
-      if (!appState.serverSetting.serverSetting.serverAudioOutputDevices.find(device => device.index === appState.serverSetting.serverSetting.serverOutputDeviceId)) {
-        uiContext.showError('Select an audio output device.', "Warning")
-        return
+      if (
+        !appState.serverSetting.serverSetting.serverAudioOutputDevices.find(
+          (device) => device.index === appState.serverSetting.serverSetting.serverOutputDeviceId
+        )
+      ) {
+        uiContext.showError('Select an audio output device.', "Warning");
+        return;
       }
 
       // Start server convert
-      appState.serverSetting.updateServerSettings({ ...appState.serverSetting.serverSetting, serverAudioStated: 1 });
+      appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        serverAudioStated: 1
+      });
       uiContext.setIsConverting(true);
     }
   };
@@ -116,14 +140,20 @@ function BottomBar(): JSX.Element {
       await appState.stop();
     } else {
       uiContext.setIsConverting(false);
-      appState.serverSetting.updateServerSettings({ ...appState.serverSetting.serverSetting, serverAudioStated: 0 });
+      appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        serverAudioStated: 0
+      });
     }
   };
 
   // Handle disable pass through
   const disablePassThrough = () => {
-    appState.serverSetting.updateServerSettings({ ...appState.serverSetting.serverSetting, passThrough: false });
-  }
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      passThrough: false
+    });
+  };
 
   // ---------------- Render ----------------
 
@@ -164,60 +194,103 @@ function BottomBar(): JSX.Element {
         setShowServerInfo={setShowServerInfo}
       />
 
-      <div
-        className="h-16 min-h-[56px] flex items-center justify-between px-6 py-2 flex-shrink-0 transition-colors duration-300"
-        style={{
-          backgroundColor: 'var(--bg-secondary)',
-          borderTop: '1px solid var(--border-primary)',
-        }}
-      >
+      <div className="h-20 min-h-[80px] flex items-center justify-between px-6 py-3 flex-shrink-0 bg-surface-container border-t border-outline-variant transition-colors duration-300">
         {/* Left group: tools */}
         <div className="flex space-x-2">
-          <button onClick={() => setShowMerge(true)} className={CSS_CLASSES.modalSecondaryButton}>Merge Lab</button>
-          <button onClick={() => setShowVoiceAnalyzer(true)} className={CSS_CLASSES.modalSecondaryButton}>Voice Analyzer</button>
-          <button onClick={() => setShowSettings(true)} className={CSS_CLASSES.modalSecondaryButton}>Advanced Settings</button>
+          <button onClick={() => setShowMerge(true)} className={CSS_CLASSES.modalSecondaryButton}>
+            Merge Lab
+          </button>
+          <button onClick={() => setShowVoiceAnalyzer(true)} className={CSS_CLASSES.modalSecondaryButton}>
+            Voice Analyzer
+          </button>
+          <button onClick={() => setShowSettings(true)} className={CSS_CLASSES.modalSecondaryButton}>
+            Advanced Settings
+          </button>
         </div>
 
         {/* Center group: primary controls */}
         <div className="flex items-center space-x-3">
           <button
             onClick={handleToggleClientActivity}
-            className={`px-5 py-2 rounded-full text-sm font-semibold transition-all duration-200 flex items-center space-x-2 shadow-sm hover:shadow-md
-            ${uiContext.isConverting
-                ? 'text-white'
-                : 'text-white'}
-            focus:outline-none focus:ring-2 focus:ring-offset-2`}
-            style={{
-              backgroundColor: uiContext.isConverting ? 'var(--macaron-coral)' : 'var(--macaron-mint)',
-              color: '#3a3530',
-            }}
+            className={`px-6 py-2.5 rounded-full text-sm font-semibold transition-all duration-200 flex items-center space-x-2 shadow-elevation-2 hover:shadow-elevation-3 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+              uiContext.isConverting ? 'bg-error text-on-error' : 'bg-primary-container text-on-primary-container'
+            }`}
           >
             <FontAwesomeIcon icon={uiContext.isConverting ? faStop : faPlay} />
             <span>{uiContext.isConverting ? 'Stop' : 'Start'}</span>
           </button>
           <button
-            onClick={appState.serverSetting.serverSetting.passThrough ? disablePassThrough : () => setShowPassthroughConfirm(true)}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 flex items-center space-x-2
-            focus:outline-none focus:ring-2 focus:ring-offset-2`}
-            style={{
-              backgroundColor: appState.serverSetting?.serverSetting?.passThrough ? 'var(--macaron-yellow)' : 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              border: `1px solid ${appState.serverSetting?.serverSetting?.passThrough ? 'var(--macaron-yellow)' : 'var(--border-primary)'}`,
-            }}
+            onClick={
+              appState.serverSetting.serverSetting.passThrough
+                ? disablePassThrough
+                : () => setShowPassthroughConfirm(true)
+            }
+            className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-200 flex items-center space-x-2 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+              appState.serverSetting?.serverSetting?.passThrough
+                ? 'bg-secondary-container text-on-secondary-container'
+                : 'bg-surface-container-high text-on-surface border border-outline'
+            }`}
           >
-            <FontAwesomeIcon icon={appState.serverSetting?.serverSetting?.passThrough ? faVolumeUp : faVolumeMute} />
-            <span>{appState.serverSetting?.serverSetting?.passThrough ? 'Passthrough ON' : 'Passthrough OFF'}</span>
+            <FontAwesomeIcon
+              icon={appState.serverSetting?.serverSetting?.passThrough ? faVolumeUp : faVolumeMute}
+            />
+            <span>
+              {appState.serverSetting?.serverSetting?.passThrough
+                ? 'Passthrough ON'
+                : 'Passthrough OFF'}
+            </span>
           </button>
         </div>
 
         {/* Right group: info & theme */}
-        <div className="flex items-center space-x-2">
-          <button onClick={() => setShowServerInfo(true)} className={CSS_CLASSES.modalSecondaryButton}>Server Info</button>
-          <button onClick={() => setShowClientInfo(true)} className={CSS_CLASSES.modalSecondaryButton}>Client Info</button>
+        <div className="flex items-center space-x-2 relative">
+          <button onClick={() => setShowServerInfo(true)} className={CSS_CLASSES.modalSecondaryButton}>
+            Server Info
+          </button>
+          <button onClick={() => setShowClientInfo(true)} className={CSS_CLASSES.modalSecondaryButton}>
+            Client Info
+          </button>
+
+          {/* Seed Color Picker */}
+          <div className="relative">
+            <button
+              onClick={() => setShowColorPicker(!showColorPicker)}
+              className={CSS_CLASSES.iconButton}
+              title="Change Seed Color"
+              aria-label="Change Seed Color"
+            >
+              <FontAwesomeIcon icon={faPalette} className="h-5 w-5" style={{ color: seedColor }} />
+            </button>
+
+            {showColorPicker && (
+              <div className="absolute right-0 bottom-14 z-50 p-3 bg-surface-container-highest border border-outline-variant rounded-md shadow-elevation-3 flex flex-col space-y-2 min-w-[150px]">
+                <span className="text-xs font-semibold text-on-surface-variant mb-1">Theme Colors</span>
+                <div className="flex flex-col space-y-1.5">
+                  {PRESET_SEED_COLORS.map((c) => (
+                    <button
+                      key={c.hex}
+                      onClick={() => {
+                        setSeedColor(c.hex);
+                        setShowColorPicker(false);
+                      }}
+                      className="flex items-center space-x-2.5 px-2 py-1 rounded-sm hover:bg-surface-variant/20 transition-all text-xs font-medium text-on-surface text-left"
+                    >
+                      <span
+                        className="w-3.5 h-3.5 rounded-full border border-outline-variant/30 flex-shrink-0"
+                        style={{ backgroundColor: c.hex }}
+                      />
+                      <span>{c.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={toggleTheme}
             className={CSS_CLASSES.iconButton}
-            aria-label={theme === 'light' ? "Switch to dark mode" : "Switch to light mode"}
+            aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
           >
             <FontAwesomeIcon icon={theme === 'light' ? faMoon : faSun} className="h-5 w-5" />
           </button>

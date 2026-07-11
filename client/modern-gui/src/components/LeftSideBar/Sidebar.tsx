@@ -31,24 +31,17 @@ function LeftSidebar(): JSX.Element | null {
   // ---------------- Render ----------------
 
   return (
-    <div
-      className="w-72 p-4 space-y-4 flex flex-col z-20 transition-colors duration-300"
-      style={{
-        backgroundColor: 'var(--bg-secondary)',
-        color: 'var(--text-primary)',
-        borderRight: '1px solid var(--border-primary)',
-      }}
-    >
+    <div className="w-72 p-4 space-y-4 flex flex-col z-20 bg-surface-container text-on-surface border-r border-outline-variant transition-colors duration-300">
       {/* Header: Text Logo */}
       <div className="flex items-center justify-center py-2">
-        <span className="text-2xl font-black tracking-wider bg-gradient-to-r from-[var(--macaron-mint)] to-[var(--macaron-blue)] bg-clip-text text-transparent select-none">
+        <span className="text-2xl font-black tracking-wider bg-gradient-to-r from-primary to-tertiary bg-clip-text text-transparent select-none">
           AuraEcho
         </span>
       </div>
 
-      <hr style={{ borderColor: 'var(--border-primary)' }} className="my-3" />
+      <hr className="my-3 border-outline-variant" />
 
-      <h3 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>Model Selector</h3>
+      <h3 className="text-xl font-semibold text-on-surface">Model Selector</h3>
 
       <UploadModelModal
         appState={appState}
@@ -59,11 +52,10 @@ function LeftSidebar(): JSX.Element | null {
 
       {/* Model count display and upload button */}
       <div className="flex justify-between items-center mb-2">
-        <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Available Models ({filteredAndSortedModels.length})</span>
+        <span className="text-sm font-medium text-on-surface-variant">Available Models ({filteredAndSortedModels.length})</span>
         <button
           onClick={() => setShowUpload(true)}
-          className="p-1 hover:opacity-80 transition-opacity"
-          style={{ color: 'var(--macaron-mint)' }}
+          className="p-1 text-primary hover:opacity-80 transition-opacity"
           title="Upload New Model"
         >
           <FontAwesomeIcon icon={faPlus} size="lg" />
@@ -75,7 +67,7 @@ function LeftSidebar(): JSX.Element | null {
         setFilteredAndSortedModels={setFilteredAndSortedModels}
       />
 
-      <hr style={{ borderColor: 'var(--border-primary)' }} className="my-2" />
+      <hr className="my-2 border-outline-variant" />
 
       <ModelList
         filteredAndSortedModels={filteredAndSortedModels}

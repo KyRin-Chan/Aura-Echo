@@ -196,34 +196,16 @@ function AudioEffectsCard({ dndAttributes, dndListeners }: AudioEffectsCardProps
 
   return (
     <div
-      className={`p-4 rounded-2xl shadow-sm transition-all duration-300 flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : 'overflow-hidden'}`}
-      style={{
-        backgroundColor: 'var(--bg-secondary)',
-        border: '1px solid var(--border-primary)',
-      }}
+      className={`${CSS_CLASSES.card} flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : 'overflow-hidden'}`}
     >
-      <div className="flex justify-between items-center mb-3 pb-2" style={{ borderBottom: '1px solid var(--border-primary)' }}>
+      <div className={CSS_CLASSES.cardHeader}>
         <div className="flex items-center space-x-3">
           <h4 className={CSS_CLASSES.heading}>Audio Effects</h4>
           <div className="flex items-center space-x-2">
-            <span
-              className="px-2 py-1 text-xs rounded-full"
-              style={{
-                backgroundColor: 'var(--macaron-blue)',
-                color: '#3a3530',
-                opacity: 0.85,
-              }}
-            >
+            <span className="px-2.5 py-0.5 text-xs rounded-full bg-primary-container text-on-primary-container font-medium">
               {totalActiveEffects} Effects
             </span>
-            <span
-              className="px-2 py-1 text-xs rounded-full"
-              style={{
-                backgroundColor: 'var(--macaron-lavender)',
-                color: '#3a3530',
-                opacity: 0.85,
-              }}
-            >
+            <span className="px-2.5 py-0.5 text-xs rounded-full bg-secondary-container text-on-secondary-container font-medium">
               {totalActiveBackground} Background Tracks
             </span>
           </div>
@@ -243,30 +225,25 @@ function AudioEffectsCard({ dndAttributes, dndListeners }: AudioEffectsCardProps
       {!isCollapsed && (
         <div className="flex-1 min-h-0 flex">
           {/* Left Panel - Effects or Background List */}
-          <div className="w-1/2 pr-3" style={{ borderRight: '1px solid var(--border-primary)' }}>
+          <div className="w-1/2 pr-3 border-r border-outline-variant">
             {/* Local Tabs above lists only */}
-            <div
-              className="flex mb-3 rounded-xl p-1"
-              style={{ backgroundColor: 'var(--bg-tertiary)' }}
-            >
-              {(['input','output','background'] as const).map(tab => (
+            <div className="flex mb-3 rounded-full p-1 bg-surface-container-high">
+              {(['input', 'output', 'background'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors`}
-                  style={{
-                    backgroundColor: activeTab === tab ? 'var(--bg-secondary)' : 'transparent',
-                    color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                    boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                  }}
+                  className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-full transition-all duration-150 ${
+                    activeTab === tab
+                      ? 'bg-primary text-on-primary shadow-elevation-1'
+                      : 'bg-transparent text-on-surface-variant hover:bg-surface-variant/20 hover:text-on-surface'
+                  }`}
                 >
                   <div className="flex items-center justify-center space-x-1">
                     <span className="capitalize">{tab}</span>
                   </div>
                 </button>
               ))}
-            </div>
-            {activeTab === 'background' ? (
+            </div>            {activeTab === 'background' ? (
               <BackgroundList
                 tracks={bgTracks}
                 selectedId={selectedBgId}

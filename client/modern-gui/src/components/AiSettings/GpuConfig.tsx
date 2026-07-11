@@ -1,56 +1,57 @@
-
-import { CSS_CLASSES } from "../../styles/constants";
 import { ClientState } from "@dannadori/voice-changer-client-js";
 import { UIContextType } from "../../context/UIContext";
+import MD3Select from "../Helpers/MD3Select";
 
 interface GpuInfo {
-    id: number;
-    name: string;
-    backend?: string;
-    memory?: number;
+  id: number;
+  name: string;
+  backend?: string;
+  memory?: number;
 }
 
 interface GPUConfigProps {
-    appState: ClientState;
-    uiState: UIContextType;
+  appState: ClientState;
+  uiState: UIContextType;
 }
 
 function GPUConfig({ appState, uiState }: GPUConfigProps) {
-    // ---------------- Handlers ----------------
+  // ---------------- Handlers ----------------
 
-    // Handle GPU Change
-    const handleChangeGpu = async (gpuId: number) => {
-        uiState.startLoading(`Changing to Processing Unit: ${appState.serverSetting?.serverSetting?.gpus?.find(gpu => gpu.id === gpuId)?.name}`);
-        await appState.serverSetting.updateServerSettings({
-            ...appState.serverSetting?.serverSetting,
-            gpu: gpuId
-        });
-        uiState.stopLoading();
-    };
+  // Handle GPU Change
+  const handleChangeGpu = async (gpuId: number) => {
+    const gpuName = appState.serverSetting?.serverSetting?.gpus?.find((gpu) => gpu.id === gpuId)?.name;
+    uiState.startLoading(`Changing to Processing Unit: ${gpuName}`);
+    await appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting?.serverSetting,
+      gpu: gpuId
+    });
+    uiState.stopLoading();
+  };
 
-    // ---------------- Render ----------------
+  // ---------------- Render ----------------
 
-    return (
-        <div>
-            <label htmlFor="gpu" className={CSS_CLASSES.label}>Processing Unit (GPU):</label>
-            <select
-                id="gpu"
-                name="gpu"
-                className={CSS_CLASSES.select}
-                value={appState.serverSetting?.serverSetting?.gpu ?? -1}
-                onChange={async (e) => { handleChangeGpu(parseInt(e.target.value)); }}
-            >
-                {appState.serverSetting?.serverSetting?.gpus?.length && appState.serverSetting?.serverSetting?.gpus?.length > 0 ? (
-                    appState.serverSetting?.serverSetting?.gpus?.map((gpu: GpuInfo) =>
-                        <option key={gpu.id} value={gpu.id}>
-                            {`${gpu.name} ${gpu.memory ? `(${(gpu.memory / 1024 / 1024 / 1024).toFixed(0)} GB)` : ""}`}
-                        </option>)
-                ) : (
-                    <option value="-1" disabled>No GPUs available</option>
-                )}
-            </select>
-        </div>
-    )
+  const gpus = appState.serverSetting?.serverSetting?.gpus || [];
+  const options = gpus.length > 0
+    ? gpus.map((gpu: GpuInfo) => ({
+        value: gpu.id,
+        label: `${gpu.name} ${gpu.memory ? `(${(gpu.memory / 1024 / 1024 / 1024).toFixed(0)} GB)` : ""}`
+      }))
+    : [{ value: -1, label: "No GPUs available" }];
+
+  return (
+    <div className="bg-surface-container-low p-3 rounded-md border border-outline-variant">
+      <MD3Select
+        id="gpu"
+        label="Processing Unit (GPU)"
+        value={appState.serverSetting?.serverSetting?.gpu ?? -1}
+        onChange={async (e) => {
+          await handleChangeGpu(parseInt(e.target.value));
+        }}
+        options={options}
+        disabled={gpus.length === 0}
+      />
+    </div>
+  );
 }
 
 export default GPUConfig;

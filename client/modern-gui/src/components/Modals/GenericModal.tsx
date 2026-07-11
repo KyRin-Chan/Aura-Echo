@@ -60,22 +60,24 @@ function GenericModal({
   };
 
   return createPortal(
-    <div className={`fixed inset-0 ${transparent === false ? 'bg-black bg-opacity-50 backdrop-blur-sm' : 'opacity-100'}  flex justify-center items-center z-40 p-4 transition-opacity duration-300 ease-in-out`} onClick={closeOnOutsideClick ? onClose : undefined}>
+    <div
+      className={`fixed inset-0 ${
+        transparent === false ? 'bg-black bg-opacity-50 backdrop-blur-sm' : 'opacity-100'
+      } flex justify-center items-center z-40 p-4 transition-opacity duration-300 ease-in-out`}
+      onClick={closeOnOutsideClick ? onClose : undefined}
+    >
       <div
-        className={`p-6 rounded-2xl shadow-xl w-full ${getModalWidth(size)} max-h-[90vh] flex flex-col transform transition-all duration-300 ease-in-out scale-95 opacity-0 animate-modalFadeInScaleUp overflow-hidden`}
-        style={{
-          backgroundColor: 'var(--bg-secondary)',
-          border: '1px solid var(--border-primary)',
-        }}
-        onClick={(e) => e.stopPropagation()} // Prevent click inside modal from closing it
+        className={`p-6 rounded-xl shadow-elevation-3 w-full ${getModalWidth(
+          size
+        )} max-h-[90vh] flex flex-col transform transition-all duration-300 ease-in-out scale-95 opacity-0 animate-modalFadeInScaleUp overflow-hidden bg-surface-container-highest border border-outline-variant`}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="flex justify-between items-center mb-4 pb-3" style={{ borderBottom: '1px solid var(--border-primary)' }}>
-          <h3 className="text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
+        <div className="flex justify-between items-center mb-4 pb-3 border-b border-outline-variant">
+          <h3 className="text-xl font-semibold text-on-surface">{title}</h3>
           <button
             onClick={onClose}
-            className="p-1 rounded-full focus:outline-none focus:ring-2 transition-opacity hover:opacity-70"
-            style={{ color: 'var(--text-tertiary)' }}
+            className="p-1 rounded-full focus:outline-none focus:ring-2 focus:ring-primary transition-all text-on-surface-variant hover:bg-surface-variant/20"
             aria-label="Close modal"
           >
             <FontAwesomeIcon icon={faTimes} className="h-5 w-5" />
@@ -83,17 +85,19 @@ function GenericModal({
         </div>
 
         {/* Modal Body */}
-        <div className="overflow-y-auto mb-6 flex-grow">
+        <div className="overflow-y-auto mb-6 flex-grow text-on-surface">
           {children}
         </div>
 
         {/* Modal Footer (optional buttons) */}
         {(primaryButton || secondaryButton) && (
-          <div className="flex justify-end space-x-3 pt-3" style={{ borderTop: '1px solid var(--border-primary)' }}>
+          <div className="flex justify-end space-x-3 pt-3 border-t border-outline-variant">
             {secondaryButton && (
               <button
                 onClick={secondaryButton.onClick}
-                className={`${CSS_CLASSES.modalSecondaryButton} ${secondaryButton.className || ''} ${secondaryButton.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`${CSS_CLASSES.modalSecondaryButton} ${secondaryButton.className || ''} ${
+                  secondaryButton.disabled ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
                 disabled={secondaryButton.disabled}
               >
                 {secondaryButton.text}
@@ -102,7 +106,9 @@ function GenericModal({
             {primaryButton && (
               <button
                 onClick={primaryButton.onClick}
-                className={`${CSS_CLASSES.modalPrimaryButton} ${primaryButton.className || ''} ${primaryButton.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`${CSS_CLASSES.modalPrimaryButton} ${primaryButton.className || ''} ${
+                  primaryButton.disabled ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
                 disabled={primaryButton.disabled}
               >
                 {primaryButton.text}

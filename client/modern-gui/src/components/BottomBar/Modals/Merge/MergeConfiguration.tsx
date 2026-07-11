@@ -2,7 +2,7 @@ import { JSX } from 'react';
 import { RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCog } from '@fortawesome/free-solid-svg-icons';
-import { CSS_CLASSES } from '../../../../styles/constants';
+import MD3Switch from '../../../Helpers/MD3Switch';
 
 interface MergeConfigurationProps {
   downloadModel: boolean;
@@ -49,59 +49,38 @@ function MergeConfiguration({
   // ---------------- Render ----------------
 
   return (
-    <div className="space-y-4 p-4 bg-slate-50 dark:bg-gray-800/30 rounded-lg border border-slate-200 dark:border-gray-700">
-      <div className="flex justify-between items-center">
-        <h4 className="text-md font-medium text-slate-700 dark:text-gray-200">Merge Options</h4>
-        <FontAwesomeIcon
-          icon={faCog}
-          className="h-4 w-4 text-slate-500 dark:text-gray-400"
-        />
+    <div className="space-y-4 p-4 bg-surface-container-low rounded-lg border border-outline-variant">
+      <div className="flex justify-between items-center pb-2 border-b border-outline-variant/30">
+        <h4 className="text-sm font-bold text-on-surface uppercase tracking-wider">Merge Options</h4>
+        <FontAwesomeIcon icon={faCog} className="h-4 w-4 text-primary" />
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center space-x-3">
-          <input
-            type="checkbox"
-            id="download-model"
-            checked={downloadModel}
-            onChange={(e) => handleDownloadModelChange(e.target.checked)}
-            className={CSS_CLASSES.checkbox}
-          />
-          <label htmlFor="download-model" className={CSS_CLASSES.label}>
-            Download merged model
-          </label>
-        </div>
+      <div className="space-y-3.5">
+        <MD3Switch
+          id="download-model"
+          checked={downloadModel}
+          onChange={handleDownloadModelChange}
+          label="Download merged model"
+        />
 
-        <div className="flex items-center space-x-3">
-          <input
-            type="checkbox"
-            id="save-merge-slot"
-            checked={saveToMergeSlot}
-            onChange={(e) => handleMergeSlotChange(e.target.checked)}
-            className={CSS_CLASSES.checkbox}
-          />
-          <label htmlFor="save-merge-slot" className={CSS_CLASSES.label}>
-            Save to merge slot
-          </label>
-        </div>
+        <MD3Switch
+          id="save-merge-slot"
+          checked={saveToMergeSlot}
+          onChange={handleMergeSlotChange}
+          label="Save to merge slot"
+        />
 
-        <div className="space-y-2">
-          <div className="flex items-center space-x-3">
-            <input
-              type="checkbox"
-              id="save-empty-slot"
-              checked={saveToEmptySlot}
-              onChange={(e) => handleEmptySlotChange(e.target.checked)}
-              disabled={emptySlots.length === 0}
-              className={CSS_CLASSES.checkbox}
-            />
-            <label htmlFor="save-empty-slot" className={`${CSS_CLASSES.label} ${emptySlots.length === 0 ? 'text-slate-400 dark:text-gray-500' : ''}`}>
-              Save to empty slot (auto-select first available)
-            </label>
-          </div>
+        <div className="space-y-1.5">
+          <MD3Switch
+            id="save-empty-slot"
+            checked={saveToEmptySlot}
+            onChange={handleEmptySlotChange}
+            disabled={emptySlots.length === 0}
+            label="Save to empty slot (auto-select first)"
+          />
 
           {emptySlots.length === 0 && (
-            <div className="ml-6 text-xs text-slate-500 dark:text-gray-400">
+            <div className="ml-12 text-xs text-on-surface-variant italic">
               No empty slots available
             </div>
           )}

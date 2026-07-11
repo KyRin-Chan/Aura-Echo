@@ -17,7 +17,9 @@ const DownloaderView = (props: DownloaderViewProps) => {
   const [loadingItems, setLoadingItems] = useState<Record<string, 'download' | 'delete' | null>>({});
   const [isAnyDownloading, setIsAnyDownloading] = useState(false);
   const [embedders, setEmbedders] = useState<ModelInfoDict>(appState.serverSetting.serverSetting.embedders || {});
-  const [pitchExtractors, setPitchExtractors] = useState<ModelInfoDict>(appState.serverSetting.serverSetting.pitchExtractors || {});
+  const [pitchExtractors, setPitchExtractors] = useState<ModelInfoDict>(
+    appState.serverSetting.serverSetting.pitchExtractors || {}
+  );
 
   // Update local state when server settings change
   useEffect(() => {
@@ -38,7 +40,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
   }, []);
 
   const handleModelAction = async (
-    type: 'embedder' | 'pitchExtractor', 
+    type: 'embedder' | 'pitchExtractor',
     action: 'download' | 'delete',
     id: string,
     info: ModelInfoDict[string]
@@ -46,35 +48,35 @@ const DownloaderView = (props: DownloaderViewProps) => {
     // Only prevent new downloads if another download is in progress
     if (action === 'download' && isAnyDownloading && loadingItems[id] !== 'download') return;
     // Prevent deletion of mandatory or in-use items (should be handled by UI, but keeping as a safeguard)
-    if (action === 'delete' && (info.mandatory || 
+    if (
+      action === 'delete' &&
+      (info.mandatory ||
         (type === 'embedder' && isEmbedderInUse(id)) ||
-        (type === 'pitchExtractor' && isPitchExtractorInUse(id)))) {
+        (type === 'pitchExtractor' && isPitchExtractorInUse(id)))
+    ) {
       return;
     }
-    
+
     try {
       if (action === 'download') {
         updateDownloadingState(true);
       }
-      setLoadingItems(prev => ({ ...prev, [id]: action }));
-      
+      setLoadingItems((prev) => ({ ...prev, [id]: action }));
+
       // The id is already the model key from the dictionary
       if (action === 'download') {
         await appState.serverSetting.downloadPretrained(id);
       } else {
         await appState.serverSetting.deletePretrained(id);
       }
-      
+
       // Refresh server info to update the installed status
       await appState.serverSetting.reloadServerInfo();
-      
+
       // Show success message with model name
       const actionText = action === 'download' ? 'downloaded' : 'deleted';
       const modelType = type === 'embedder' ? 'Embedder' : 'Pitch Extractor';
-      uiState.showError(
-        `${modelType} "${info.name || id}" ${actionText} successfully!`,
-        'Confirm'
-      );
+      uiState.showError(`${modelType} "${info.name || id}" ${actionText} successfully!`, 'Confirm');
     } catch (error) {
       console.error(`Error ${action}ing ${type}:`, error);
       uiState.showError(
@@ -82,10 +84,10 @@ const DownloaderView = (props: DownloaderViewProps) => {
         'Error'
       );
     } finally {
-      setLoadingItems(prev => {
+      setLoadingItems((prev) => {
         const newState = { ...prev, [id]: null };
         // Check if there are any downloads still in progress
-        const anyDownloadsLeft = Object.values(newState).some(v => v === 'download');
+        const anyDownloadsLeft = Object.values(newState).some((v) => v === 'download');
         if (!anyDownloadsLeft) {
           updateDownloadingState(false);
         }
@@ -98,9 +100,8 @@ const DownloaderView = (props: DownloaderViewProps) => {
   const isEmbedderInUse = (embedderId: string): boolean => {
     try {
       const modelSlots = (appState.serverSetting.serverSetting as any).modelSlots || [];
-      return modelSlots.some((slot: any) => 
-        slot.embedder === embedderId || 
-        (slot.embFile && slot.embFile.includes(embedderId))
+      return modelSlots.some(
+        (slot: any) => slot.embedder === embedderId || (slot.embFile && slot.embFile.includes(embedderId))
       );
     } catch (e) {
       console.error('Error checking embedder usage:', e);
@@ -121,33 +122,36 @@ const DownloaderView = (props: DownloaderViewProps) => {
 
   const renderItem = (id: string, info: ModelInfoDict[string], type: 'embedder' | 'pitchExtractor') => {
     if (!info) return null;
-    
+
     const isLoading = loadingItems[id];
     const isDownloading = isLoading === 'download';
     const isDeleting = isLoading === 'delete';
     const name = info.name || id;
-    const isInUse = 
+    const isInUse =
       (type === 'embedder' && !info.mandatory && isEmbedderInUse(id)) ||
       (type === 'pitchExtractor' && !info.mandatory && isPitchExtractorInUse(id));
 
     return (
-      <div key={id} className="flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-gray-800/30 transition-colors border-b border-slate-100 dark:border-gray-700 last:border-0">
-        <div className="flex-1">
-          <span className="font-medium text-slate-800 dark:text-gray-200">{name}</span>
+      <div
+        key={id}
+        className="flex items-center justify-between p-4 hover:bg-primary/4 transition-colors border-b border-outline-variant/30 last:border-0"
+      >
+        <div className="flex-1 min-w-0 pr-4">
+          <span className="font-semibold text-on-surface text-sm break-words">{name}</span>
           {isInUse ? (
-            <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 rounded-full border border-purple-200 dark:border-purple-800">
+            <span className="ml-2.5 px-2.5 py-0.5 text-[10px] font-semibold bg-secondary-container text-on-secondary-container rounded-full">
               In Use
             </span>
           ) : info.mandatory ? (
-            <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 rounded-full border border-blue-200 dark:border-blue-800">
+            <span className="ml-2.5 px-2.5 py-0.5 text-[10px] font-semibold bg-tertiary-container text-on-tertiary-container rounded-full">
               Required
             </span>
           ) : null}
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2.5">
           {info.downloaded ? (
             <>
-              <span className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium text-green-800 bg-green-100 dark:bg-green-900/50 dark:text-green-300 rounded-full border border-green-200 dark:border-green-800">
+              <span className="inline-flex items-center px-2.5 py-0.5 text-[10px] font-semibold text-on-primary-container bg-primary-container rounded-full">
                 <FontAwesomeIcon icon={faCheck} className="mr-1" />
                 Installed
               </span>
@@ -155,7 +159,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
                 <button
                   onClick={() => handleModelAction(type, 'delete', id, info)}
                   disabled={isDeleting}
-                  className="px-3 py-1 text-sm rounded-md transition-colors flex items-center bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-800/50"
+                  className="px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 flex items-center bg-error/10 text-error hover:bg-error/20 disabled:opacity-50"
                 >
                   {isDeleting ? (
                     <FontAwesomeIcon icon={faSpinner} className="animate-spin mr-1" />
@@ -170,12 +174,12 @@ const DownloaderView = (props: DownloaderViewProps) => {
             <button
               onClick={() => handleModelAction(type, 'download', id, info)}
               disabled={isAnyDownloading && !isDownloading}
-              className={`px-3 py-1 text-sm rounded-md transition-colors flex items-center ${
+              className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 flex items-center ${
                 isAnyDownloading && !isDownloading
-                  ? 'bg-slate-100 text-slate-400 dark:bg-gray-700 dark:text-gray-500 cursor-not-allowed'
+                  ? 'bg-surface-container-highest text-on-surface-variant/30 cursor-not-allowed'
                   : isDownloading
-                  ? 'bg-blue-600 text-white dark:bg-blue-700 cursor-wait'
-                  : 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-800/50'
+                  ? 'bg-primary text-on-primary cursor-wait'
+                  : 'bg-primary text-on-primary hover:shadow-elevation-1 active:scale-97'
               }`}
             >
               {isDownloading ? (
@@ -198,30 +202,29 @@ const DownloaderView = (props: DownloaderViewProps) => {
 
   // Sort items with mandatory ones first, then by name
   const sortItems = (items: ModelInfoDict) => {
-    return Object.entries(items)
-      .sort(([idA, a], [idB, b]) => {
-        // Mandatory items first
-        if (a.mandatory && !b.mandatory) return -1;
-        if (!a.mandatory && b.mandatory) return 1;
-        // Then sort by name
-        return (a.name || idA).localeCompare(b.name || idB);
-      });
+    return Object.entries(items).sort(([idA, a], [idB, b]) => {
+      // Mandatory items first
+      if (a.mandatory && !b.mandatory) return -1;
+      if (!a.mandatory && b.mandatory) return 1;
+      // Then sort by name
+      return (a.name || idA).localeCompare(b.name || idB);
+    });
   };
 
   const sortedEmbedders = sortItems(embedders);
   const sortedPitchExtractors = sortItems(pitchExtractors);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 max-h-[500px] overflow-y-auto pr-1.5">
       <div>
-        <h3 className="text-lg font-semibold text-slate-900 dark:text-gray-100 mb-4 pb-2 border-b border-slate-200 dark:border-gray-700">Embedders</h3>
+        <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 pl-1">Embedders</h3>
         <div className="space-y-3">
           {sortedEmbedders.length > 0 ? (
-            <div className="bg-white dark:bg-gray-800/50 rounded-lg border border-slate-200 dark:border-gray-700 overflow-hidden">
+            <div className="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden">
               {sortedEmbedders.map(([id, info]) => renderItem(id, info, 'embedder'))}
             </div>
           ) : (
-            <div className="text-center py-6 text-slate-500 dark:text-gray-400 bg-white dark:bg-gray-800/50 rounded-lg border border-slate-200 dark:border-gray-700">
+            <div className="text-center py-8 text-on-surface-variant/60 italic bg-surface-container-low rounded-lg border border-outline-variant text-sm">
               No embedders available
             </div>
           )}
@@ -229,14 +232,16 @@ const DownloaderView = (props: DownloaderViewProps) => {
       </div>
 
       <div>
-        <h3 className="text-lg font-semibold text-slate-900 dark:text-gray-100 mb-4 pb-2 border-b border-slate-200 dark:border-gray-700">Pitch Extraction Algorithms</h3>
+        <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 pl-1">
+          Pitch Extraction Algorithms
+        </h3>
         <div className="space-y-3">
           {sortedPitchExtractors.length > 0 ? (
-            <div className="bg-white dark:bg-gray-800/50 rounded-lg border border-slate-200 dark:border-gray-700 overflow-hidden">
+            <div className="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden">
               {sortedPitchExtractors.map(([id, info]) => renderItem(id, info, 'pitchExtractor'))}
             </div>
           ) : (
-            <div className="text-center py-6 text-slate-500 dark:text-gray-400 bg-white dark:bg-gray-800/50 rounded-lg border border-slate-200 dark:border-gray-700">
+            <div className="text-center py-8 text-on-surface-variant/60 italic bg-surface-container-low rounded-lg border border-outline-variant text-sm">
               No pitch extraction algorithms available
             </div>
           )}
@@ -244,6 +249,6 @@ const DownloaderView = (props: DownloaderViewProps) => {
       </div>
     </div>
   );
-}
+};
 
 export default DownloaderView;

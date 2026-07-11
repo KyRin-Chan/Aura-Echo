@@ -1,9 +1,10 @@
 import { JSX, useEffect, useState, ChangeEvent } from 'react';
 import GenericModal from '../../Modals/GenericModal';
 import { CSS_CLASSES } from '../../../styles/constants';
-import { RVCModelSlot, ModelInfo } from '@dannadori/voice-changer-client-js';
+import { RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import { useAppState } from '../../../context/AppContext';
 import { useUIContext } from '../../../context/UIContext';
+import MD3Select from '../../Helpers/MD3Select';
 
 type EditFormState = {
   modelName: string;
@@ -43,7 +44,6 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
   useEffect(() => {
     if (!showModal) return;
     if (form.thumbnailFile) return; // user selected new file
-    // Derive URL from props.icon or modelDir + model.iconFile
     let currentIcon = icon || '';
     if (!currentIcon && modelDir && model.iconFile && model.iconFile.length > 0) {
       const last = model.iconFile.split(/[\\/\\]/).pop() as string;
@@ -79,10 +79,9 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
   const handleSave = async () => {
     const trimmedName = form.modelName.trim();
     if (!trimmedName) {
-      guiState.showError('Bitte einen Modelnamen eingeben.', 'Error');
+      guiState.showError('Please enter a model name.', 'Error');
       return;
     }
-    // Upload thumbnail if provided (rename to thumbnail.ext)
     try {
       if (form.thumbnailFile) {
         const thumb = form.thumbnailFile;
@@ -96,7 +95,6 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
       console.warn('Thumbnail upload failed (continuing):', e);
     }
 
-    // Update name and embedder via serverSetting.updateModelInfo
     try {
       await appState.serverSetting.updateModelInfo(model.slotIndex, 'name', trimmedName);
     } catch (e) {
@@ -114,6 +112,17 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
   };
 
   // ---------------- Render ----------------
+
+  const embedders = appState.serverSetting.serverSetting.embedders || {};
+  const downloadedEmbedders = Object.entries(embedders).filter(([_, embedder]) => embedder.downloaded === true);
+  const embedderOptions =
+    downloadedEmbedders.length === 0
+      ? [{ value: '', label: 'No downloaded embedders available' }]
+      : downloadedEmbedders.map(([key, embedder]) => ({
+          value: key,
+          label: embedder.name
+        }));
+
   return (
     <GenericModal
       isOpen={showModal}
@@ -121,70 +130,59 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
       title={`Edit Model - Slot ${model.slotIndex}`}
       closeOnOutsideClick={false}
       primaryButton={{
-        text: `${appState.serverSetting.isUploading ? `Saving... (${appState.serverSetting.uploadProgress.toFixed(1)}%)` : 'Save'}`,
+        text: `${
+          appState.serverSetting.isUploading
+            ? `Saving... (${appState.serverSetting.uploadProgress.toFixed(1)}%)`
+            : 'Save'
+        }`,
         onClick: handleSave,
-        className: CSS_CLASSES.modalPrimaryButton,
+        className:
+          'bg-primary text-on-primary hover:shadow-elevation-1 rounded-full px-6 py-2.5 font-semibold text-xs active:scale-97 transition-all',
         disabled: appState.serverSetting.isUploading
       }}
       secondaryButton={{
         text: 'Cancel',
         onClick: handleCancel,
-        className: CSS_CLASSES.modalSecondaryButton,
+        className:
+          'border border-outline text-primary hover:bg-primary/8 rounded-full px-6 py-2.5 font-semibold text-xs active:scale-97 transition-all',
         disabled: appState.serverSetting.isUploading
       }}
     >
-      <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-2">
+      <div className="space-y-4 pt-1 max-h-[70vh] overflow-y-auto pr-1.5">
         {/* Model name and embedder */}
-        <div className="space-y-4 ml-2 pl-3 border-l-2 border-slate-200 dark:border-gray-700">
-          <div className="space-y-2">
-            <label htmlFor="editModelName" className={CSS_CLASSES.label}>Model Name:</label>
-            <div className="relative">
-              <input
-                type="text"
-                id="editModelName"
-                value={form.modelName}
-                onChange={(e) => setForm({ ...form, modelName: e.target.value })}
-                className={`${CSS_CLASSES.input} pl-3 pr-10 py-2 bg-white/50 dark:bg-gray-700/50 border-slate-300/70 dark:border-gray-600/70 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent text-sm`}
-                placeholder="Enter a descriptive name for your model"
-                disabled={appState.serverSetting.isUploading}
-              />
-              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-              </div>
-            </div>
+        <div className="space-y-4 pl-3 border-l-2 border-outline-variant">
+          <div className="space-y-1">
+            <label htmlFor="editModelName" className={CSS_CLASSES.label}>
+              Model Name:
+            </label>
+            <input
+              type="text"
+              id="editModelName"
+              value={form.modelName}
+              onChange={(e) => setForm({ ...form, modelName: e.target.value })}
+              className={CSS_CLASSES.input}
+              placeholder="Enter model name"
+              disabled={appState.serverSetting.isUploading}
+            />
           </div>
 
-          <div className="space-y-2">
-            <label htmlFor="editEmbedder" className={CSS_CLASSES.label}>Embedder:</label>
-            <select
+          <div>
+            <MD3Select
               id="editEmbedder"
+              label="Embedder"
               value={form.embedder}
               onChange={(e) => setForm({ ...form, embedder: e.target.value })}
-              className={CSS_CLASSES.select}
+              options={embedderOptions}
               disabled={appState.serverSetting.isUploading}
-            >
-              {Object.entries(appState.serverSetting.serverSetting.embedders || {})
-                .filter(([_, embedder]) => embedder.downloaded === true)
-                .length === 0 ? (
-                <option value="">No downloaded embedders available</option>
-              ) : (
-                Object.entries(appState.serverSetting.serverSetting.embedders || {})
-                  .filter(([_, embedder]) => embedder.downloaded === true)
-                  .map(([key, embedder]) => (
-                    <option key={key} value={key}>
-                      {embedder.name}
-                    </option>
-                  ))
-              )}
-            </select>
+            />
           </div>
         </div>
 
-        {/* Thumbnail file (optional replacement) */}
+        {/* Thumbnail file */}
         <div>
-          <label htmlFor="editThumbnailFile" className={CSS_CLASSES.label}>Thumbnail Image (Optional):</label>
+          <label htmlFor="editThumbnailFile" className={CSS_CLASSES.label}>
+            Thumbnail Image (Optional):
+          </label>
           <input
             type="file"
             id="editThumbnailFile"
@@ -197,16 +195,18 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
 
         {/* Thumbnail preview */}
         {thumbnailPreview && (
-          <div className="space-y-3">
+          <div className="space-y-3 pt-1">
             <button
               type="button"
               onClick={() => setIsThumbnailExpanded(!isThumbnailExpanded)}
-              className="flex items-center justify-between w-full text-sm font-medium text-slate-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors disabled:opacity-50"
+              className="flex items-center justify-between w-full text-xs font-semibold text-on-surface hover:text-primary transition-colors disabled:opacity-50"
               disabled={appState.serverSetting.isUploading}
             >
               <span>Preview Thumbnail</span>
               <svg
-                className={`ml-2 h-4 w-4 transition-transform duration-200 ${isThumbnailExpanded ? 'rotate-180' : ''}`}
+                className={`ml-2 h-4 w-4 transition-transform duration-200 ${
+                  isThumbnailExpanded ? 'rotate-180' : ''
+                }`}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -215,31 +215,59 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
               </svg>
             </button>
             {isThumbnailExpanded && (
-              <div className="space-y-4 p-3 bg-slate-50 dark:bg-gray-800/30 rounded-lg border border-slate-200 dark:border-gray-700">
+              <div className="space-y-4 p-4 bg-surface-container-low rounded-lg border border-outline-variant animate-fadeIn">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-600 dark:text-gray-300">Preview Mode:</span>
+                  <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+                    Preview Shape:
+                  </span>
                   <div className="flex space-x-2">
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setPreviewMode('settings'); }}
-                      className={`px-3 py-1 text-xs rounded-md transition-colors ${previewMode === 'settings' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'text-slate-500 hover:bg-slate-100 dark:text-gray-400 dark:hover:bg-gray-700'} disabled:opacity-50`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPreviewMode('settings');
+                      }}
+                      className={`px-3 py-1 text-[10px] font-semibold rounded-full transition-all ${
+                        previewMode === 'settings'
+                          ? 'bg-secondary-container text-on-secondary-container shadow-elevation-1'
+                          : 'text-on-surface-variant hover:bg-surface-variant/20'
+                      }`}
                       disabled={appState.serverSetting.isUploading}
                     >
-                      Settings
+                      Circular
                     </button>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setPreviewMode('list'); }}
-                      className={`px-3 py-1 text-xs rounded-md transition-colors ${previewMode === 'list' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' : 'text-slate-500 hover:bg-slate-100 dark:text-gray-400 dark:hover:bg-gray-700'} disabled:opacity-50`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPreviewMode('list');
+                      }}
+                      className={`px-3 py-1 text-[10px] font-semibold rounded-full transition-all ${
+                        previewMode === 'list'
+                          ? 'bg-secondary-container text-on-secondary-container shadow-elevation-1'
+                          : 'text-on-surface-variant hover:bg-surface-variant/20'
+                      }`}
                       disabled={appState.serverSetting.isUploading}
                     >
-                      List
+                      Rounded
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center justify-center p-4">
-                  <div className={`transition-all duration-200 ${previewMode === 'settings' ? 'w-32 h-32 rounded-full p-1.5 border-2 border-slate-300 dark:border-gray-500' : 'w-36 h-36 rounded-xl p-1.5 border border-slate-300 dark:border-gray-500'} bg-white dark:bg-gray-800 shadow-md overflow-hidden`}>
-                    <img src={thumbnailPreview} alt="Thumbnail preview" className={`w-full h-full object-cover ${previewMode === 'settings' ? 'rounded-full' : 'rounded-lg'}`} />
+                <div className="flex items-center justify-center p-2">
+                  <div
+                    className={`transition-all duration-200 ${
+                      previewMode === 'settings'
+                        ? 'w-24 h-24 rounded-full p-1 border border-outline-variant'
+                        : 'w-24 h-24 rounded-xl p-1 border border-outline-variant'
+                    } bg-surface-container-high overflow-hidden shadow-inner`}
+                  >
+                    <img
+                      src={thumbnailPreview}
+                      alt="Thumbnail preview"
+                      className={`w-full h-full object-cover ${
+                        previewMode === 'settings' ? 'rounded-full' : 'rounded-lg'
+                      }`}
+                    />
                   </div>
                 </div>
               </div>

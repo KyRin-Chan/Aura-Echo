@@ -1,8 +1,10 @@
-
 import { JSX, useState, useEffect } from 'react';
 import { useAppState } from '../../../../context/AppContext';
 import { useUIContext } from '../../../../context/UIContext';
-import DebouncedSlider from '../../../Helpers/DebouncedSlider';
+import MD3Slider from '../../../Helpers/MD3Slider';
+import MD3Select from '../../../Helpers/MD3Select';
+import MD3Switch from '../../../Helpers/MD3Switch';
+import MD3Checkbox from '../../../Helpers/MD3Checkbox';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExclamationTriangle } from '@fortawesome/free-solid-svg-icons';
 import { Protocol } from '@dannadori/voice-changer-client-js';
@@ -46,7 +48,10 @@ function SettingsView(): JSX.Element {
   const handleSilenceFrontChange = async (val: boolean) => {
     const value = val ? 1 : 0;
     uiState.startLoading(`${value === 1 ? "Enabling" : "Disabling"} Silence Front`);
-    await appState.serverSetting.updateServerSettings({ ...appState.serverSetting.serverSetting, silenceFront: value });
+    await appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      silenceFront: value
+    });
     uiState.stopLoading();
   };
 
@@ -54,7 +59,10 @@ function SettingsView(): JSX.Element {
   const handleForceFp32Change = async (val: boolean) => {
     const value = val ? 1 : 0;
     uiState.startLoading(`${value === 1 ? "Enabling" : "Disabling"} Force FP32 Mode`);
-    await appState.serverSetting.updateServerSettings({ ...appState.serverSetting.serverSetting, forceFp32: value });
+    await appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      forceFp32: value
+    });
     uiState.stopLoading();
   };
 
@@ -62,7 +70,10 @@ function SettingsView(): JSX.Element {
   const handleDisableJitChange = async (val: boolean) => {
     const value = val ? 1 : 0;
     uiState.startLoading(`${value === 1 ? "Disabling" : "Enabling"} JIT Compilation`);
-    await appState.serverSetting.updateServerSettings({ ...appState.serverSetting.serverSetting, disableJit: value });
+    await appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      disableJit: value
+    });
     uiState.stopLoading();
   };
 
@@ -70,7 +81,10 @@ function SettingsView(): JSX.Element {
   const handleUseONNXChange = async (val: boolean) => {
     const value = val ? 1 : 0;
     uiState.startLoading(`${value === 1 ? "Enabling" : "Disabling"} Convert to ONNX`);
-    await appState.serverSetting.updateServerSettings({ ...appState.serverSetting.serverSetting, useONNX: value });
+    await appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      useONNX: value
+    });
     uiState.stopLoading();
   };
 
@@ -84,94 +98,110 @@ function SettingsView(): JSX.Element {
   };
 
   const handlePassThroughConfirmationSkipChange = async (val: boolean) => {
-    appState.setVoiceChangerClientSetting({ ...appState.setting.voiceChangerClientSetting, passThroughConfirmationSkip: val });
+    appState.setVoiceChangerClientSetting({
+      ...appState.setting.voiceChangerClientSetting,
+      passThroughConfirmationSkip: val
+    });
   };
 
   // ---------------- Render ----------------
 
+  const protocolOptions = [
+    { value: 'sio', label: 'SIO (Socket.IO)' },
+    { value: 'rest', label: 'REST (HTTP)' }
+  ];
+
   return (
-    <div className="space-y-4 py-2">
+    <div className="space-y-4 py-2 bg-surface-container-low p-4 rounded-md border border-outline-variant max-h-[500px] overflow-y-auto pr-1.5">
       <div>
-        <label htmlFor="protocol" className={CSS_CLASSES.label}>Protocol</label>
-        <select id="protocol" className={CSS_CLASSES.select}
+        <MD3Select
+          id="protocol"
+          label="Protocol"
           value={appState.setting.workletNodeSetting.protocol}
-          onChange={e => appState.setWorkletNodeSetting({ ...appState.setting.workletNodeSetting, protocol: e.target.value as Protocol })}
-        >
-          <option value="sio">sio</option>
-          <option value="rest">rest</option>
-        </select>
-      </div>
-      <div>
-        <label htmlFor="crossfade" className={CSS_CLASSES.label}>Crossfade Overlap</label>
-        <DebouncedSlider id="crossfade" name="crossfade"
-          min={0.05} max={0.2} step={0.01}
-          value={localCrossFadeOverlapSize}
-          className={CSS_CLASSES.range}
-          onImmediateChange={setLocalCrossFadeOverlapSize}
-          onChange={async val => { handleCrossFadeOverlapSizeChange(val); }}
+          onChange={(e) =>
+            appState.setWorkletNodeSetting({
+              ...appState.setting.workletNodeSetting,
+              protocol: e.target.value as Protocol
+            })
+          }
+          options={protocolOptions}
         />
-        <p className="text-xs text-slate-600 dark:text-gray-400 text-right">{localCrossFadeOverlapSize.toFixed(2)} s</p>
-      </div>
-      <div>
-        <label className={CSS_CLASSES.checkboxLabel}>
-          <input type="checkbox" className="mr-2 accent-blue-500 dark:accent-blue-400"
-            checked={appState.serverSetting.serverSetting.silenceFront === 1}
-            onChange={async e => { handleSilenceFrontChange(e.target.checked) }}
-          />
-          Silence Front
-        </label>
-      </div>
-      <div>
-        <label className={CSS_CLASSES.checkboxLabel}>
-          <input type="checkbox" className="mr-2 accent-blue-500 dark:accent-blue-400"
-            checked={appState.serverSetting.serverSetting.forceFp32 === 1}
-            onChange={async e => { handleForceFp32Change(e.target.checked) }}
-          />
-          Force FP32 Mode
-        </label>
-      </div>
-      <div>
-        <label className={CSS_CLASSES.checkboxLabel}>
-          <input type="checkbox" className="mr-2 accent-blue-500 dark:accent-blue-400"
-            checked={appState.serverSetting.serverSetting.disableJit === 1}
-            onChange={async e => { handleDisableJitChange(e.target.checked) }}
-          />
-          Disable JIT Compilation
-        </label>
-      </div>
-      <div>
-        <label className={CSS_CLASSES.checkboxLabel}>
-          <input type="checkbox" className="mr-2 accent-blue-500 dark:accent-blue-400"
-            checked={appState.serverSetting.serverSetting.useONNX === 1}
-            onChange={async e => { handleUseONNXChange(e.target.checked) }}
-          />
-          Convert to ONNX
-        </label>
-      </div>
-      <div>
-        <label htmlFor="protect" className={CSS_CLASSES.label}>Protect</label>
-        <DebouncedSlider id="protect" name="protect"
-          min={0} max={0.5} step={0.01}
-          value={localProtect}
-          className={CSS_CLASSES.range}
-          onImmediateChange={setLocalProtect}
-          onChange={async val => { handleProtectChange(val) }}
-        />
-        <p className="text-xs text-slate-600 dark:text-gray-400 text-right">{localProtect.toFixed(2)}</p>
       </div>
 
-      <div className="border border-red-500 p-3 rounded bg-red-50 dark:bg-red-900/20 space-y-2">
-        <div className="flex items-center text-red-600 mb-2">
-          <FontAwesomeIcon icon={faExclamationTriangle} className="mr-2" />
-          <span className="font-semibold">Danger Zone</span>
-        </div>
-        <label className={CSS_CLASSES.checkboxLabel}>
-          <input type="checkbox" className="mr-2 accent-red-500 dark:accent-red-400"
-            checked={appState.setting.voiceChangerClientSetting.passThroughConfirmationSkip}
-            onChange={e => handlePassThroughConfirmationSkipChange(e.target.checked)}
-          />
-          Skip Pass through confirmation
+      <div>
+        <label htmlFor="crossfade" className={CSS_CLASSES.label}>
+          Crossfade Overlap
         </label>
+        <MD3Slider
+          id="crossfade"
+          min={0.05}
+          max={0.2}
+          step={0.01}
+          value={localCrossFadeOverlapSize}
+          onImmediateChange={setLocalCrossFadeOverlapSize}
+          onChange={async (val) => {
+            await handleCrossFadeOverlapSizeChange(val);
+          }}
+          showValue={true}
+          valueFormatter={(val) => `${val.toFixed(2)} s`}
+        />
+      </div>
+
+      <div className="space-y-3.5 pt-1.5 pb-2">
+        <MD3Switch
+          checked={appState.serverSetting.serverSetting.silenceFront === 1}
+          onChange={handleSilenceFrontChange}
+          label="Silence Front"
+        />
+
+        <MD3Switch
+          checked={appState.serverSetting.serverSetting.forceFp32 === 1}
+          onChange={handleForceFp32Change}
+          label="Force FP32 Mode"
+        />
+
+        <MD3Switch
+          checked={appState.serverSetting.serverSetting.disableJit === 1}
+          onChange={handleDisableJitChange}
+          label="Disable JIT Compilation"
+        />
+
+        <MD3Switch
+          checked={appState.serverSetting.serverSetting.useONNX === 1}
+          onChange={handleUseONNXChange}
+          label="Convert to ONNX"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="protect" className={CSS_CLASSES.label}>
+          Protect
+        </label>
+        <MD3Slider
+          id="protect"
+          min={0}
+          max={0.5}
+          step={0.01}
+          value={localProtect}
+          onImmediateChange={setLocalProtect}
+          onChange={async (val) => {
+            await handleProtectChange(val);
+          }}
+          showValue={true}
+          valueFormatter={(val) => val.toFixed(2)}
+        />
+      </div>
+
+      <div className="border border-error/50 p-4 rounded-lg bg-error/5 space-y-2 mt-2">
+        <div className="flex items-center text-error mb-2 text-sm font-semibold">
+          <FontAwesomeIcon icon={faExclamationTriangle} className="mr-2" />
+          <span>Danger Zone</span>
+        </div>
+        <MD3Checkbox
+          checked={appState.setting.voiceChangerClientSetting.passThroughConfirmationSkip ?? false}
+          onChange={handlePassThroughConfirmationSkipChange}
+          label="Skip Pass through confirmation"
+        />
       </div>
     </div>
   );

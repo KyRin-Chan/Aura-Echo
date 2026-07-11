@@ -54,7 +54,7 @@ function ModelInfo({ model, icon }: ModelInfoProps) {
                 </div>
                 <div className="space-y-1">
                   <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    <span className="font-semibold">Embedder:</span> {model.embedder || 'N/A'}
+                    <span className="font-semibold">Embedder:</span> {model.embedder === 'hubert_base' ? 'ContentVec / Hubert' : (model.embedder === 'spin_base' ? 'SPIN' : (model.embedder === 'spin_v2' ? 'SPIN V2' : (model.embedder || 'N/A')))}
                   </div>
                   <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                     <span className="font-semibold">Model Type:</span> {modelTypeDisplay || 'N/A'}

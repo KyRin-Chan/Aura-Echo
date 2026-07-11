@@ -1,6 +1,5 @@
 import React, { JSX } from 'react';
 import GenericModal from '../../Modals/GenericModal';
-import { CSS_CLASSES } from '../../../styles/constants';
 import { ModelUploadSetting, RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import { useAppState } from '../../../context/AppContext';
 import { useUIContext } from '../../../context/UIContext';
@@ -20,7 +19,10 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
   const appState = useAppState();
   const guiState = useUIContext();
 
-  const icon = model.iconFile.length > 0 ? "/" + modelDir + "/" + model.slotIndex + "/" + model.iconFile.split(/[\/\\]/).pop() : "";
+  const icon =
+    model.iconFile.length > 0
+      ? '/' + modelDir + '/' + model.slotIndex + '/' + model.iconFile.split(/[\/\\]/).pop()
+      : '';
   const placeholder = useInitialPlaceholder(model.name);
 
   // ---------------- Handlers ----------------
@@ -28,21 +30,24 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
   // Handle confirm button click
   const handleConfirm = async () => {
     const settings: ModelUploadSetting & { embedder: string } = {
-      voiceChangerType: "RVC",
+      voiceChangerType: 'RVC',
       slot: model.slotIndex,
       files: [],
       params: {},
-      embedder: "hubert_base"
+      embedder: 'hubert_base'
     };
     appState.serverSetting.deleteModel(model.slotIndex);
 
     if (appState.serverSetting.serverSetting.modelSlotIndex === model.slotIndex) {
       guiState.startLoading();
-      await appState.serverSetting.updateServerSettings({ ...appState.serverSetting.serverSetting, modelSlotIndex: 0 });
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        modelSlotIndex: 0
+      });
       guiState.stopLoading();
     }
 
-    guiState.showError('Deleted model successfully.', "Confirm");
+    guiState.showError('Deleted model successfully.', 'Confirm');
     setShowDelete(false);
   };
 
@@ -60,44 +65,49 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
       title="Delete Model"
       size="small"
       primaryButton={{
-        text: "Delete",
+        text: 'Delete',
         onClick: handleConfirm,
-        className: CSS_CLASSES.modalPrimaryButton + " !bg-red-600 hover:!bg-red-700 focus:!ring-red-500"
+        className: 'bg-error text-on-error hover:shadow-elevation-1 rounded-full px-6 py-2.5 font-semibold text-xs active:scale-97 transition-all'
       }}
       secondaryButton={{
-        text: "Cancel",
+        text: 'Cancel',
         onClick: handleCancel,
-        className: CSS_CLASSES.modalSecondaryButton
+        className: 'border border-outline text-primary hover:bg-primary/8 rounded-full px-6 py-2.5 font-semibold text-xs active:scale-97 transition-all'
       }}
     >
-      <div className="space-y-6">
+      <div className="space-y-6 pt-1">
         <div className="flex items-start space-x-4">
-          <div className="flex-shrink-0 w-12 h-12 bg-red-100 dark:bg-red-950/50 rounded-full flex items-center justify-center">
-            <FontAwesomeIcon icon={faTrash} className="w-7 h-7 text-red-600 dark:text-red-400" />
+          <div className="flex-shrink-0 w-12 h-12 bg-error/10 rounded-full flex items-center justify-center">
+            <FontAwesomeIcon icon={faTrash} className="w-6 h-6 text-error" />
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
-              Permanently Delete Model
-            </h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
+            <h3 className="text-base font-semibold text-on-surface mb-1.5">Permanently Delete Model</h3>
+            <p className="text-xs text-on-surface-variant">
               Are you sure you want to permanently delete the following model?
             </p>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm">
-          <div className="flex items-center space-x-3 mb-2">
+        <div className="bg-surface-container-low border border-outline-variant rounded-xl p-4">
+          <div className="flex items-center space-x-3">
             <img
               src={icon.length > 0 ? icon : placeholder}
               alt={model.name}
-              className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+              className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-outline-variant/30"
             />
             <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                {model.name}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Slot {model.slotIndex} • {model.embedder || 'Unknown'} • {model.samplingRate || 'Unknown'} Hz • {model.voiceChangerType || 'RVC'}{model.version || '1'}
+              <p className="text-sm font-semibold text-on-surface">{model.name}</p>
+              <p className="text-[10px] text-on-surface-variant font-medium mt-0.5">
+                Slot {model.slotIndex} •{' '}
+                {model.embedder === 'hubert_base'
+                  ? 'ContentVec / Hubert'
+                  : model.embedder === 'spin_base'
+                  ? 'SPIN'
+                  : model.embedder === 'spin_v2'
+                  ? 'SPIN V2'
+                  : model.embedder || 'Unknown'}{' '}
+                • {model.samplingRate || 'Unknown'} Hz • {model.voiceChangerType || 'RVC'}
+                {model.version || '1'}
               </p>
             </div>
           </div>
@@ -107,4 +117,4 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
   );
 }
 
-export default DeleteModelModal; 
+export default DeleteModelModal;

@@ -112,6 +112,7 @@ class ResidualCouplingBlock(nn.Module):
                 )
             )
             self.flows.append(modules.Flip())
+        self.flows_reversed = nn.ModuleList(reversed(self.flows))
 
     def forward(
         self,
@@ -124,8 +125,7 @@ class ResidualCouplingBlock(nn.Module):
             for flow in self.flows:
                 x, _ = flow(x, x_mask, g=g, reverse=reverse)
         else:
-            for i in range(len(self.flows) - 1, -1, -1):
-                flow = self.flows[i]
+            for flow in self.flows_reversed:
                 x, _ = flow(x, x_mask, g=g, reverse=reverse)
         return x
 

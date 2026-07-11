@@ -74,13 +74,9 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
 
   return (
     <div
-      className={`p-4 rounded-2xl shadow-sm transition-all duration-300 flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : ''}`}
-      style={{
-        backgroundColor: 'var(--bg-secondary)',
-        border: '1px solid var(--border-primary)',
-      }}
+      className={`${CSS_CLASSES.card} flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : ''}`}
     >
-      <div className="flex justify-between items-center mb-3 pb-2" style={{ borderBottom: '1px solid var(--border-primary)' }}>
+      <div className={CSS_CLASSES.cardHeader}>
         <h4 className={CSS_CLASSES.heading}>Model Settings</h4>
         <div className="flex space-x-1 items-center">
           <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? "Expand" : "Collapse"}>
@@ -97,11 +93,8 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
               icon={icon || placeholder}
             />
           ) : (
-            <div
-              className="flex items-center justify-center mb-6 p-8 rounded-xl min-h-[160px]"
-              style={{ backgroundColor: 'var(--bg-tertiary)' }}
-            >
-              <p style={{ color: 'var(--text-tertiary)' }} className="italic text-center">Select a model from the list <br /> to see its settings.</p>
+            <div className="flex items-center justify-center mb-6 p-8 rounded-md bg-surface-container min-h-[160px]">
+              <p className="text-on-surface-variant italic text-center">Select a model from the list <br /> to see its settings.</p>
             </div>
           )}
           {
@@ -121,7 +114,7 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
       <div className="flex justify-end mt-4">
         <button
           onClick={handleSaveSettings}
-          className={CSS_CLASSES.modalSecondaryButton}
+          className={CSS_CLASSES.primaryButton}
         >
           Save Settings
         </button>

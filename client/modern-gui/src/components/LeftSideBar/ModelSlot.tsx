@@ -42,23 +42,11 @@ function ModelSlot(props: ModelSlotProps) {
       />
       {/* Main model slot container with conditional styling for selection state */}
       <li
-        className="p-3 text-sm cursor-pointer flex items-center group transition-colors duration-200 rounded-lg"
-        style={{
-          color: 'var(--text-primary)',
-          backgroundColor: props.selected ? 'var(--macaron-mint)' : 'transparent',
-          borderLeft: props.selected ? '4px solid var(--macaron-mint-hover)' : '4px solid transparent',
-          opacity: props.selected ? 1 : 0.85,
-        }}
-        onMouseEnter={(e) => {
-          if (!props.selected) {
-            (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bg-tertiary)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!props.selected) {
-            (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
-          }
-        }}
+        className={`p-3 text-xs cursor-pointer flex items-center group transition-all duration-150 rounded-full mx-1.5 my-1 ${
+          props.selected
+            ? 'bg-primary text-on-primary font-bold shadow-elevation-1'
+            : 'bg-transparent text-on-surface hover:bg-surface-variant/20'
+        }`}
         onClick={() => {
           props.handleSelectModel(props.model);
         }}
@@ -67,28 +55,33 @@ function ModelSlot(props: ModelSlotProps) {
         <img
           src={icon.length > 0 ? icon : placeholder}
           alt={props.model.name}
-          className="w-10 h-10 rounded-lg mr-3 object-cover flex-shrink-0"
+          className="w-8 h-8 rounded-full mr-2.5 object-cover flex-shrink-0 border border-outline-variant/30"
         />
         {/* Model name with text truncation for long names */}
-        <span
-          className="truncate mr-2 flex-grow font-medium"
-          style={{ color: props.selected ? '#3a3530' : 'var(--text-primary)' }}
-        >{props.model.name}</span>
+        <span className="truncate mr-2 flex-grow">{props.model.name}</span>
         <div className="flex space-x-1 items-center opacity-0 group-hover:opacity-100 transition-opacity">
           {/* Edit button - Opens model settings modal */}
           <button
-            onClick={(e) => { e.stopPropagation(); setShowEdit(true); }}
-            className="p-2 rounded-full transition-opacity hover:opacity-70"
-            style={{ color: 'var(--macaron-blue)' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowEdit(true);
+            }}
+            className={`p-1.5 rounded-full transition-all hover:bg-surface-variant/30 ${
+              props.selected ? 'text-on-primary' : 'text-secondary'
+            }`}
             title="Edit Model"
           >
             <FontAwesomeIcon icon={faPen} className="h-3 w-3" />
           </button>
           {/* Delete button - Opens confirmation modal */}
           <button
-            onClick={(e) => { e.stopPropagation(); setShowDelete(true); }}
-            className="p-2 rounded-full transition-opacity hover:opacity-70"
-            style={{ color: 'var(--macaron-coral)' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowDelete(true);
+            }}
+            className={`p-1.5 rounded-full transition-all hover:bg-surface-variant/30 ${
+              props.selected ? 'text-on-primary' : 'text-error'
+            }`}
             title="Delete Model"
           >
             <FontAwesomeIcon icon={faTrash} className="h-3 w-3" />
@@ -96,7 +89,7 @@ function ModelSlot(props: ModelSlotProps) {
         </div>
       </li>
     </>
-  )
+  );
 }
 
-export default ModelSlot
+export default ModelSlot;

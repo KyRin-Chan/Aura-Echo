@@ -4,7 +4,6 @@ import { faPlus, faTrash, faShuffle, faRepeat } from '@fortawesome/free-solid-sv
 import { CSS_CLASSES } from '../../styles/constants';
 import { BackgroundTrack } from '@dannadori/voice-changer-client-js';
 
-
 export type BackgroundListProps = {
   tracks: BackgroundTrack[];
   selectedId: string | null;
@@ -14,7 +13,13 @@ export type BackgroundListProps = {
   onToggle: (id: string) => void;
 };
 
-function TrackItem({ track, isSelected, onSelect, onDelete, onToggle }: {
+function TrackItem({
+  track,
+  isSelected,
+  onSelect,
+  onDelete,
+  onToggle
+}: {
   track: BackgroundTrack;
   isSelected: boolean;
   onSelect: () => void;
@@ -25,35 +30,41 @@ function TrackItem({ track, isSelected, onSelect, onDelete, onToggle }: {
     <div
       className={`p-3 rounded-md border cursor-pointer transition-all duration-150 ${
         isSelected
-          ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-500'
-          : 'border-slate-200 dark:border-gray-600 bg-white dark:bg-gray-800/50 hover:border-slate-300 dark:hover:border-gray-500'
+          ? 'border-primary bg-primary/8 shadow-elevation-1'
+          : 'border-outline-variant bg-surface-container-low hover:border-outline'
       }`}
       onClick={onSelect}
     >
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">         
+        <div className="flex items-center space-x-2">
           <button
-            onClick={(e) => { e.stopPropagation(); onToggle(); }}
-            className={`${CSS_CLASSES.iconButton} ${track.enabled ? 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300' : 'text-slate-400 dark:text-gray-500 hover:text-slate-500 dark:hover:text-gray-400'}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            className={`${CSS_CLASSES.iconButton} ${
+              track.enabled ? 'text-primary' : 'text-on-surface-variant/40'
+            }`}
             title={track.enabled ? 'Disable' : 'Enable'}
           >
             <FontAwesomeIcon icon={track.mode === 'loop' ? faRepeat : faShuffle} className="h-4 w-4" />
           </button>
 
           <div>
-          <div className="font-medium text-slate-700 dark:text-gray-200 text-sm flex items-center space-x-2">
-            <span className="truncate max-w-[180px]" title={track.name || track.filename }>
-              {track.name || track.filename || 'Untitled'}
-            </span>
-          </div>
-            <div className="text-xs text-slate-500 dark:text-gray-400 flex items-center space-x-2">
+            <div className="font-semibold text-on-surface text-sm flex items-center space-x-2">
+              <span className="truncate max-w-[180px]" title={track.name || track.filename}>
+                {track.name || track.filename || 'Untitled'}
+              </span>
+            </div>
+            <div className="text-xs text-on-surface-variant flex items-center space-x-2">
               <span className="capitalize">{track.mode}</span>
               <span>•</span>
               {track.mode === 'loop' ? (
-                <span>Pause {((track.loopPauseSec ?? 0)).toFixed(1)}s</span>
+                <span>Pause {track.loopPauseSec?.toFixed(1) ?? '0.0'}s</span>
               ) : (
                 <span>
-                  Pause {(track.random?.minPauseSec ?? 2).toFixed(1)}–{(track.random?.maxPauseSec ?? 5).toFixed(1)}s
+                  Pause {track.random?.minPauseSec?.toFixed(1) ?? '2.0'}–
+                  {track.random?.maxPauseSec?.toFixed(1) ?? '5.0'}s
                 </span>
               )}
               <span>•</span>
@@ -63,8 +74,11 @@ function TrackItem({ track, isSelected, onSelect, onDelete, onToggle }: {
         </div>
 
         <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className={`${CSS_CLASSES.iconButton} text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className={`${CSS_CLASSES.iconButton} text-error hover:text-error/80`}
           title="Delete"
         >
           <FontAwesomeIcon icon={faTrash} className="h-4 w-4" />
@@ -74,17 +88,25 @@ function TrackItem({ track, isSelected, onSelect, onDelete, onToggle }: {
   );
 }
 
-export default function BackgroundList({ tracks, selectedId, onSelect, onAddFiles, onDelete, onToggle }: BackgroundListProps): JSX.Element {
-
+export default function BackgroundList({
+  tracks,
+  selectedId,
+  onSelect,
+  onAddFiles,
+  onDelete,
+  onToggle
+}: BackgroundListProps): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
       {/* Header */}
-      <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200 dark:border-gray-600">
+      <div className="flex items-center justify-between mb-4 pb-3 border-b border-outline-variant">
         <div>
-          <h5 className="font-medium text-slate-700 dark:text-gray-200">Background Tracks</h5>
-          <div className="text-xs text-slate-500 dark:text-gray-400 mt-1">Tracks will be mixed with converted audio</div>
+          <h5 className="font-semibold text-on-surface text-base">Background Tracks</h5>
+          <div className="text-xs text-on-surface-variant mt-1">
+            Tracks will be mixed with converted audio
+          </div>
         </div>
         <div>
           <input
@@ -94,13 +116,12 @@ export default function BackgroundList({ tracks, selectedId, onSelect, onAddFile
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) onAddFiles(e.target.files);
-              // reset value to allow re-selecting same file
               if (fileInputRef.current) fileInputRef.current.value = '';
             }}
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            className={`${CSS_CLASSES.iconButton} text-green-600 dark:text-green-400`}
+            className={`${CSS_CLASSES.iconButton} text-primary`}
             title="Add audio file(s)"
           >
             <FontAwesomeIcon icon={faPlus} className="h-4 w-4" />
@@ -109,9 +130,9 @@ export default function BackgroundList({ tracks, selectedId, onSelect, onAddFile
       </div>
 
       {/* List */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1">
         {tracks.length === 0 ? (
-          <div className="text-center py-8 text-slate-500 dark:text-gray-400 text-sm">
+          <div className="text-center py-12 text-on-surface-variant/60 text-sm italic">
             No background tracks yet. Use the + button to add audio files.
           </div>
         ) : (

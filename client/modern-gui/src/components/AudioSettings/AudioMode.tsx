@@ -1,11 +1,15 @@
-import { CSS_CLASSES } from "../../styles/constants";
-import { useAppState } from "../../context/AppContext";
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
+import { useAppState } from "../../context/AppContext";
 import { useUIContext } from "../../context/UIContext";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faExclamationTriangle } from "@fortawesome/free-solid-svg-icons";
 
-function AudioMode({ audioState, setAudioState }: { audioState: "client" | "server"; setAudioState: Dispatch<SetStateAction<"client" | "server">>; }): JSX.Element {
+interface AudioModeProps {
+  audioState: "client" | "server";
+  setAudioState: Dispatch<SetStateAction<"client" | "server">>;
+}
+
+function AudioMode({ audioState, setAudioState }: AudioModeProps): JSX.Element {
   // ---------------- States ----------------
   const appState = useAppState();
   const uiContext = useUIContext();
@@ -29,7 +33,6 @@ function AudioMode({ audioState, setAudioState }: { audioState: "client" | "serv
 
   // Set the audio state based on the availability of client and server audio devices
   useEffect(() => {
-    // Check if client and server audio are available
     let newAudioState: "client" | "server" | null = null;
     if (!isClientAudioAvailable && isServerAudioAvailable) {
       newAudioState = "server";
@@ -45,7 +48,7 @@ function AudioMode({ audioState, setAudioState }: { audioState: "client" | "serv
           ...appState.serverSetting.serverSetting,
           enableServerAudio: 1
         });
-      } else { // client
+      } else {
         appState.serverSetting.updateServerSettings({
           ...appState.serverSetting.serverSetting,
           enableServerAudio: 0
@@ -66,69 +69,74 @@ function AudioMode({ audioState, setAudioState }: { audioState: "client" | "serv
 
   // ---------------- Handlers ----------------
 
-  // Handle Client Radio Change
-  const handleClientRadioChange = () => {
-    if (!isClientAudioAvailable) return;
+  // Handle Client Select
+  const selectClientMode = () => {
+    if (!isClientAudioAvailable || uiContext.isConverting) return;
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       enableServerAudio: 0
-    })
-    setAudioState("client")
-  }
+    });
+    setAudioState("client");
+  };
 
-  // Handle Server Radio Change
-  const handleServerRadioChange = () => {
-    if (!isServerAudioAvailable) return;
+  // Handle Server Select
+  const selectServerMode = () => {
+    if (!isServerAudioAvailable || uiContext.isConverting) return;
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       enableServerAudio: 1
-    })
-    setAudioState("server")
-  }
+    });
+    setAudioState("server");
+  };
 
   // ---------------- Render ----------------
 
   return (
     <div className="space-y-4">
-      <div className="pb-2 border-b border-slate-200 dark:border-gray-700">
-        <div className="flex items-center mb-2">
-          <label className="block text-sm font-medium text-slate-700 dark:text-gray-300">Audio Processing</label>
+      <div className="pb-3 border-b border-outline-variant">
+        <div className="flex items-center mb-2.5">
+          <label className="block text-sm font-medium text-on-surface-variant">Audio Processing Mode</label>
           {warningMessage && (
-            <div className="ml-2 relative group">
-              <FontAwesomeIcon icon={faExclamationTriangle} className="text-yellow-500" />
-              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs text-white bg-black rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap z-10">
+            <div className="ml-2 relative group cursor-help">
+              <FontAwesomeIcon icon={faExclamationTriangle} className="text-error" />
+              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs text-on-error bg-error rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap z-10">
                 {warningMessage}
               </div>
             </div>
           )}
         </div>
         <div className="flex items-center justify-between">
-          <div className="flex">
-            <label className={`${CSS_CLASSES.radioLabel} ${!isClientAudioAvailable ? "opacity-50 cursor-not-allowed" : ""}`}>
-              <input
-                type="radio"
-                className={CSS_CLASSES.radioButton}
-                checked={audioState === "client"}
-                onChange={handleClientRadioChange}
-                disabled={!isClientAudioAvailable || uiContext.isConverting}
-              />
-              Client
-            </label>
-            <label className={`${CSS_CLASSES.radioLabel} ${!isServerAudioAvailable ? "opacity-50 cursor-not-allowed" : ""}`}>
-              <input
-                type="radio"
-                className={CSS_CLASSES.radioButton}
-                checked={audioState === "server"}
-                onChange={handleServerRadioChange}
-                disabled={!isServerAudioAvailable || uiContext.isConverting}
-              />
-              Server
-            </label>
+          {/* MD3 Segmented Button */}
+          <div className="inline-flex rounded-full border border-outline overflow-hidden">
+            <button
+              onClick={selectClientMode}
+              disabled={!isClientAudioAvailable || uiContext.isConverting}
+              className={`px-5 py-1.5 text-xs font-semibold transition-all duration-150 ${
+                audioState === "client"
+                  ? "bg-secondary-container text-on-secondary-container"
+                  : "bg-transparent text-on-surface hover:bg-surface-variant/20"
+              } ${(!isClientAudioAvailable || uiContext.isConverting) ? "opacity-50 cursor-not-allowed" : ""}`}
+            >
+              Client Mode
+            </button>
+            <div className="w-[1px] bg-outline" />
+            <button
+              onClick={selectServerMode}
+              disabled={!isServerAudioAvailable || uiContext.isConverting}
+              className={`px-5 py-1.5 text-xs font-semibold transition-all duration-150 ${
+                audioState === "server"
+                  ? "bg-secondary-container text-on-secondary-container"
+                  : "bg-transparent text-on-surface hover:bg-surface-variant/20"
+              } ${(!isServerAudioAvailable || uiContext.isConverting) ? "opacity-50 cursor-not-allowed" : ""}`}
+            >
+              Server Mode
+            </button>
           </div>
+
           {audioState === "client" && (
             <button
               onClick={() => uiContext.reloadDeviceInfo()}
-              className="px-3 py-1 text-xs bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:hover:bg-gray-400 text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-1.5 text-xs font-semibold border border-outline text-primary rounded-full hover:bg-primary/8 active:scale-97 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={uiContext.isConverting || appState.serverSetting.serverSetting.serverAudioStated === 1}
             >
               Reload Device List
@@ -137,7 +145,7 @@ function AudioMode({ audioState, setAudioState }: { audioState: "client" | "serv
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 export default AudioMode;

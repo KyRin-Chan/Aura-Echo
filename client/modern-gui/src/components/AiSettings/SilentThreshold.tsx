@@ -1,4 +1,5 @@
-import DebouncedSlider from "../Helpers/DebouncedSlider";
+import MD3Slider from "../Helpers/MD3Slider";
+import MD3Switch from "../Helpers/MD3Switch";
 import { ClientState } from "@dannadori/voice-changer-client-js";
 import { CSS_CLASSES } from "../../styles/constants";
 import { useEffect, useState } from "react";
@@ -20,7 +21,9 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
   // Set local silent threshold
   useEffect(() => {
     const st = appState.serverSetting?.serverSetting?.silentThreshold;
-    setLocalSilentThreshold(st);
+    if (st !== undefined) {
+      setLocalSilentThreshold(st);
+    }
   }, [appState.serverSetting?.serverSetting?.silentThreshold]);
 
   // ---------------- Handlers ----------------
@@ -35,8 +38,8 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
   };
 
   // Handle power saving mode change
-  const handlePowerSavingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const enabled = e.target.checked ? 1 : 0;
+  const handlePowerSavingChange = (checked: boolean) => {
+    const enabled = checked ? 1 : 0;
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting?.serverSetting,
       powerSavingMode: enabled
@@ -46,32 +49,31 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
   // ---------------- Render ----------------
 
   return (
-    <div>
-      <label htmlFor="inSens" className={CSS_CLASSES.label}>Input Sensitivity (In. Sens):</label>
-      <DebouncedSlider
-        id="inSens"
-        name="inSens"
-        min={-90}
-        max={-60}
-        step={1}
-        value={localSilentThreshold}
-        className={CSS_CLASSES.range}
-        onImmediateChange={setLocalSilentThreshold}
-        onChange={handleChangeSilentThreshold}
-      />
-      <p className={CSS_CLASSES.sliderValue}>{localSilentThreshold} dB</p>
-      
-      <div className="mt-3 flex items-center">
-        <input
+    <div className="flex flex-col space-y-3.5 bg-surface-container-low p-3 rounded-md border border-outline-variant">
+      <div>
+        <label htmlFor="inSens" className={CSS_CLASSES.label}>
+          Input Sensitivity (In. Sens):
+        </label>
+        <MD3Slider
+          id="inSens"
+          min={-90}
+          max={-60}
+          step={1}
+          value={localSilentThreshold}
+          onImmediateChange={setLocalSilentThreshold}
+          onChange={handleChangeSilentThreshold}
+          showValue={true}
+          valueFormatter={(val) => `${val} dB`}
+        />
+      </div>
+
+      <div className="pt-1">
+        <MD3Switch
           id="powerSavingMode"
-          type="checkbox"
           checked={appState.serverSetting?.serverSetting?.powerSavingMode === 1}
           onChange={handlePowerSavingChange}
-          className={CSS_CLASSES.checkbox}
+          label="Power Saving Mode (Skip inference)"
         />
-        <label htmlFor="powerSavingMode" className={CSS_CLASSES.checkboxLabel}>
-          Power Saving Mode (Skip inference on silence)
-        </label>
       </div>
     </div>
   );

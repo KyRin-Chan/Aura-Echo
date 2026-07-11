@@ -13,39 +13,33 @@ interface ErrorNotificationsProps {
   removeError: (id: number) => void;
 }
 
-const getNotificationStyle = (type: ErrorType) => {
+const getNotificationClass = (type: ErrorType) => {
   switch (type) {
     case 'Error':
-      return { backgroundColor: 'var(--macaron-coral)', borderColor: 'var(--macaron-coral)', color: '#3a3530' };
+      return 'bg-error-container text-on-error-container border-error/20';
     case 'Warning':
-      return { backgroundColor: 'var(--macaron-yellow)', borderColor: 'var(--macaron-yellow)', color: '#3a3530' };
+      return 'bg-tertiary-container text-on-tertiary-container border-tertiary/20';
     case 'Confirm':
-      return { backgroundColor: 'var(--macaron-mint)', borderColor: 'var(--macaron-mint)', color: '#3a3530' };
+      return 'bg-primary-container text-on-primary-container border-primary/20';
   }
 };
 
 const ErrorNotifications: React.FC<ErrorNotificationsProps> = ({ errors, removeError }) => (
-
-  // ---------------- Render ----------------
-
-
-  <div className="fixed top-4 right-4 space-y-2 z-50">
-    {errors.map(err => (
+  <div className="fixed top-6 right-6 space-y-2 z-50 animate-fadeIn">
+    {errors.map((err) => (
       <div
         key={err.id}
-        className="max-w-sm w-full p-4 rounded-2xl shadow-lg flex justify-between items-start"
-        style={{
-          ...getNotificationStyle(err.type),
-          border: `1px solid`,
-        }}
+        className={`max-w-sm w-full p-4 rounded-2xl shadow-elevation-2 flex justify-between items-start border ${getNotificationClass(
+          err.type
+        )}`}
       >
         <div>
-          <strong className="block text-sm font-semibold">{err.type}</strong>
-          <p className="text-sm">{err.message}</p>
+          <strong className="block text-xs uppercase tracking-wider font-bold mb-1 opacity-80">{err.type}</strong>
+          <p className="text-xs font-semibold leading-relaxed">{err.message}</p>
         </div>
         <button
           onClick={() => removeError(err.id)}
-          className="ml-4 text-lg font-bold leading-none opacity-70 hover:opacity-100 transition-opacity"
+          className="ml-4 text-base font-bold leading-none opacity-60 hover:opacity-100 transition-opacity"
         >
           &times;
         </button>

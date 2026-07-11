@@ -13,7 +13,15 @@ interface AudioPlayerProps {
   audioType?: 'Input' | 'Output';
 }
 
-function AudioPlayer({ src, title, className = '', id, outputDeviceId, modelName, audioType }: AudioPlayerProps): JSX.Element {
+function AudioPlayer({
+  src,
+  title,
+  className = '',
+  id,
+  outputDeviceId,
+  modelName,
+  audioType
+}: AudioPlayerProps): JSX.Element {
   // ---------------- States ----------------
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -40,7 +48,6 @@ function AudioPlayer({ src, title, className = '', id, outputDeviceId, modelName
     setIsPlaying(false);
     setIsLoading(true);
 
-    // Handle loaded metadata
     const handleLoadedMetadata = () => {
       if (audio.duration && isFinite(audio.duration)) {
         setDuration(audio.duration);
@@ -48,34 +55,28 @@ function AudioPlayer({ src, title, className = '', id, outputDeviceId, modelName
       setIsLoading(false);
     };
 
-    // Handle time update
     const handleTimeUpdate = () => {
       if (audio.currentTime && isFinite(audio.currentTime)) {
         setCurrentTime(audio.currentTime);
       }
     };
 
-    // Handle ended
     const handleEnded = () => {
       setIsPlaying(false);
     };
 
-    // Handle can play
     const handleCanPlay = () => {
       setIsLoading(false);
     };
 
-    // Handle waiting
     const handleWaiting = () => {
       setIsLoading(true);
     };
 
-    // Handle can play through
     const handleCanPlayThrough = () => {
       setIsLoading(false);
     };
 
-    // Handle load start
     const handleLoadStart = () => {
       setIsLoading(true);
     };
@@ -98,6 +99,17 @@ function AudioPlayer({ src, title, className = '', id, outputDeviceId, modelName
 
     // Force load
     audio.load();
+
+    return () => {
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('canplay', handleCanPlay);
+      audio.removeEventListener('waiting', handleWaiting);
+      audio.removeEventListener('canplaythrough', handleCanPlayThrough);
+      audio.removeEventListener('loadstart', handleLoadStart);
+      audio.removeEventListener('error', handleError);
+    };
   }, [src]);
 
   // Update sink device when outputDeviceId changes
@@ -166,12 +178,12 @@ function AudioPlayer({ src, title, className = '', id, outputDeviceId, modelName
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
 
-      // Generate filename: Input/Output-ModelName-YYYY-MM-DD_HH-MM-SS.wav
       const now = new Date();
-      const timestamp = now.toISOString()
+      const timestamp = now
+        .toISOString()
         .replace(/T/, '_')
         .replace(/:/g, '-')
-        .split('.')[0]; // Remove milliseconds and timezone
+        .split('.')[0];
 
       const safeModelName = (modelName || 'Unknown').replace(/[^a-zA-Z0-9-_]/g, '_');
       const prefix = audioType || 'Audio';
@@ -189,8 +201,6 @@ function AudioPlayer({ src, title, className = '', id, outputDeviceId, modelName
       console.error('Error downloading audio:', error);
     }
   };
-
-  // ---------------- Functions ----------------
 
   // Toggle mute
   const toggleMute = () => {
@@ -215,46 +225,37 @@ function AudioPlayer({ src, title, className = '', id, outputDeviceId, modelName
   };
 
   // Calculate progress percentage
-  const progressPercentage = duration > 0 && isFinite(duration) && isFinite(currentTime)
-    ? (currentTime / duration) * 100
-    : 0;
+  const progressPercentage =
+    duration > 0 && isFinite(duration) && isFinite(currentTime) ? (currentTime / duration) * 100 : 0;
 
   // ---------------- Render ----------------
 
+  const fillPercent = isFinite(progressPercentage) ? progressPercentage : 0;
+
   return (
-    <div className={`bg-white dark:bg-gray-800 border border-slate-200 dark:border-gray-600 rounded-md p-3 ${className}`}>
-      <audio
-        ref={audioRef}
-        src={src}
-        preload="metadata"
-        id={id}
-        controls={false}
-      />
+    <div className={`bg-surface-container-low border border-outline-variant rounded-xl p-3.5 ${className}`}>
+      <audio ref={audioRef} src={src} preload="metadata" id={id} controls={false} />
 
-      {title && (
-        <div className="text-sm font-medium text-slate-700 dark:text-gray-200 mb-2 truncate">
-          {title}
-        </div>
-      )}
+      {title && <div className="text-xs font-bold text-on-surface mb-2.5 truncate">{title}</div>}
 
-      <div className="flex items-center gap-2 overflow-hidden">
+      <div className="flex items-center gap-3 overflow-hidden">
         {/* Play/Pause Button */}
         <button
           onClick={togglePlayPause}
           disabled={isLoading}
-          className="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded-full transition-colors duration-150"
+          className="flex-shrink-0 w-9 h-9 flex items-center justify-center bg-primary hover:bg-primary/90 hover:shadow-elevation-1 disabled:bg-surface-container-highest text-on-primary rounded-full transition-all duration-150 active:scale-95"
         >
           {isLoading ? (
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-4 h-4 border-2 border-on-primary border-t-transparent rounded-full animate-spin"></div>
           ) : (
-            <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} className="text-sm" />
+            <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} className="text-xs" />
           )}
         </button>
 
         {/* Progress Section */}
         <div className="flex-1 min-w-0">
           {/* Time Display */}
-          <div className="flex justify-between text-xs text-slate-600 dark:text-gray-400 mb-1">
+          <div className="flex justify-between text-[10px] text-on-surface-variant font-semibold mb-1">
             <span className="tabular-nums">{formatTime(currentTime)}</span>
             <span className="tabular-nums">{formatTime(duration)}</span>
           </div>
@@ -265,26 +266,23 @@ function AudioPlayer({ src, title, className = '', id, outputDeviceId, modelName
               type="range"
               min="0"
               max="100"
-              value={isFinite(progressPercentage) ? progressPercentage : 0}
+              value={fillPercent}
               onChange={handleProgressChange}
               disabled={!duration || !isFinite(duration)}
-              className="w-full h-2 bg-slate-200 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500 dark:accent-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
-                background: `linear-gradient(to right, rgb(59, 130, 246) 0%, rgb(59, 130, 246) ${isFinite(progressPercentage) ? progressPercentage : 0}%, rgb(226, 232, 240) ${isFinite(progressPercentage) ? progressPercentage : 0}%, rgb(226, 232, 240) 100%)`
+                background: `linear-gradient(to right, var(--md-sys-color-primary) 0%, var(--md-sys-color-primary) ${fillPercent}%, var(--md-sys-color-surface-container-highest) ${fillPercent}%, var(--md-sys-color-surface-container-highest) 100%)`
               }}
             />
           </div>
         </div>
 
         {/* Volume Control */}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button
-            onClick={toggleMute}
-            className={`${CSS_CLASSES.iconButton} p-2`}
-          >
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <button onClick={toggleMute} className={`${CSS_CLASSES.iconButton} p-1.5`}>
             <FontAwesomeIcon
               icon={isMuted || volume === 0 ? faVolumeMute : faVolumeUp}
-              className="text-sm"
+              className="text-xs text-on-surface-variant"
             />
           </button>
 
@@ -294,17 +292,24 @@ function AudioPlayer({ src, title, className = '', id, outputDeviceId, modelName
             max="100"
             value={isMuted ? 0 : volume * 100}
             onChange={handleVolumeChange}
-            className="w-12 h-1 bg-slate-200 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500 dark:accent-blue-400"
+            className="w-12 h-1 rounded-lg appearance-none cursor-pointer accent-primary"
+            style={{
+              background: `linear-gradient(to right, var(--md-sys-color-primary) 0%, var(--md-sys-color-primary) ${
+                isMuted ? 0 : volume * 100
+              }%, var(--md-sys-color-surface-container-highest) ${
+                isMuted ? 0 : volume * 100
+              }%, var(--md-sys-color-surface-container-highest) 100%)`
+            }}
           />
         </div>
 
         {/* Download Button */}
         <button
           onClick={handleDownload}
-          className={`${CSS_CLASSES.iconButton} hover:bg-slate-100 dark:hover:bg-gray-700 p-2 rounded flex-shrink-0`}
+          className={`${CSS_CLASSES.iconButton} p-2 rounded-full flex-shrink-0 text-on-surface-variant hover:bg-surface-variant/20`}
           title="Download Audio"
         >
-          <FontAwesomeIcon icon={faDownload} className="text-sm" />
+          <FontAwesomeIcon icon={faDownload} className="text-xs" />
         </button>
       </div>
     </div>

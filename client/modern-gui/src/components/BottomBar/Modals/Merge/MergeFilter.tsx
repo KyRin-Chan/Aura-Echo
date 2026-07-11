@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFilter } from '@fortawesome/free-solid-svg-icons';
 import { CSS_CLASSES } from '../../../../styles/constants';
 import { ModelInfoDict } from '@dannadori/voice-changer-client-js';
+import MD3Select from '../../../Helpers/MD3Select';
 
 interface MergeFilterProps {
   embedders: ModelInfoDict;
@@ -45,14 +46,24 @@ function MergeFilter({
 
   // ---------------- Render ----------------
 
+  const sampleRateOptions = sampleRates.map((rate) => ({
+    value: rate,
+    label: `${rate} Hz`
+  }));
+
+  const embedderOptions =
+    Object.keys(embedders || {}).length === 0
+      ? [{ value: '', label: 'No embedders available' }]
+      : Object.entries(embedders || {}).map(([key, embedderInfo]) => ({
+          value: key,
+          label: embedderInfo.name
+        }));
+
   return (
-    <div className="space-y-4 p-4 bg-slate-50 dark:bg-gray-800/30 rounded-lg border border-slate-200 dark:border-gray-700">
-      <div className="flex justify-between items-center mb-3">
-        <h4 className="text-md font-medium text-slate-700 dark:text-gray-200">Filter Settings</h4>
-        <FontAwesomeIcon
-          icon={faFilter}
-          className="h-4 w-4 text-slate-500 dark:text-gray-400"
-        />
+    <div className="space-y-4 p-4 bg-surface-container-low rounded-lg border border-outline-variant">
+      <div className="flex justify-between items-center pb-2 border-b border-outline-variant/30">
+        <h4 className="text-sm font-bold text-on-surface uppercase tracking-wider">Filter Settings</h4>
+        <FontAwesomeIcon icon={faFilter} className="h-4 w-4 text-primary" />
       </div>
 
       <div className="space-y-4">
@@ -68,40 +79,22 @@ function MergeFilter({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className={CSS_CLASSES.label}>Sample Rate:</label>
-            <select
-              value={sampleRate}
-              onChange={(e) => handleSampleRateChange(Number(e.target.value))}
-              className={CSS_CLASSES.select}
-            >
-              {sampleRates.map((rate) => (
-                <option key={rate} value={rate}>
-                  {rate} Hz
-                </option>
-              ))}
-            </select>
-          </div>
+          <MD3Select
+            id="sampleRateFilter"
+            label="Sample Rate"
+            value={sampleRate}
+            onChange={(e) => handleSampleRateChange(Number(e.target.value))}
+            options={sampleRateOptions}
+          />
 
-          <div>
-            <label className={CSS_CLASSES.label}>Embedder:</label>
-            <select
-              value={selectedEmbedder}
-              onChange={(e) => handleEmbedderChange(e.target.value)}
-              className={CSS_CLASSES.select}
-              disabled={Object.keys(embedders || {}).length === 0}
-            >
-              {Object.keys(embedders || {}).length === 0 ? (
-                <option value="">No embedders available</option>
-              ) : (
-                Object.entries(embedders || {}).map(([key, embedderInfo]) => (
-                  <option key={key} value={key}>
-                    {embedderInfo.name}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
+          <MD3Select
+            id="embedderFilter"
+            label="Embedder"
+            value={selectedEmbedder}
+            onChange={(e) => handleEmbedderChange(e.target.value)}
+            options={embedderOptions}
+            disabled={Object.keys(embedders || {}).length === 0}
+          />
         </div>
       </div>
     </div>

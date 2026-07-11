@@ -26,11 +26,11 @@ function App(): JSX.Element {
   // ---------------- Render ----------------
 
   return (
-    <div className="flex flex-col h-screen font-sans" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+    <div className="flex flex-col h-screen font-sans bg-surface text-on-surface">
       <div className="flex flex-grow overflow-hidden">
         <LeftSidebar />
 
-        <main className="flex-grow p-4 overflow-y-auto">
+        <main className="flex-grow p-4 overflow-y-auto bg-surface">
           <MainContent />
         </main>
       </div>

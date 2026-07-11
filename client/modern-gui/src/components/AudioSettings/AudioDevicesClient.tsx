@@ -1,8 +1,9 @@
 import React, { JSX, useEffect } from 'react';
-import { AUDIO_KEYS, CSS_CLASSES, INDEXEDDB_KEYS } from '../../styles/constants';
+import { AUDIO_KEYS, INDEXEDDB_KEYS } from '../../styles/constants';
 import { useAppState } from '../../context/AppContext';
 import { useIndexedDB } from '@dannadori/voice-changer-client-js';
 import { useUIContext } from '../../context/UIContext';
+import MD3Select from '../Helpers/MD3Select';
 
 function AudioDevicesClient(): JSX.Element {
   // ---------------- States ----------------
@@ -17,21 +18,24 @@ function AudioDevicesClient(): JSX.Element {
     const setAudioOutput = async () => {
       const mediaDeviceInfos = await navigator.mediaDevices.enumerateDevices();
 
-      [AUDIO_KEYS.AUDIO_ELEMENT_FOR_PLAY_RESULT, AUDIO_KEYS.AUDIO_ELEMENT_FOR_TEST_CONVERTED_ECHOBACK].forEach((x) => {
+      [
+        AUDIO_KEYS.AUDIO_ELEMENT_FOR_PLAY_RESULT,
+        AUDIO_KEYS.AUDIO_ELEMENT_FOR_TEST_CONVERTED_ECHOBACK
+      ].forEach((x) => {
         const audio = document.getElementById(x) as HTMLAudioElement;
         if (audio) {
           if (appState.serverSetting.serverSetting.enableServerAudio == 1) {
             audio.volume = 0;
-          } else if (uiState.audioOutputForGUI == "none") {
+          } else if (uiState.audioOutputForGUI == 'none') {
             try {
-              audio.setSinkId("");
+              audio.setSinkId('');
               audio.volume = 0;
             } catch (e) {
-              console.error("catch:" + e);
+              console.error('catch:' + e);
             }
           } else {
             const audioOutputs = mediaDeviceInfos.filter((x) => {
-              return x.kind == "audiooutput";
+              return x.kind == 'audiooutput';
             });
             const found = audioOutputs.some((x) => {
               return x.deviceId == uiState.audioOutputForGUI;
@@ -41,10 +45,10 @@ function AudioDevicesClient(): JSX.Element {
                 audio.setSinkId(uiState.audioOutputForGUI);
                 audio.volume = 1;
               } catch (e) {
-                console.error("catch:" + e);
+                console.error('catch:' + e);
               }
             } else {
-              console.warn("No audio output device. use default");
+              console.warn('No audio output device. use default');
             }
           }
         }
@@ -63,16 +67,16 @@ function AudioDevicesClient(): JSX.Element {
         if (audio) {
           if (appState.serverSetting.serverSetting.enableServerAudio == 1) {
             audio.volume = 0;
-          } else if (uiState.audioMonitorForGUI == "none") {
+          } else if (uiState.audioMonitorForGUI == 'none') {
             try {
-              audio.setSinkId("");
+              audio.setSinkId('');
               audio.volume = 0;
             } catch (e) {
-              console.error("catch:" + e);
+              console.error('catch:' + e);
             }
           } else {
             const audioOutputs = mediaDeviceInfos.filter((x) => {
-              return x.kind == "audiooutput";
+              return x.kind == 'audiooutput';
             });
             const found = audioOutputs.some((x) => {
               return x.deviceId == uiState.audioMonitorForGUI;
@@ -82,10 +86,10 @@ function AudioDevicesClient(): JSX.Element {
                 audio.setSinkId(uiState.audioMonitorForGUI);
                 audio.volume = 1;
               } catch (e) {
-                console.error("catch:" + e);
+                console.error('catch:' + e);
               }
             } else {
-              console.warn("No audio output device. use default");
+              console.warn('No audio output device. use default');
             }
           }
         }
@@ -154,97 +158,63 @@ function AudioDevicesClient(): JSX.Element {
   };
 
   // ---------------- Render ----------------
+
+  const inputOptions =
+    uiState.inputAudioDeviceInfo.length === 0
+      ? [{ value: '', label: 'No input devices found' }]
+      : uiState.inputAudioDeviceInfo.map((device) => ({
+          value: device.deviceId,
+          label: device.label
+        }));
+
+  const outputOptions =
+    uiState.outputAudioDeviceInfo.length === 0
+      ? [{ value: '', label: 'No output devices found' }]
+      : uiState.outputAudioDeviceInfo.map((device) => ({
+          value: device.deviceId,
+          label: device.label
+        }));
+
+  const monitorOptions =
+    uiState.outputAudioDeviceInfo.length === 0
+      ? [{ value: '', label: 'No output devices found' }]
+      : [
+          { value: 'none', label: 'No device selected' },
+          ...uiState.outputAudioDeviceInfo.map((device) => ({
+            value: device.deviceId,
+            label: device.label
+          }))
+        ];
+
   return (
-    <>
+    <div className="flex flex-col space-y-4 bg-surface-container-low p-3 rounded-md border border-outline-variant">
       {/* Input Device */}
-      <div>
-        <label htmlFor="inputCh" className={CSS_CLASSES.label}>
-          Input Device
-        </label>
-        <select
-          id="inputCh"
-          className={CSS_CLASSES.select}
-          value={uiState.audioInputForGUI}
-          onChange={handleInputDeviceChange}
-        >
-          {
-            uiState.inputAudioDeviceInfo.length === 0 ? (
-              <option value="">No input devices found</option>
-            ) : (
-              uiState.inputAudioDeviceInfo.map((device) => (
-                <option
-                  key={device.deviceId}
-                  value={device.deviceId}
-                >
-                  {device.label}
-                </option>
-              ))
-            )
-          }
-        </select>
-      </div>
+      <MD3Select
+        id="inputCh"
+        label="Input Device"
+        value={uiState.audioInputForGUI}
+        onChange={handleInputDeviceChange}
+        options={inputOptions}
+      />
 
       {/* Output Device */}
-      <div>
-        <label htmlFor="outputCh" className={CSS_CLASSES.label}>
-          Output Device
-        </label>
-        <select
-          id="outputCh"
-          className={CSS_CLASSES.select}
-          value={uiState.audioOutputForGUI}
-          onChange={handleOutputDeviceChange}
-        >
-          {
-            uiState.outputAudioDeviceInfo.length === 0 ? (
-              <option value="">No output devices found</option>
-            ) : (
-              uiState.outputAudioDeviceInfo.map((device) => (
-                <option
-                  key={device.deviceId}
-                  value={device.deviceId}
-                >
-                  {device.label}
-                </option>
-              ))
-            )
-          }
-        </select>
-      </div>
+      <MD3Select
+        id="outputCh"
+        label="Output Device"
+        value={uiState.audioOutputForGUI}
+        onChange={handleOutputDeviceChange}
+        options={outputOptions}
+      />
 
       {/* Monitor Device */}
-      <div>
-        <label htmlFor="monCh" className={CSS_CLASSES.label}>
-          Monitor Device
-        </label>
-        <select
-          id="monCh"
-          className={CSS_CLASSES.select}
-          value={uiState.audioMonitorForGUI}
-          onChange={handleMonitorDeviceChange}
-        >
-          {
-            uiState.outputAudioDeviceInfo.length === 0 ? (
-              <option value="">No output devices found</option>
-            ) : (
-              <>
-                <option value="none">No device selected</option>
-                {
-                  uiState.outputAudioDeviceInfo.map((device) => (
-                    <option
-                      key={device.deviceId}
-                      value={device.deviceId}
-                    >
-                      {device.label}
-                    </option>
-                  ))
-                }
-              </>
-            )
-          }
-        </select>
-      </div>
-    </>
+      <MD3Select
+        id="monCh"
+        label="Monitor Device"
+        value={uiState.audioMonitorForGUI}
+        onChange={handleMonitorDeviceChange}
+        options={monitorOptions}
+      />
+    </div>
   );
 }
 
