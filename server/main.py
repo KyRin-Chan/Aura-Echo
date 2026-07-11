@@ -63,61 +63,137 @@ def setup_arg_parser():
     )
     return parser
 
-def show_pre_boot_menu(timeout=5):
-    """Shows a 'Pre-Boot BIOS' style menu to choose HTTP or HTTPS mode."""
+def _get_lan_ip() -> str | None:
+    """Return the machine's primary LAN IPv4 address, or None if not found."""
+    import socket as _sock
+    try:
+        with _sock.socket(_sock.AF_INET, _sock.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return None
+
+
+def _read_key(timeout_remaining: float) -> str | None:
+    """Non-blocking single-character read. Returns the char or None."""
+    try:
+        if not sys.stdin.isatty():
+            return None
+        if sys.platform == 'win32':
+            import msvcrt
+            if msvcrt.kbhit():
+                return msvcrt.getch().decode('utf-8', errors='ignore')
+        else:
+            import select
+            rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
+            if rlist:
+                line = sys.stdin.readline()
+                if not line:  # EOF reached
+                    return None
+                return line.strip()[:1]
+    except Exception:
+        pass
+    return None
+
+
+def _run_countdown(prompt: str, valid: set, timeout: int) -> str | None:
+    """Show a countdown prompt and return the first valid key pressed, or None on timeout."""
     import time
-    
-    print("\n" + "=" * 60)
-    print("                 AURA-ECHO PRE-BOOT BIOS MENU                 ")
-    print("=" * 60)
-    print("  [1] Boot in standard HTTP mode (Unencrypted)")
-    print("  [2] Boot in secure HTTPS mode   (Self-signed SSL / TLS)")
-    print("-" * 60)
-    print("  Select option (1-2) or wait for auto-boot...")
-    print("=" * 60)
-
-    start_time = time.time()
+    start = time.time()
     choice = None
-
-    while time.time() - start_time < timeout:
-        remaining = int(timeout - (time.time() - start_time))
-        sys.stdout.write(f"\r  Auto-booting default (HTTP) in {remaining}s... ")
+    while time.time() - start < timeout:
+        remaining = int(timeout - (time.time() - start))
+        sys.stdout.write(f"\r  {prompt} ({remaining}s)  ")
         sys.stdout.flush()
-
-        try:
-            if sys.platform == 'win32':
-                import msvcrt
-                if msvcrt.kbhit():
-                    char = msvcrt.getch().decode('utf-8', errors='ignore')
-                    if char in ('1', '2'):
-                        choice = char
-                        print(f"\n\n  Selected option: [{choice}]")
-                        break
-            else:
-                import select
-                rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
-                if rlist:
-                    char = sys.stdin.readline().strip()
-                    if char in ('1', '2'):
-                        choice = char
-                        print(f"\n  Selected option: [{choice}]")
-                        break
-        except Exception:
-            # If console isn't interactive, default to HTTP
+        ch = _read_key(timeout - (time.time() - start))
+        if ch and ch in valid:
+            choice = ch
+            print(f"\n\n  Selected: [{choice}]")
             break
-        time.sleep(0.05)
+        import time as _t
+        _t.sleep(0.05)
+    return choice
 
-    if choice is None:
-        print("\n\n  Timeout reached. Auto-booting default (HTTP)...")
-        choice = '1'
 
+def show_pre_boot_menu(timeout: int = 8) -> tuple[str, str]:
+    """
+    Shows a two-step 'Pre-Boot BIOS' style menu.
+
+    Step 1 — Protocol:  [1] HTTP  [2] HTTPS
+    Step 2 — Bind addr: [1] 127.0.0.1  [2] <LAN IP>  [3] 0.0.0.0
+
+    Returns (protocol, host) where protocol is 'http' or 'https'
+    and host is the chosen bind address string.
+    """
+    import time
+
+    lan_ip = _get_lan_ip()
+
+    # ── Step 1: Protocol ──────────────────────────────────────────────
+    print("\n" + "=" * 60)
+    print("              AURA-ECHO  PRE-BOOT  BIOS  MENU              ")
+    print("=" * 60)
+    print("  STEP 1 of 2  —  Select network protocol")
+    print()
+    print("  [1]  HTTP   — standard, unencrypted  (localhost only)")
+    print("  [2]  HTTPS  — self-signed TLS         (required for LAN)")
+    print("-" * 60)
+    print("  Auto-boot: HTTP + localhost")
+    print("=" * 60)
+
+    ch = _run_countdown("Auto-booting HTTP", {'1', '2'}, timeout)
+    if ch is None:
+        print("\n\n  Timeout — defaulting to HTTP + localhost.")
+        print("=" * 60 + "\n")
+        return 'http', '127.0.0.1'
+
+    protocol = 'https' if ch == '2' else 'http'
+
+    # ── Step 2: Bind address ──────────────────────────────────────────
+    print()
+    print("=" * 60)
+    print("  STEP 2 of 2  —  Select bind address")
+    print()
+    print("  [1]  127.0.0.1     — localhost only   (this machine)")
+    if lan_ip:
+        print(f"  [2]  {lan_ip:<15}— LAN / local network")
+        print("  [3]  0.0.0.0        — all interfaces   (LAN + external)")
+        valid_addr = {'1', '2', '3'}
+    else:
+        print("  [2]  0.0.0.0        — all interfaces   (LAN + external)")
+        valid_addr = {'1', '2'}
+    print("-" * 60)
+    if protocol == 'https':
+        print("  NOTE: HTTPS is required for microphone access over LAN.")
+    else:
+        print("  NOTE: HTTP + non-localhost will trigger a browser warning.")
+    print("  Auto-select: 127.0.0.1")
+    print("=" * 60)
+
+    ch2 = _run_countdown("Auto-selecting localhost", valid_addr, timeout)
+
+    if ch2 is None or ch2 == '1':
+        host = '127.0.0.1'
+    elif ch2 == '2':
+        host = lan_ip if lan_ip else '0.0.0.0'
+    else:
+        host = '0.0.0.0'
+
+    # Enforce HTTPS when binding to a non-localhost address
+    if host not in ('127.0.0.1', 'localhost') and protocol == 'http':
+        print("\n  [AUTO] Non-localhost address selected — upgrading to HTTPS")
+        print("         (browsers require a secure context for microphone access)")
+        protocol = 'https'
+
+    print(f"\n  Boot configuration: {protocol.upper()} on {host}:{settings.port}")
     print("=" * 60 + "\n")
-    return 'http' if choice == '1' else 'https'
+    return protocol, host
+
 
 async def main():
     """Main entry point for the application."""
     # Show BIOS selection menu before starting the server
-    boot_mode = show_pre_boot_menu(timeout=5)
+    boot_mode, boot_host = show_pre_boot_menu(timeout=8)
 
     parser = setup_arg_parser()
     args = parser.parse_args()
@@ -127,12 +203,13 @@ async def main():
     logger = setup_logging(args.log_level)
 
     # Apply selected boot mode to settings
+    settings.host = boot_host
     if boot_mode == 'https':
         settings.ssl_enabled = True
-        logger.info("Selected Boot Mode: HTTPS (Encrypted SSL/TLS)")
+        logger.info(f"Selected Boot Mode: HTTPS (Encrypted SSL/TLS) on {boot_host}")
     else:
         settings.ssl_enabled = False
-        logger.info("Selected Boot Mode: HTTP (Unencrypted)")
+        logger.info(f"Selected Boot Mode: HTTP (Unencrypted) on {boot_host}")
     
     logger.info(f"Python: {sys.version}")
     logger.info(f"Voice changer version: {get_version()} {get_edition()}")
@@ -162,6 +239,7 @@ async def main():
         ssl_certfile=settings.ssl_certfile,
         ssl_self_signed=settings.ssl_enabled and not (settings.ssl_keyfile and settings.ssl_certfile)
     )
+
 
 
 async def shutdown(signal, loop, server=None):

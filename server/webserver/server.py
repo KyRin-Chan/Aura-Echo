@@ -39,15 +39,25 @@ class WebServer:
 
     async def _wait_for_server(self, proto: str, launch_browser: bool = False):
         """Wait for the server to start and open browser if requested."""
+        # When binding to 0.0.0.0 we probe on the loopback address
+        probe_host = '127.0.0.1' if self.host == '0.0.0.0' else self.host
         while True:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                result = sock.connect_ex((self.host, self.port))
+                result = sock.connect_ex((probe_host, self.port))
                 if result == 0:
                     break
         
         logger.info('-' * 8)
         proto = 'https' if settings.ssl_enabled else 'http'
         logger.info(f"The server is listening on {proto}://{self.host}:{self.port}/")
+        if self.host == '0.0.0.0':
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                    s.connect(("8.8.8.8", 80))
+                    lan_ip = s.getsockname()[0]
+                logger.info(f"LAN devices can access at: {proto}://{lan_ip}:{self.port}/")
+            except Exception:
+                pass
         if settings.ssl_enabled:
             if settings.ssl_keyfile and settings.ssl_certfile:
                 logger.info(f"Using SSL with certificate: {settings.ssl_certfile}")
@@ -55,7 +65,7 @@ class WebServer:
                 logger.info("Using self-signed SSL certificate")
         logger.info('-' * 8)
         if launch_browser:
-            open_new_tab(f'{proto}://{self.host}:{self.port}')
+            open_new_tab(f'{proto}://127.0.0.1:{self.port}' if self.host == '0.0.0.0' else f'{proto}://{self.host}:{self.port}')
 
     async def _create_ssl_context(self, ssl_keyfile: Optional[str] = None, 
                                ssl_certfile: Optional[str] = None,
