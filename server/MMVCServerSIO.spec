@@ -6,15 +6,10 @@ import site
 
 sys.setrecursionlimit(sys.getrecursionlimit() * 5)
 
-is_lightweight = os.environ.get('LIGHTWEIGHT_BUILD', 'false').lower() == 'true'
-
 backend = os.environ.get('BACKEND', 'cuda')
 
 with open('edition.txt', 'w') as f:
-    if is_lightweight:
-        f.write('NVIDIA-CUDA-RTX5080-Optimized-Lightweight')
-    else:
-        f.write('NVIDIA-CUDA-RTX5080-Optimized')
+    f.write('NVIDIA-CUDA-RTX5080-Optimized')
 
 datas = [('../client/modern-gui/dist', './dist'), ('./edition.txt', '.')]
 
@@ -27,35 +22,28 @@ binaries = []
 hiddenimports = ['app', 'torchgen']
 
 # Collect TensorRT dynamic libraries and data for RTX 5080 / Blackwell optimization
-if not is_lightweight:
-    datas += collect_data_files('onnxscript', include_py_files=True)
-    try:
-        trt_ret = collect_all('tensorrt')
-        datas += trt_ret[0]
-        binaries += trt_ret[1]
-        hiddenimports += trt_ret[2]
-    except Exception as e:
-        print(f"Warning: Could not collect tensorrt: {e}")
+datas += collect_data_files('onnxscript', include_py_files=True)
+try:
+    trt_ret = collect_all('tensorrt')
+    datas += trt_ret[0]
+    binaries += trt_ret[1]
+    hiddenimports += trt_ret[2]
+except Exception as e:
+    print(f"Warning: Could not collect tensorrt: {e}")
 
-    hiddenimports += collect_submodules('scipy') # Fix "ModuleNotFoundError: No module named 'scipy._lib.*'"
+hiddenimports += collect_submodules('scipy') # Fix "ModuleNotFoundError: No module named 'scipy._lib.*'"
 
-    try:
-        tmp_ret = collect_all('onnxruntime') # Fix "ModuleNotFoundError: No module named 'onnxruntime.transformers.*'"
-        datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-    except Exception as e:
-        print(f"Warning: Could not collect onnxruntime: {e}")
+try:
+    tmp_ret = collect_all('onnxruntime') # Fix "ModuleNotFoundError: No module named 'onnxruntime.transformers.*'"
+    datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+except Exception as e:
+    print(f"Warning: Could not collect onnxruntime: {e}")
 
 excludes_list = [
     'torch.utils.tensorboard',
     'tkinter', 'tcl', 'tk',
     'matplotlib', 'IPython', 'ipykernel', 'notebook', 'jinja2',
 ]
-
-if is_lightweight:
-    excludes_list += [
-        'torch', 'torchaudio', 'tensorrt', 'onnx', 'onnxscript',
-        'onnxslim', 'onnxruntime', 'faiss', 'torchcrepe', 'torchfcpe', 'scipy'
-    ]
 
 a = Analysis(
     ['client.py'],

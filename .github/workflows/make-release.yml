@@ -111,8 +111,7 @@ jobs:
       working-directory: ./server
       run: |
         ..\.venv\Scripts\python -m PyInstaller --clean -y --dist ./dist MMVCServerSIO.spec
-      env:
-        LIGHTWEIGHT_BUILD: false
+
 
     - name: Copy utils
       run: cp ./server/{force_gpu_clocks.bat,reset_gpu_clocks.bat} ./server/dist/
@@ -123,11 +122,11 @@ jobs:
       run: |
         mkdir ./server/artifacts
         ARCHIVE_NAME="voice-changer-windows-amd64-cuda-5080"
-        EXTRA_7Z_ARGS=""
+        EXTRA_7Z_ARGS="-mx=9 -ms=on"
         VOLUME_ARG="-v2000m"
         if [ "${{ matrix.build_type }}" = "patch" ]; then
           ARCHIVE_NAME="${ARCHIVE_NAME}-patch"
-          EXTRA_7Z_ARGS="-xr!torch -xr!torchaudio -xr!tensorrt -xr!onnxruntime -xr!onnx -xr!onnxscript -xr!onnxslim -xr!torchcrepe -xr!torchfcpe -xr!scipy -xr!faiss -xr!cublas*.dll -xr!cudnn*.dll -xr!cufft*.dll -xr!curand*.dll -xr!cusparse*.dll -xr!cusolver*.dll -xr!npp*.dll -xr!nvrtc*.dll -xr!libonnxruntime*.dll -xr!nvinfer*.dll -xr!tensorrt*.dll -xr!libnv*.dll"
+          EXTRA_7Z_ARGS="-mx=9 -ms=on -xr!torch -xr!torchaudio -xr!tensorrt -xr!onnxruntime -xr!onnx -xr!onnxscript -xr!onnxslim -xr!torchcrepe -xr!torchfcpe -xr!scipy -xr!faiss -xr!cublas*.dll -xr!cudnn*.dll -xr!cufft*.dll -xr!curand*.dll -xr!cusparse*.dll -xr!cusolver*.dll -xr!npp*.dll -xr!nvrtc*.dll -xr!libonnxruntime*.dll -xr!nvinfer*.dll -xr!tensorrt*.dll -xr!libnv*.dll"
           VOLUME_ARG=""
         fi
         echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
