@@ -162,7 +162,7 @@ function AudioDevicesClient(): JSX.Element {
 
   const inputOptions =
     uiState.inputAudioDeviceInfo.length === 0
-      ? [{ value: '', label: 'No input devices found' }]
+      ? [{ value: '', label: t('noInputDevices') }]
       : uiState.inputAudioDeviceInfo.map((device) => ({
           value: device.deviceId,
           label: device.label
@@ -170,7 +170,7 @@ function AudioDevicesClient(): JSX.Element {
 
   const outputOptions =
     uiState.outputAudioDeviceInfo.length === 0
-      ? [{ value: '', label: 'No output devices found' }]
+      ? [{ value: '', label: t('noOutputDevices') }]
       : uiState.outputAudioDeviceInfo.map((device) => ({
           value: device.deviceId,
           label: device.label
@@ -178,9 +178,9 @@ function AudioDevicesClient(): JSX.Element {
 
   const monitorOptions =
     uiState.outputAudioDeviceInfo.length === 0
-      ? [{ value: '', label: 'No output devices found' }]
+      ? [{ value: '', label: t('noOutputDevices') }]
       : [
-          { value: 'none', label: 'No device selected' },
+          { value: 'none', label: t('noDeviceSelected') },
           ...uiState.outputAudioDeviceInfo.map((device) => ({
             value: device.deviceId,
             label: device.label

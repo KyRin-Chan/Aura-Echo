@@ -1,7 +1,7 @@
 from const import UPLOAD_DIR
 from data.ModelSlot import ModelSlots, loadAllSlotInfo, saveSlotInfo
 from voice_changer.utils.ZipUtils import FileUtils
-from typing import Optional
+from typing import Optional, Union
 import json
 import os
 import shutil
@@ -68,8 +68,11 @@ class ModelSlotManager:
             
         return result['model_file'], result['index_file']
 
-    def store_model_assets(self, params: str):
-        params_dict = json.loads(params)
+    def store_model_assets(self, params: Union[str, dict]):
+        if isinstance(params, str):
+            params_dict = json.loads(params)
+        else:
+            params_dict = params
         upload_path = os.path.join(UPLOAD_DIR, params_dict["file"])
         slot_index = params_dict["slot"]
         store_dir = os.path.join(self.model_dir, str(slot_index))
@@ -109,8 +112,10 @@ class ModelSlotManager:
             # Move the uploaded file to the model directory
             shutil.move(upload_path, dest_path)
             
-            # Update slot info based on file type
-            if file_extension == '.onnx':
+            # Update slot info based on file type / asset name
+            if params_dict.get("name") == "iconFile":
+                slot_info.iconFile = params_dict["file"]
+            elif file_extension == '.onnx':
                 slot_info.modelFileOnnx = params_dict["file"]
                 slot_info.isONNX = True
             elif file_extension == '.index':

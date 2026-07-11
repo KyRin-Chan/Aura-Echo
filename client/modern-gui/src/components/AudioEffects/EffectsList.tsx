@@ -17,6 +17,7 @@ import { AudioEffect, AudioChannel } from '@dannadori/voice-changer-client-js';
 import { getEffectDefinition } from './serverEffectsUtils';
 import AddEffectModal from './AddEffectModal';
 import { CSS_CLASSES } from '../../styles/constants';
+import { t } from '../../locales';
 
 export type AudioEffectWithIndex = AudioEffect & { index: number };
 
@@ -78,7 +79,7 @@ function SortableEffectItem({
             {...attributes}
             {...listeners}
             className={`${CSS_CLASSES.iconButton} cursor-grab active:cursor-grabbing`}
-            title="Drag to reorder"
+            title={t('dragToReorder')}
             onClick={(e) => e.stopPropagation()}
           >
             <FontAwesomeIcon icon={faGripVertical} className="h-4 w-4" />
@@ -91,7 +92,7 @@ function SortableEffectItem({
             className={`${CSS_CLASSES.iconButton} ${
               effect.enabled ? 'text-primary' : 'text-on-surface-variant/40'
             }`}
-            title={effect.enabled ? 'Disable' : 'Enable'}
+            title={effect.enabled ? t('disableTooltip') : t('enableTooltip')}
           >
             <FontAwesomeIcon icon={faVolumeUp} className={`h-4 w-4 ${effect.enabled ? '' : 'opacity-40'}`} />
           </button>
@@ -115,7 +116,7 @@ function SortableEffectItem({
             onDelete();
           }}
           className={`${CSS_CLASSES.iconButton} text-error hover:text-error/80`}
-          title="Delete"
+          title={t('deleteTooltip')}
         >
           <FontAwesomeIcon icon={faTrash} className="h-4 w-4" />
         </button>
@@ -165,15 +166,15 @@ export default function EffectsList({
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-outline-variant">
         <div>
           <h5 className="font-semibold text-on-surface text-base">
-            {channel === 'input' ? 'Input' : 'Output'} Chain
+            {channel === 'input' ? t('inputChain') : t('outputChain')}
           </h5>
-          <div className="text-xs text-on-surface-variant mt-1">Signal flows from top to bottom</div>
+          <div className="text-xs text-on-surface-variant mt-1">{t('signalFlowDesc')}</div>
         </div>
         <div className="relative">
           <button
             onClick={() => setShowAddModal(true)}
             className={`${CSS_CLASSES.iconButton} text-primary`}
-            title="Add Effect"
+            title={t('addEffect')}
           >
             <FontAwesomeIcon icon={faPlus} className="h-4 w-4" />
           </button>
@@ -182,9 +183,9 @@ export default function EffectsList({
 
       {channelEffects.length === 0 ? (
         <div className="text-center py-12 text-on-surface-variant/60 text-sm italic">
-          No {channel} effects added yet.
+          {channel === 'input' ? t('noInputEffects') : t('noOutputEffects')}
           <br />
-          Click the + button to add an effect.
+          {t('clickPlusToAddEffect')}
         </div>
       ) : (
         <div className="space-y-1 overflow-y-auto pr-1">
@@ -195,7 +196,7 @@ export default function EffectsList({
                 className={`h-3.5 w-3.5 ${channel === 'input' ? 'text-primary' : 'text-secondary'}`}
               />
               <span className="text-xs text-on-surface-variant font-semibold">
-                {channel === 'input' ? 'Audio Input' : 'From Processing'}
+                {channel === 'input' ? t('audioInputTitle') : t('fromProcessing')}
               </span>
             </div>
           </div>
@@ -239,7 +240,7 @@ export default function EffectsList({
                 className={`h-3.5 w-3.5 ${channel === 'input' ? 'text-primary' : 'text-secondary'}`}
               />
               <span className="text-xs text-on-surface-variant font-semibold">
-                {channel === 'input' ? 'To Processing' : 'Audio Output'}
+                {channel === 'input' ? t('toProcessing') : t('audioOutputTitle')}
               </span>
             </div>
           </div>

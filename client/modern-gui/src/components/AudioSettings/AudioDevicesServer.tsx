@@ -167,7 +167,7 @@ function AudioDevicesServer() {
 
   const audioDriverOptions =
     availableAudioDrivers.length === 0
-      ? [{ value: '', label: 'No drivers available' }]
+      ? [{ value: '', label: t('noDriversAvailable') }]
       : availableAudioDrivers.map((driver) => ({
           value: driver,
           label: driver
@@ -175,12 +175,12 @@ function AudioDevicesServer() {
 
   const inputOptions =
     serverInputDevices.length === 0
-      ? [{ value: -1, label: 'No input devices found' }]
+      ? [{ value: -1, label: t('noInputDevices') }]
       : [
           ...(!serverInputDevices.find(
             (device) => device.index === appState.serverSetting.serverSetting.serverInputDeviceId
           )
-            ? [{ value: -1, label: 'No device selected' }]
+            ? [{ value: -1, label: t('noDeviceSelected') }]
             : []),
           ...serverInputDevices.map((device) => ({
             value: device.index,
@@ -193,7 +193,7 @@ function AudioDevicesServer() {
   );
   const inputChannelCount = selectedInputDeviceObj?.maxInputChannels || 0;
   const inputChannelOptions = [
-    { value: -1, label: 'Default' },
+    { value: -1, label: t('defaultOption') },
     ...Array.from({ length: inputChannelCount }, (_, index) => ({
       value: index,
       label: String(index)
@@ -202,12 +202,12 @@ function AudioDevicesServer() {
 
   const outputOptions =
     serverOutputDevices.length === 0
-      ? [{ value: -1, label: 'No output devices found' }]
+      ? [{ value: -1, label: t('noOutputDevices') }]
       : [
           ...(!serverOutputDevices.find(
             (device) => device.index === appState.serverSetting.serverSetting.serverOutputDeviceId
           )
-            ? [{ value: -1, label: 'No device selected' }]
+            ? [{ value: -1, label: t('noDeviceSelected') }]
             : []),
           ...serverOutputDevices.map((device) => ({
             value: device.index,
@@ -220,7 +220,7 @@ function AudioDevicesServer() {
   );
   const outputChannelCount = selectedOutputDeviceObj?.maxOutputChannels || 0;
   const outputChannelOptions = [
-    { value: -1, label: 'Default' },
+    { value: -1, label: t('defaultOption') },
     ...Array.from({ length: outputChannelCount }, (_, index) => ({
       value: index,
       label: String(index)
@@ -229,7 +229,7 @@ function AudioDevicesServer() {
 
   const monitorDriverOptions =
     availableAudioDrivers.length === 0
-      ? [{ value: '', label: 'No drivers available' }]
+      ? [{ value: '', label: t('noDriversAvailable') }]
       : availableAudioDrivers.map((driver) => ({
           value: driver,
           label: driver
@@ -237,9 +237,9 @@ function AudioDevicesServer() {
 
   const monitorOptions =
     serverMonitorDevices.length === 0
-      ? [{ value: -1, label: 'No devices for driver' }]
+      ? [{ value: -1, label: t('noDevicesForDriver') }]
       : [
-          { value: -1, label: 'No device selected' },
+          { value: -1, label: t('noDeviceSelected') },
           ...serverMonitorDevices.map((device) => ({
             value: device.index,
             label: `[${device.hostAPI}] ${device.name}`
@@ -250,7 +250,7 @@ function AudioDevicesServer() {
     <div className="flex flex-col space-y-4 bg-surface-container-low p-3 rounded-md border border-outline-variant">
       <MD3Select
         id="sampleRate"
-        label="Sample Rate"
+        label={t('sampleRateLabel')}
         value={appState.serverSetting?.serverSetting?.serverAudioSampleRate}
         onChange={handleSampleRateChange}
         options={sampleRateOptions}
@@ -258,7 +258,7 @@ function AudioDevicesServer() {
 
       <MD3Select
         id="audioDriver"
-        label="Audio Driver"
+        label={t('audioDriverLabel')}
         value={selectedAudioDriver}
         onChange={handleAudioDriverChange}
         options={audioDriverOptions}
@@ -316,7 +316,7 @@ function AudioDevicesServer() {
         <div className="w-[30%]">
           <MD3Select
             id="monitorAudioDriver"
-            label="Monitor Driver"
+            label={t('monitorDriverLabel')}
             value={selectedMonitorAudioDriver}
             onChange={handleMonitorAudioDriverChange}
             options={monitorDriverOptions}

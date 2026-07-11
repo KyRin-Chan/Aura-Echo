@@ -4,6 +4,7 @@ import { faFilter } from '@fortawesome/free-solid-svg-icons';
 import { CSS_CLASSES } from '../../../../styles/constants';
 import { ModelInfoDict } from '@dannadori/voice-changer-client-js';
 import MD3Select from '../../../Helpers/MD3Select';
+import { t } from '../../../../locales';
 
 interface MergeFilterProps {
   embedders: ModelInfoDict;
@@ -53,7 +54,7 @@ function MergeFilter({
 
   const embedderOptions =
     Object.keys(embedders || {}).length === 0
-      ? [{ value: '', label: 'No embedders available' }]
+      ? [{ value: '', label: t('noEmbeddersAvailable') }]
       : Object.entries(embedders || {}).map(([key, embedderInfo]) => ({
           value: key,
           label: embedderInfo.name
@@ -62,18 +63,18 @@ function MergeFilter({
   return (
     <div className="space-y-4 p-4 bg-surface-container-low rounded-lg border border-outline-variant">
       <div className="flex justify-between items-center pb-2 border-b border-outline-variant/30">
-        <h4 className="text-sm font-bold text-on-surface uppercase tracking-wider">Filter Settings</h4>
+        <h4 className="text-sm font-bold text-on-surface uppercase tracking-wider">{t('filterSettingsLabel')}</h4>
         <FontAwesomeIcon icon={faFilter} className="h-4 w-4 text-primary" />
       </div>
 
       <div className="space-y-4">
         <div>
-          <label className={CSS_CLASSES.label}>Search Models:</label>
+          <label className={CSS_CLASSES.label}>{t('searchModelsLabel')}</label>
           <input
             type="text"
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            placeholder="Search by model name..."
+            placeholder={t('searchByModelNamePlaceholder')}
             className={CSS_CLASSES.input}
           />
         </div>
@@ -81,7 +82,7 @@ function MergeFilter({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <MD3Select
             id="sampleRateFilter"
-            label="Sample Rate"
+            label={t('sampleRateLabel')}
             value={sampleRate}
             onChange={(e) => handleSampleRateChange(Number(e.target.value))}
             options={sampleRateOptions}
@@ -89,7 +90,7 @@ function MergeFilter({
 
           <MD3Select
             id="embedderFilter"
-            label="Embedder"
+            label={t('embedderLabel')}
             value={selectedEmbedder}
             onChange={(e) => handleEmbedderChange(e.target.value)}
             options={embedderOptions}

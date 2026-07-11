@@ -257,15 +257,15 @@ function BottomBar(): JSX.Element {
             <button
               onClick={() => setShowColorPicker(!showColorPicker)}
               className={CSS_CLASSES.iconButton}
-              title="Change Seed Color"
-              aria-label="Change Seed Color"
+              title={t('changeSeedColorTooltip')}
+              aria-label={t('changeSeedColorTooltip')}
             >
               <FontAwesomeIcon icon={faPalette} className="h-5 w-5" style={{ color: seedColor }} />
             </button>
 
             {showColorPicker && (
               <div className="absolute right-0 bottom-14 z-50 p-3 bg-surface-container-highest border border-outline-variant rounded-md shadow-elevation-3 flex flex-col space-y-2 min-w-[150px]">
-                <span className="text-xs font-semibold text-on-surface-variant mb-1">Theme Colors</span>
+                <span className="text-xs font-semibold text-on-surface-variant mb-1">{t('themeColorsLabel')}</span>
                 <div className="flex flex-col space-y-1.5">
                   {PRESET_SEED_COLORS.map((c) => (
                     <button
@@ -291,7 +291,7 @@ function BottomBar(): JSX.Element {
           <button
             onClick={toggleTheme}
             className={CSS_CLASSES.iconButton}
-            aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            aria-label={theme === 'light' ? t('switchToDarkMode') : t('switchToLightMode')}
           >
             <FontAwesomeIcon icon={theme === 'light' ? faMoon : faSun} className="h-5 w-5" />
           </button>

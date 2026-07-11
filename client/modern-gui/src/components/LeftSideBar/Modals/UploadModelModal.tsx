@@ -260,7 +260,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
   const downloadedEmbedders = Object.entries(embedders).filter(([_, embedder]) => embedder.downloaded === true);
   const embedderOptions =
     downloadedEmbedders.length === 0
-      ? [{ value: '', label: 'No downloaded embedders available' }]
+      ? [{ value: '', label: t('noDownloadedEmbedders') }]
       : downloadedEmbedders.map(([key, embedder]) => ({
           value: key,
           label: embedder.name
@@ -270,13 +270,13 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
     <GenericModal
       isOpen={showUpload}
       onClose={handleUploadCloseModal}
-      title="Upload Model"
+      title={t('uploadModelTitle')}
       closeOnOutsideClick={false}
       primaryButton={{
         text: `${
           appState.serverSetting.isUploading
-            ? `Uploading... (${appState.serverSetting.uploadProgress.toFixed(1)}%)`
-            : 'Upload'
+            ? `${t('uploadingLabel')} (${appState.serverSetting.uploadProgress.toFixed(1)}%)`
+            : t('uploadLabel')
         }`,
         onClick: handleUploadModal,
         className:
@@ -284,7 +284,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
         disabled: appState.serverSetting.isUploading
       }}
       secondaryButton={{
-        text: 'Cancel',
+        text: t('cancelLabel'),
         onClick: handleUploadCloseModal,
         className:
           'border border-outline text-primary hover:bg-primary/8 rounded-full px-6 py-2.5 font-semibold text-xs active:scale-97 transition-all',
@@ -295,7 +295,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
         {/* Main model file input */}
         <div>
           <label htmlFor="modelFile" className={CSS_CLASSES.label}>
-            Model File (.pth, .safetensors, .onnx, .zip):
+            {t('modelFileLabel')}
           </label>
           <input
             type="file"
@@ -313,7 +313,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
             {/* Model name input */}
             <div className="space-y-1">
               <label htmlFor="modelName" className={CSS_CLASSES.label}>
-                Model Name:
+                {t('modelNameLabel')}
               </label>
               <input
                 type="text"
@@ -321,7 +321,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
                 value={uploadSettings.modelName}
                 onChange={(e) => setUploadSettings({ ...uploadSettings, modelName: e.target.value })}
                 className={CSS_CLASSES.input}
-                placeholder="Enter model name"
+                placeholder={t('enterModelNamePlaceholder')}
                 disabled={appState.serverSetting.isUploading}
               />
             </div>
@@ -330,7 +330,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
             <div>
               <MD3Select
                 id="embedderType"
-                label="Embedder Type"
+                label={t('embedderTypeLabel')}
                 value={uploadSettings.embedder}
                 onChange={(e) => setUploadSettings({ ...uploadSettings, embedder: e.target.value })}
                 options={embedderOptions}
@@ -343,7 +343,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
         {/* Optional index file */}
         <div>
           <label htmlFor="indexFile" className={CSS_CLASSES.label}>
-            Index File (.index) (Optional):
+            {t('indexFileLabel')}
           </label>
           <input
             type="file"
@@ -358,7 +358,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
         {/* Optional thumbnail image */}
         <div>
           <label htmlFor="thumbnailFile" className={CSS_CLASSES.label}>
-            Thumbnail Image (Optional):
+            {t('thumbnailImageLabel')}
           </label>
           <input
             type="file"
@@ -379,7 +379,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
               className="flex items-center justify-between w-full text-xs font-semibold text-on-surface hover:text-primary transition-colors disabled:opacity-50"
               disabled={appState.serverSetting.isUploading}
             >
-              <span>Preview Thumbnail</span>
+              <span>{t('previewThumbnailLabel')}</span>
               <svg
                 className={`ml-2 h-4 w-4 transition-transform duration-200 ${
                   isThumbnailExpanded ? 'rotate-180' : ''
@@ -396,7 +396,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
               <div className="space-y-4 p-4 bg-surface-container-low rounded-lg border border-outline-variant animate-fadeIn">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">
-                    Preview Shape:
+                    {t('previewShapeLabel')}
                   </span>
                   <div className="flex space-x-2">
                     <button
@@ -412,7 +412,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
                       }`}
                       disabled={appState.serverSetting.isUploading}
                     >
-                      Circular
+                      {t('circularLabel')}
                     </button>
                     <button
                       type="button"
@@ -427,7 +427,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
                       }`}
                       disabled={appState.serverSetting.isUploading}
                     >
-                      Rounded
+                      {t('roundedLabel')}
                     </button>
                   </div>
                 </div>
@@ -460,7 +460,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
             id="auto-select"
             checked={autoSelectModel}
             onChange={setAutoSelectModel}
-            label="Select model after upload"
+            label={t('selectModelAfterUploadLabel')}
           />
         </div>
       </div>

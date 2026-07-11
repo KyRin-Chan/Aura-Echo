@@ -3,6 +3,7 @@ import { RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCog } from '@fortawesome/free-solid-svg-icons';
 import MD3Switch from '../../../Helpers/MD3Switch';
+import { t } from '../../../../locales';
 
 interface MergeConfigurationProps {
   downloadModel: boolean;
@@ -51,7 +52,7 @@ function MergeConfiguration({
   return (
     <div className="space-y-4 p-4 bg-surface-container-low rounded-lg border border-outline-variant">
       <div className="flex justify-between items-center pb-2 border-b border-outline-variant/30">
-        <h4 className="text-sm font-bold text-on-surface uppercase tracking-wider">Merge Options</h4>
+        <h4 className="text-sm font-bold text-on-surface uppercase tracking-wider">{t('mergeOptionsLabel')}</h4>
         <FontAwesomeIcon icon={faCog} className="h-4 w-4 text-primary" />
       </div>
 
@@ -60,14 +61,14 @@ function MergeConfiguration({
           id="download-model"
           checked={downloadModel}
           onChange={handleDownloadModelChange}
-          label="Download merged model"
+          label={t('downloadMergedModelLabel')}
         />
 
         <MD3Switch
           id="save-merge-slot"
           checked={saveToMergeSlot}
           onChange={handleMergeSlotChange}
-          label="Save to merge slot"
+          label={t('saveToMergeSlotLabel')}
         />
 
         <div className="space-y-1.5">
@@ -76,12 +77,12 @@ function MergeConfiguration({
             checked={saveToEmptySlot}
             onChange={handleEmptySlotChange}
             disabled={emptySlots.length === 0}
-            label="Save to empty slot (auto-select first)"
+            label={t('saveToEmptySlotLabel')}
           />
 
           {emptySlots.length === 0 && (
             <div className="ml-12 text-xs text-on-surface-variant italic">
-              No empty slots available
+              {t('noEmptySlotsAvailableLabel')}
             </div>
           )}
         </div>

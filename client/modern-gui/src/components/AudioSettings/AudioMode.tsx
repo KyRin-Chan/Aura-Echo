@@ -60,12 +60,12 @@ function AudioMode({ audioState, setAudioState }: AudioModeProps): JSX.Element {
     // Update warning message
     const messages = [];
     if (!isClientAudioAvailable) {
-      messages.push("Client audio not available");
+      messages.push(t('clientAudioNotAvailable'));
     }
     if (!isServerAudioAvailable) {
-      messages.push("Server audio not available");
+      messages.push(t('serverAudioNotAvailable'));
     }
-    setWarningMessage(messages.length > 0 ? messages.join(" and ") + "." : null);
+    setWarningMessage(messages.length > 0 ? messages.join(' ') : null);
   }, [isClientAudioAvailable, isServerAudioAvailable, appState.serverSetting, setAudioState, audioState]);
 
   // ---------------- Handlers ----------------

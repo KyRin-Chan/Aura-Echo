@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPen } from "@fortawesome/free-solid-svg-icons";
 import { useState } from "react";
 import EditModelModal from "../LeftSideBar/Modals/EditModelModal";
+import { t } from '../../locales';
 
 interface ModelInfoProps {
   model: RVCModelSlot;
@@ -47,20 +48,20 @@ function ModelInfo({ model, icon }: ModelInfoProps) {
                     onClick={() => setShowEdit(true)}
                     className="p-1 rounded-full focus:outline-none focus:ring-2 transition-opacity hover:opacity-80"
                     style={{ color: 'var(--macaron-blue)' }}
-                    title="Edit Model"
+                    title={t('editModelTooltip')}
                   >
                     <FontAwesomeIcon icon={faPen} className="h-4 w-4" />
                   </button>
                 </div>
                 <div className="space-y-1">
                   <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    <span className="font-semibold">Embedder:</span> {model.embedder === 'hubert_base' ? 'ContentVec / Hubert' : (model.embedder === 'spin_base' ? 'SPIN' : (model.embedder === 'spin_v2' ? 'SPIN V2' : (model.embedder || 'N/A')))}
+                    <span className="font-semibold">{t('embedderLabel')}</span> {model.embedder === 'hubert_base' ? 'ContentVec / Hubert' : (model.embedder === 'spin_base' ? 'SPIN' : (model.embedder === 'spin_v2' ? 'SPIN V2' : (model.embedder || 'N/A')))}
                   </div>
                   <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    <span className="font-semibold">Model Type:</span> {modelTypeDisplay || 'N/A'}
+                    <span className="font-semibold">{t('modelTypeLabel')}</span> {modelTypeDisplay || 'N/A'}
                   </div>
                   <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    <span className="font-semibold">Sample Rate:</span> {model.samplingRate ? `${model.samplingRate / 1000} kHz` : 'N/A'}
+                    <span className="font-semibold">{t('sampleRateLabel')}</span> {model.samplingRate ? `${model.samplingRate / 1000} kHz` : 'N/A'}
                   </div>
                 </div>
               </div>
@@ -72,7 +73,7 @@ function ModelInfo({ model, icon }: ModelInfoProps) {
           className="flex items-center justify-center mb-6 p-8 rounded-xl min-h-[160px]"
           style={{ backgroundColor: 'var(--bg-tertiary)' }}
         >
-          <p className="italic text-center" style={{ color: 'var(--text-tertiary)' }}>Select a model from the list <br /> to see its settings.</p>
+          <p className="italic text-center" style={{ color: 'var(--text-tertiary)' }}>{t('selectModelToSeeSettings')}</p>
         </div>
       )}
     </>

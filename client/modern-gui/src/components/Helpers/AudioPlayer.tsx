@@ -2,6 +2,7 @@ import { JSX, useState, useRef, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlay, faPause, faVolumeUp, faVolumeMute, faDownload } from '@fortawesome/free-solid-svg-icons';
 import { CSS_CLASSES } from '../../styles/constants';
+import { t } from '../../locales';
 
 interface AudioPlayerProps {
   src: string;
@@ -307,7 +308,7 @@ function AudioPlayer({
         <button
           onClick={handleDownload}
           className={`${CSS_CLASSES.iconButton} p-2 rounded-full flex-shrink-0 text-on-surface-variant hover:bg-surface-variant/20`}
-          title="Download Audio"
+          title={t('downloadAudioTooltip')}
         >
           <FontAwesomeIcon icon={faDownload} className="text-xs" />
         </button>

@@ -21,7 +21,7 @@ function GPUConfig({ appState, uiState }: GPUConfigProps) {
   // Handle GPU Change
   const handleChangeGpu = async (gpuId: number) => {
     const gpuName = appState.serverSetting?.serverSetting?.gpus?.find((gpu) => gpu.id === gpuId)?.name;
-    uiState.startLoading(`Changing to Processing Unit: ${gpuName}`);
+    uiState.startLoading(`${t('changingToGpu')}${gpuName}`);
     await appState.serverSetting.updateServerSettings({
       ...appState.serverSetting?.serverSetting,
       gpu: gpuId
@@ -37,7 +37,7 @@ function GPUConfig({ appState, uiState }: GPUConfigProps) {
         value: gpu.id,
         label: `${gpu.name} ${gpu.memory ? `(${(gpu.memory / 1024 / 1024 / 1024).toFixed(0)} GB)` : ""}`
       }))
-    : [{ value: -1, label: "No GPUs available" }];
+    : [{ value: -1, label: t('noGpusAvailable') }];
 
   return (
     <div className="bg-surface-container-low p-3 rounded-md border border-outline-variant">

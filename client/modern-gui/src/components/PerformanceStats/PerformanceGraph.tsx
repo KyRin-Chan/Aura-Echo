@@ -3,6 +3,7 @@ import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, Cartesian
 import CustomTooltip from './PerformanceGraphTooltip';
 import { ChartDataPoint } from './PerformanceStatsCard';
 import { useThemeContext } from '../../context/ThemeContext';
+import { t } from '../../locales';
 
 interface PerformanceGraphProps {
   chartData: ChartDataPoint[];
@@ -67,7 +68,7 @@ function PerformanceGraph({ chartData }: PerformanceGraphProps) {
             strokeWidth={2}
             fill="url(#colorPerf)"
             activeDot={{ r: 5, strokeWidth: 0, fill: strokeColor }}
-            name="Main Process Time"
+            name={t('mainProcessTimeLabel')}
             isAnimationActive={false}
           />
 
@@ -79,7 +80,7 @@ function PerformanceGraph({ chartData }: PerformanceGraphProps) {
             strokeWidth={1.5}
             strokeDasharray="4 4"
             dot={false}
-            name="Chunk Size Limit"
+            name={t('chunkSizeLimitLabel')}
             activeDot={false}
             isAnimationActive={false}
           />

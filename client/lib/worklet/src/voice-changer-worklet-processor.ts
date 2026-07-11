@@ -39,19 +39,19 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
      */
     constructor() {
         super();
-        console.log("[AudioWorkletProcessor] created.");
+        // console.log("[AudioWorkletProcessor] created.");
         this.initialized = true;
         this.port.onmessage = this.handleMessage.bind(this);
     }
 
     trancateBuffer = (start: number, end?: number) => {
-        console.log(`[worklet] Play buffer size ${this.playBuffer.length}. Truncating with offset ${start}`);
+        // console.log(`[worklet] Play buffer size ${this.playBuffer.length}. Truncating with offset ${start}`);
         this.playBuffer = this.playBuffer.slice(start, end)
     };
     handleMessage(event: any) {
         const request = event.data as VoiceChangerWorkletProcessorRequest;
         if (request.requestType === "config") {
-            console.log("[worklet] worklet configured", request);
+            // console.log("[worklet] worklet configured", request);
             return;
         } else if (request.requestType === "start") {
             if (this.isRecording) {
@@ -86,7 +86,7 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
         // to prevent packet arrival jitter from constantly dropping samples and causing robotic metallic sound.
         const maxBufferBlocks = chunkSize + 8;
         if (this.playBuffer.length > maxBufferBlocks) {
-            console.log(`[worklet] Truncate ${this.playBuffer.length} > ${maxBufferBlocks}`);
+            // console.log(`[worklet] Truncate ${this.playBuffer.length} > ${maxBufferBlocks}`);
             this.trancateBuffer(this.playBuffer.length - (chunkSize + 2)); // keep a small safety cushion
         }
 
@@ -106,7 +106,7 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
 
     process(_inputs: Float32Array[][], outputs: Float32Array[][], _parameters: Record<string, Float32Array>) {
         if (!this.initialized) {
-            console.warn("[worklet] worklet_process not ready");
+            // console.warn("[worklet] worklet_process not ready");
             return true;
         }
 

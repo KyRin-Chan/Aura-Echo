@@ -6,6 +6,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExternalLinkAlt } from '@fortawesome/free-solid-svg-icons';
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { useAppRoot } from '../../../context/AppRootProvider';
+import { t } from '../../../locales';
 
 interface ServerInfoModalProps {
   showServerInfo: boolean;
@@ -31,9 +32,9 @@ function ServerInfoModal({ showServerInfo, setShowServerInfo }: ServerInfoModalP
     <GenericModal
       isOpen={showServerInfo}
       onClose={handleClose}
-      title="Server Info"
+      title={t('serverInfoTitle')}
       secondaryButton={{
-        text: 'Close',
+        text: t('closeLabel'),
         onClick: handleClose,
         className: CSS_CLASSES.modalSecondaryButton,
       }}
@@ -43,7 +44,7 @@ function ServerInfoModal({ showServerInfo, setShowServerInfo }: ServerInfoModalP
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="flex items-center mb-2">
-                <h4 className="text-base font-semibold text-green-900 dark:text-green-100 mr-2">Server</h4>
+                <h4 className="text-base font-semibold text-green-900 dark:text-green-100 mr-2">{t('serverLabel')}</h4>
                 <span className="px-2 py-1 text-xs font-medium bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 rounded-full">
                   tg-develop
                 </span>
@@ -51,13 +52,13 @@ function ServerInfoModal({ showServerInfo, setShowServerInfo }: ServerInfoModalP
 
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="bg-white/50 dark:bg-black/20 rounded-md p-2">
-                  <div className="text-xs font-medium text-green-700 dark:text-green-300 mb-1">Edition</div>
+                  <div className="text-xs font-medium text-green-700 dark:text-green-300 mb-1">{t('editionLabel')}</div>
                   <div className="text-green-900 dark:text-green-100 font-mono">
                     {appGuiSettingState.serverInfo.edition || 'N/A'}
                   </div>
                 </div>
                 <div className="bg-white/50 dark:bg-black/20 rounded-md p-2">
-                  <div className="text-xs font-medium text-green-700 dark:text-green-300 mb-1">Version</div>
+                  <div className="text-xs font-medium text-green-700 dark:text-green-300 mb-1">{t('versionLabel')}</div>
                   <div className="text-green-900 dark:text-green-100 font-mono">
                     {appGuiSettingState.serverInfo.version || 'N/A'}
                   </div>

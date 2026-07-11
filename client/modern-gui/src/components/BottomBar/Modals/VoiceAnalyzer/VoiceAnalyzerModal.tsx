@@ -105,7 +105,7 @@ function VoiceAnalyzerModal({
       if (data.success) {
         setResult(data);
       } else {
-        throw new Error('Voice analysis returned unsuccessful status.');
+        throw new Error(t('voiceAnalysisUnsuccessful'));
       }
     } catch (error) {
       console.error('Voice analysis error:', error);

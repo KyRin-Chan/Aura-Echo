@@ -123,7 +123,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
 
   const deviceOptions = outputAudioDeviceInfo.map((device) => ({
     value: device.deviceId,
-    label: device.label || `Output Device ${device.deviceId.slice(0, 8)}`
+    label: device.label || `${t('outputDeviceNamePrefix')}${device.deviceId.slice(0, 8)}`
   }));
 
   return (
@@ -136,7 +136,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
           className={CSS_CLASSES.iconButton}
-          title={isCollapsed ? 'Expand' : 'Collapse'}
+          title={isCollapsed ? t('expandLabel') : t('collapseLabel')}
         >
           <FontAwesomeIcon icon={isCollapsed ? faChevronDown : faChevronUp} className="h-4 w-4" />
         </button>
@@ -158,14 +158,14 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
               }`}
             >
               <FontAwesomeIcon icon={isRecording ? faStop : faPlay} className="mr-1.5 text-xs" />
-              {isRecording ? 'Stop Recording' : 'Start Recording'}
+              {isRecording ? t('stopRecordingLabel') : t('startRecordingLabel')}
             </button>
 
             {isRecording && (
               <div className="flex items-center text-error">
                 <div className="w-2.5 h-2.5 bg-error rounded-full animate-ping mr-2"></div>
                 <span className="text-xs font-semibold">
-                  Recording... {formatDuration(recordingDuration)}
+                  {t('recordingStatusLabel')} {formatDuration(recordingDuration)}
                 </span>
               </div>
             )}
@@ -186,7 +186,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
             {/* Input Audio */}
             <div>
-              <label className={CSS_CLASSES.label}>Input Audio:</label>
+              <label className={CSS_CLASSES.label}>{t('inputAudioLabel')}</label>
               <AudioPlayer
                 src="/tmp/in.wav"
                 title="Input Audio"
@@ -205,7 +205,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
 
             {/* Output Audio */}
             <div>
-              <label className={CSS_CLASSES.label}>Output Audio:</label>
+              <label className={CSS_CLASSES.label}>{t('outputAudioLabel')}</label>
               <AudioPlayer
                 src="/tmp/out.wav"
                 title="Output Audio"

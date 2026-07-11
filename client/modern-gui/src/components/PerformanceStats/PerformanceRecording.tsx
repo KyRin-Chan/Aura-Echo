@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlayCircle, faStopCircle } from "@fortawesome/free-solid-svg-icons";
+import { t } from '../../locales';
 
 interface PerformanceRecordingProps {
   isRecording: boolean;
@@ -59,10 +60,10 @@ function PerformanceRecording({
       className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center space-x-1.5 transition-all duration-150 active:scale-97 hover:shadow-elevation-1 ${
         isRecording ? 'bg-error text-on-error' : 'bg-primary text-on-primary'
       }`}
-      title={isRecording ? "Stop Recording & Download CSV" : "Start Recording Performance Log"}
+      title={isRecording ? t('stopPerfRecordingTooltip') : t('startPerfRecordingTooltip')}
     >
       <FontAwesomeIcon icon={isRecording ? faStopCircle : faPlayCircle} className="h-3 w-3" />
-      <span>{isRecording ? 'Stop' : 'Record'}</span>
+      <span>{isRecording ? t('btnStop') : t('btnRecord')}</span>
     </button>
   );
 }

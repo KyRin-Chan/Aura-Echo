@@ -4,6 +4,7 @@ import MD3Slider from '../Helpers/MD3Slider';
 import MD3Select from '../Helpers/MD3Select';
 import AudioPlayer from '../Helpers/AudioPlayer';
 import { BackgroundTrack } from '@dannadori/voice-changer-client-js';
+import { t } from '../../locales';
 
 type BackgroundConfigProps = {
   track: BackgroundTrack | null;
@@ -30,18 +31,18 @@ function BackgroundConfig({ track, onChange }: BackgroundConfigProps): JSX.Eleme
     return (
       <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
         <div className="flex items-center justify-between mb-3 pb-2 border-b border-outline-variant">
-          <h5 className="font-semibold text-on-surface">Background Config</h5>
+          <h5 className="font-semibold text-on-surface">{t('bgConfigTitle')}</h5>
         </div>
         <div className="flex-1 flex items-center justify-center text-on-surface-variant/60 text-sm italic">
-          Select a background track
+          {t('selectBgTrackDesc')}
         </div>
       </div>
     );
   }
 
   const modeOptions = [
-    { value: 'loop', label: 'Loop' },
-    { value: 'random', label: 'Random' }
+    { value: 'loop', label: t('loopModeOption') },
+    { value: 'random', label: t('randomModeOption') }
   ];
 
   return (
@@ -61,7 +62,7 @@ function BackgroundConfig({ track, onChange }: BackgroundConfigProps): JSX.Eleme
               : 'bg-surface-container-highest text-on-surface-variant'
           }`}
         >
-          {local.enabled ? 'Enabled' : 'Disabled'}
+          {local.enabled ? t('enabledLabel') : t('disabledLabel')}
         </div>
       </div>
 
@@ -69,7 +70,7 @@ function BackgroundConfig({ track, onChange }: BackgroundConfigProps): JSX.Eleme
       <div className="flex-1 overflow-y-auto space-y-4">
         {/* Name */}
         <div>
-          <label className={CSS_CLASSES.label}>Name</label>
+          <label className={CSS_CLASSES.label}>{t('nameLabel')}</label>
           <input
             type="text"
             value={local.name}
@@ -80,7 +81,7 @@ function BackgroundConfig({ track, onChange }: BackgroundConfigProps): JSX.Eleme
 
         {/* Gain */}
         <div>
-          <label className={CSS_CLASSES.label}>Gain</label>
+          <label className={CSS_CLASSES.label}>{t('gainLabel')}</label>
           <MD3Slider
             min={-60}
             max={12}
@@ -99,7 +100,7 @@ function BackgroundConfig({ track, onChange }: BackgroundConfigProps): JSX.Eleme
         {/* Mode */}
         <div>
           <MD3Select
-            label="Mode"
+            label={t('modeLabel')}
             value={local.mode}
             onChange={(e) => handle('mode', e.target.value as 'loop' | 'random')}
             options={modeOptions}
@@ -109,7 +110,7 @@ function BackgroundConfig({ track, onChange }: BackgroundConfigProps): JSX.Eleme
         {/* Loop pause (seconds) when in Loop mode */}
         {local.mode === 'loop' && (
           <div>
-            <label className={CSS_CLASSES.label}>Loop Pause (s)</label>
+            <label className={CSS_CLASSES.label}>{t('loopPauseSecLabel')}</label>
             <input
               type="number"
               className={CSS_CLASSES.input}
@@ -123,7 +124,7 @@ function BackgroundConfig({ track, onChange }: BackgroundConfigProps): JSX.Eleme
         {local.mode === 'random' && (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={CSS_CLASSES.label}>Min Pause (s)</label>
+              <label className={CSS_CLASSES.label}>{t('minPauseSecLabel')}</label>
               <input
                 type="number"
                 className={CSS_CLASSES.input}
@@ -139,7 +140,7 @@ function BackgroundConfig({ track, onChange }: BackgroundConfigProps): JSX.Eleme
               />
             </div>
             <div>
-              <label className={CSS_CLASSES.label}>Max Pause (s)</label>
+              <label className={CSS_CLASSES.label}>{t('maxPauseSecLabel')}</label>
               <input
                 type="number"
                 className={CSS_CLASSES.input}
@@ -160,7 +161,7 @@ function BackgroundConfig({ track, onChange }: BackgroundConfigProps): JSX.Eleme
         {/* Preview & Info (bottom) */}
         {local.filename && (
           <div className="pt-2">
-            <label className={CSS_CLASSES.label}>Preview</label>
+            <label className={CSS_CLASSES.label}>{t('previewLabel')}</label>
             <div className="mt-1">
               <AudioPlayer src={`/sound_dir/${local.id}/${local.filename}`} />
             </div>

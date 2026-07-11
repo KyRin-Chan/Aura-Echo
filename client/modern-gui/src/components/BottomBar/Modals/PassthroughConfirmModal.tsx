@@ -4,6 +4,7 @@ import { faExclamationTriangle } from '@fortawesome/free-solid-svg-icons';
 import GenericModal from '../../Modals/GenericModal';
 import { CSS_CLASSES } from '../../../styles/constants';
 import { ClientState } from '@dannadori/voice-changer-client-js';
+import { t } from '../../../locales';
 
 export interface PassthroughConfirmModalProps {
   appState: ClientState,
@@ -38,15 +39,15 @@ const PassthroughConfirmModal: React.FC<PassthroughConfirmModalProps> = ({
     <GenericModal
       isOpen={showPassthrough}
       onClose={handleCancel}
-      title="Activate Passthrough"
+      title={t('activatePassthroughTitle')}
       size="small"
       primaryButton={{
-        text: "Yes, Activate Passthrough",
+        text: t('activatePassthroughConfirmBtn'),
         onClick: handleConfirm,
         className: CSS_CLASSES.modalPrimaryButton + " !bg-red-600 hover:!bg-red-700 focus:!ring-red-500"
       }}
       secondaryButton={{
-        text: "Cancel",
+        text: t('cancelLabel'),
         onClick: handleCancel,
         className: CSS_CLASSES.modalSecondaryButton
       }}
@@ -63,10 +64,10 @@ const PassthroughConfirmModal: React.FC<PassthroughConfirmModalProps> = ({
 
         <div className="space-y-3">
           <h4 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Are you sure you want to activate Passthrough?
+            {t('activatePassthroughConfirmTitle')}
           </h4>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Activating Passthrough will allow you to pass audio through the server without any processing.
+            {t('activatePassthroughConfirmDesc')}
           </p>
         </div>
       </div>

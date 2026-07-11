@@ -2,6 +2,7 @@ import { JSX } from 'react';
 import { RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import MD3Checkbox from '../../../Helpers/MD3Checkbox';
 import MD3Slider from '../../../Helpers/MD3Slider';
+import { t } from '../../../../locales';
 
 interface ModelMergeInfo {
   slot: RVCModelSlot;
@@ -77,11 +78,11 @@ function MergeModelList({
 
   return (
     <div className="space-y-3">
-      <h4 className="text-sm font-bold text-on-surface uppercase tracking-wider pl-1">Available Models</h4>
+      <h4 className="text-sm font-bold text-on-surface uppercase tracking-wider pl-1">{t('availableModelsLabel')}</h4>
 
       {models.length === 0 ? (
         <div className="text-center py-12 text-on-surface-variant/60 italic bg-surface-container-low rounded-lg border border-outline-variant text-sm">
-          <p>No models match the current filter criteria.</p>
+          <p>{t('noModelsMatchFilter')}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -90,7 +91,7 @@ function MergeModelList({
             const percentage = getModelPercentage(model);
             const icon =
               model.iconFile.length > 0
-                ? '/' + modelDir + '/' + model.slotIndex + '/' + model.iconFile.split(/[\/\\]/).pop()
+                ? '/model_dir/' + model.slotIndex + '/' + model.iconFile.split(/[\/\\]/).pop()
                 : '';
             const placeholder = generatePlaceholder(model.name);
 
@@ -161,8 +162,8 @@ function MergeModelList({
 
       {selectedModels.length > 0 && (
         <div className="pt-3 border-t border-outline-variant flex justify-between items-center text-xs text-on-surface-variant font-semibold px-1">
-          <div>Selected: <span className="text-primary font-bold">{selectedModels.length}</span></div>
-          <div>Total weight: <span className="text-primary font-bold">{selectedModels.reduce((sum, m) => sum + m.percentage, 0)}%</span></div>
+          <div>{t('selectedCountLabel')}<span className="text-primary font-bold">{selectedModels.length}</span></div>
+          <div>{t('totalWeightLabel')}<span className="text-primary font-bold">{selectedModels.reduce((sum, m) => sum + m.percentage, 0)}%</span></div>
         </div>
       )}
     </div>

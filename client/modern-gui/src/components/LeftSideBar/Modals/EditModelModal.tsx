@@ -5,6 +5,7 @@ import { RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import { useAppState } from '../../../context/AppContext';
 import { useUIContext } from '../../../context/UIContext';
 import MD3Select from '../../Helpers/MD3Select';
+import { t } from '../../../locales';
 
 type EditFormState = {
   modelName: string;
@@ -45,12 +46,12 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
     if (!showModal) return;
     if (form.thumbnailFile) return; // user selected new file
     let currentIcon = icon || '';
-    if (!currentIcon && modelDir && model.iconFile && model.iconFile.length > 0) {
+    if (!currentIcon && model.iconFile && model.iconFile.length > 0) {
       const last = model.iconFile.split(/[\\/\\]/).pop() as string;
-      currentIcon = `/${modelDir}/${model.slotIndex}/${last}`;
+      currentIcon = `/model_dir/${model.slotIndex}/${last}`;
     }
     setThumbnailPreview(currentIcon || null);
-  }, [showModal, modelDir, icon, model.iconFile, model.slotIndex]);
+  }, [showModal, icon, model.iconFile, model.slotIndex]);
 
   // ---------------- Handlers ----------------
   const handleCancel = () => {
@@ -79,7 +80,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
   const handleSave = async () => {
     const trimmedName = form.modelName.trim();
     if (!trimmedName) {
-      guiState.showError('Please enter a model name.', 'Error');
+      guiState.showError(t('modelUploadEnterName'), t('errorTitle'));
       return;
     }
     try {
@@ -107,7 +108,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
     }
 
     await appState.serverSetting.reloadServerInfo();
-    guiState.showError('Model updated successfully.', 'Confirm');
+    guiState.showError(t('modelUpdateSuccess'), t('confirmTitle'));
     setShowEdit(false);
   };
 
@@ -117,7 +118,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
   const downloadedEmbedders = Object.entries(embedders).filter(([_, embedder]) => embedder.downloaded === true);
   const embedderOptions =
     downloadedEmbedders.length === 0
-      ? [{ value: '', label: 'No downloaded embedders available' }]
+      ? [{ value: '', label: t('noDownloadedEmbedders') }]
       : downloadedEmbedders.map(([key, embedder]) => ({
           value: key,
           label: embedder.name
@@ -127,13 +128,13 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
     <GenericModal
       isOpen={showModal}
       onClose={handleCancel}
-      title={`Edit Model - Slot ${model.slotIndex}`}
+      title={`${t('editModelTooltip')} - Slot ${model.slotIndex}`}
       closeOnOutsideClick={false}
       primaryButton={{
         text: `${
           appState.serverSetting.isUploading
-            ? `Saving... (${appState.serverSetting.uploadProgress.toFixed(1)}%)`
-            : 'Save'
+            ? `${t('savingProgressLabel')} (${appState.serverSetting.uploadProgress.toFixed(1)}%)`
+            : t('saveLabel')
         }`,
         onClick: handleSave,
         className:
@@ -141,7 +142,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
         disabled: appState.serverSetting.isUploading
       }}
       secondaryButton={{
-        text: 'Cancel',
+        text: t('cancelLabel'),
         onClick: handleCancel,
         className:
           'border border-outline text-primary hover:bg-primary/8 rounded-full px-6 py-2.5 font-semibold text-xs active:scale-97 transition-all',
@@ -153,7 +154,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
         <div className="space-y-4 pl-3 border-l-2 border-outline-variant">
           <div className="space-y-1">
             <label htmlFor="editModelName" className={CSS_CLASSES.label}>
-              Model Name:
+              {t('modelNameLabel')}
             </label>
             <input
               type="text"
@@ -161,7 +162,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
               value={form.modelName}
               onChange={(e) => setForm({ ...form, modelName: e.target.value })}
               className={CSS_CLASSES.input}
-              placeholder="Enter model name"
+              placeholder={t('enterModelNamePlaceholder')}
               disabled={appState.serverSetting.isUploading}
             />
           </div>
@@ -169,7 +170,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
           <div>
             <MD3Select
               id="editEmbedder"
-              label="Embedder"
+              label={t('embedderTypeLabel')}
               value={form.embedder}
               onChange={(e) => setForm({ ...form, embedder: e.target.value })}
               options={embedderOptions}
@@ -181,7 +182,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
         {/* Thumbnail file */}
         <div>
           <label htmlFor="editThumbnailFile" className={CSS_CLASSES.label}>
-            Thumbnail Image (Optional):
+            {t('thumbnailImageLabel')}
           </label>
           <input
             type="file"
@@ -202,7 +203,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
               className="flex items-center justify-between w-full text-xs font-semibold text-on-surface hover:text-primary transition-colors disabled:opacity-50"
               disabled={appState.serverSetting.isUploading}
             >
-              <span>Preview Thumbnail</span>
+              <span>{t('previewThumbnailLabel')}</span>
               <svg
                 className={`ml-2 h-4 w-4 transition-transform duration-200 ${
                   isThumbnailExpanded ? 'rotate-180' : ''
@@ -218,7 +219,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
               <div className="space-y-4 p-4 bg-surface-container-low rounded-lg border border-outline-variant animate-fadeIn">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">
-                    Preview Shape:
+                    {t('previewShapeLabel')}
                   </span>
                   <div className="flex space-x-2">
                     <button
@@ -234,7 +235,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
                       }`}
                       disabled={appState.serverSetting.isUploading}
                     >
-                      Circular
+                      {t('circularLabel')}
                     </button>
                     <button
                       type="button"
@@ -249,7 +250,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
                       }`}
                       disabled={appState.serverSetting.isUploading}
                     >
-                      Rounded
+                      {t('roundedLabel')}
                     </button>
                   </div>
                 </div>

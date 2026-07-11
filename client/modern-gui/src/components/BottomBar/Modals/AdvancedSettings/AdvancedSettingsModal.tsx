@@ -4,6 +4,7 @@ import GenericModal from '../../../Modals/GenericModal';
 import { CSS_CLASSES } from '../../../../styles/constants';
 import SettingsView from './SettingsView';
 import DownloaderView from './DownloaderView';
+import { t } from '../../../../locales';
 
 interface AdvancedSettingsModalProps {
   showAdvancedSettings: boolean;
@@ -34,9 +35,9 @@ function AdvancedSettingsModal({ showAdvancedSettings, setShowAdvancedSettings }
     <GenericModal
       isOpen={showAdvancedSettings}
       onClose={handleClose}
-      title="Advanced Settings"
+      title={t('advancedSettingsTitle')}
       secondaryButton={{
-        text: 'Close',
+        text: t('closeLabel'),
         onClick: handleClose,
         className: CSS_CLASSES.modalSecondaryButton,
         disabled: appState.serverSetting.isUploading || isDownloading
@@ -52,7 +53,7 @@ function AdvancedSettingsModal({ showAdvancedSettings, setShowAdvancedSettings }
             }`}
             onClick={() => setActiveTab(TAB_IDS.settings)}
           >
-            Settings
+            {t('tabSettings')}
           </button>
           <button
             className={`px-4 py-2 text-sm font-medium transition-colors duration-200 ${
@@ -62,7 +63,7 @@ function AdvancedSettingsModal({ showAdvancedSettings, setShowAdvancedSettings }
             }`}
             onClick={() => setActiveTab(TAB_IDS.downloader)}
           >
-            Downloader
+            {t('tabDownloader')}
           </button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto py-2">

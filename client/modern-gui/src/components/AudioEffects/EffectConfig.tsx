@@ -7,6 +7,7 @@ import MD3Slider from '../Helpers/MD3Slider';
 import MD3Switch from '../Helpers/MD3Switch';
 import MD3Select from '../Helpers/MD3Select';
 import { getEffectDefinition } from './serverEffectsUtils';
+import { t } from '../../locales';
 
 // UI type with index for client-side management
 type AudioEffectWithIndex = AudioEffect & { index: number };
@@ -69,10 +70,10 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
     return (
       <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
         <div className="flex items-center justify-between mb-3 pb-2 border-b border-outline-variant">
-          <h5 className="font-semibold text-on-surface">Configuration</h5>
+          <h5 className="font-semibold text-on-surface">{t('effectConfigTitle')}</h5>
         </div>
         <div className="flex-1 flex items-center justify-center text-on-surface-variant/60 text-sm italic">
-          Select an effect to configure parameters
+          {t('selectEffectToConfigureDesc')}
         </div>
       </div>
     );
@@ -83,10 +84,10 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
     return (
       <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
         <div className="flex items-center justify-between mb-3 pb-2 border-b border-outline-variant">
-          <h5 className="font-semibold text-on-surface">Unknown Effect</h5>
+          <h5 className="font-semibold text-on-surface">{t('unknownEffectTitle')}</h5>
         </div>
         <div className="flex-1 flex items-center justify-center text-on-surface-variant/60 text-sm italic">
-          Effect definition not found for type: {effect.type}
+          {t('effectDefNotFound')} {effect.type}
         </div>
       </div>
     );
@@ -170,7 +171,7 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
         <div>
           <h5 className="font-semibold text-on-surface text-base">{effectDefinition.name}</h5>
           <div className="flex items-center space-x-2 mt-1">
-            <p className="text-xs text-on-surface-variant capitalize">{effect.type} Effect</p>
+            <p className="text-xs text-on-surface-variant capitalize">{effect.type} {t('effectLabel')}</p>
             <span
               className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                 effect.channel === 'input'
@@ -178,7 +179,7 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
                   : 'bg-secondary-container text-on-secondary-container'
               }`}
             >
-              {effect.channel} channel
+              {effect.channel}{t('channelLabel')}
             </span>
           </div>
         </div>
@@ -189,7 +190,7 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
               : 'bg-surface-container-highest text-on-surface-variant'
           }`}
         >
-          {effect.enabled ? 'Enabled' : 'Disabled'}
+          {effect.enabled ? t('enabledLabel') : t('disabledLabel')}
         </div>
       </div>
 

@@ -6,6 +6,7 @@ import { useUIContext } from '../../../context/UIContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTrash } from '@fortawesome/free-solid-svg-icons';
 import { useInitialPlaceholder } from '../../../scripts/usePlaceholder';
+import { t } from '../../../locales';
 
 interface DeleteModelModalProps {
   model: RVCModelSlot;
@@ -21,7 +22,7 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
 
   const icon =
     model.iconFile.length > 0
-      ? '/' + modelDir + '/' + model.slotIndex + '/' + model.iconFile.split(/[\/\\]/).pop()
+      ? '/model_dir/' + model.slotIndex + '/' + model.iconFile.split(/[\/\\]/).pop()
       : '';
   const placeholder = useInitialPlaceholder(model.name);
 
@@ -47,7 +48,7 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
       guiState.stopLoading();
     }
 
-    guiState.showError('Deleted model successfully.', 'Confirm');
+    guiState.showError(t('modelDeleteSuccess'), t('confirmTitle'));
     setShowDelete(false);
   };
 
@@ -62,15 +63,15 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
     <GenericModal
       isOpen={showModal}
       onClose={handleCancel}
-      title="Delete Model"
+      title={t('deleteModelTitle')}
       size="small"
       primaryButton={{
-        text: 'Delete',
+        text: t('btnDelete'),
         onClick: handleConfirm,
         className: 'bg-error text-on-error hover:shadow-elevation-1 rounded-full px-6 py-2.5 font-semibold text-xs active:scale-97 transition-all'
       }}
       secondaryButton={{
-        text: 'Cancel',
+        text: t('cancelLabel'),
         onClick: handleCancel,
         className: 'border border-outline text-primary hover:bg-primary/8 rounded-full px-6 py-2.5 font-semibold text-xs active:scale-97 transition-all'
       }}
@@ -81,9 +82,9 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
             <FontAwesomeIcon icon={faTrash} className="w-6 h-6 text-error" />
           </div>
           <div className="flex-1">
-            <h3 className="text-base font-semibold text-on-surface mb-1.5">Permanently Delete Model</h3>
+            <h3 className="text-base font-semibold text-on-surface mb-1.5">{t('permanentlyDeleteModelTitle')}</h3>
             <p className="text-xs text-on-surface-variant">
-              Are you sure you want to permanently delete the following model?
+              {t('deleteModelConfirmDesc')}
             </p>
           </div>
         </div>

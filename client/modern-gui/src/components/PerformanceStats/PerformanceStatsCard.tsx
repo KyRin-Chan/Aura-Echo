@@ -8,6 +8,7 @@ import PerformanceStats from './PerformanceStats';
 import PerformanceHistory from './PerformanceHistory';
 import PerformanceGraph from './PerformanceGraph';
 import { CSS_CLASSES } from '../../styles/constants';
+import { t } from '../../locales';
 
 // Define types for the performance data
 interface PerformanceMetrics {
@@ -138,12 +139,12 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
       className={`${CSS_CLASSES.card} flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : ''}`}
     >
       <div className={CSS_CLASSES.cardHeader}>
-        <h5 className={CSS_CLASSES.heading}>Performance Stats</h5>
+        <h5 className={CSS_CLASSES.heading}>{t('performanceStatsTitle')}</h5>
         <div className="flex space-x-1 items-center">
-          <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? "Expand" : "Collapse"}>
+          <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? t('expandLabel') : t('collapseLabel')}>
             <FontAwesomeIcon icon={isCollapsed ? faChevronDown : faChevronUp} className="h-5 w-5" />
           </button>
-          <DragHandle attributes={dndAttributes} listeners={dndListeners} title="Drag" />
+          <DragHandle attributes={dndAttributes} listeners={dndListeners} title={t('dragLabel')} />
         </div>
       </div>
       {!isCollapsed && (

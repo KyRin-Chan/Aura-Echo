@@ -4,6 +4,7 @@ import { useUIContext } from '../../../../context/UIContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload, faTrash, faSpinner, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { ModelInfoDict } from '@dannadori/voice-changer-client-js';
+import { t } from '../../../../locales';
 
 interface DownloaderViewProps {
   onDownloadStateChange?: (isDownloading: boolean) => void;
@@ -74,14 +75,23 @@ const DownloaderView = (props: DownloaderViewProps) => {
       await appState.serverSetting.reloadServerInfo();
 
       // Show success message with model name
-      const actionText = action === 'download' ? 'downloaded' : 'deleted';
-      const modelType = type === 'embedder' ? 'Embedder' : 'Pitch Extractor';
-      uiState.showError(`${modelType} "${info.name || id}" ${actionText} successfully!`, 'Confirm');
+      const actionText = action === 'download' ? t('downloadedLabel') : t('deletedLabel');
+      const modelType = type === 'embedder' ? t('embedderLabel') : t('pitchExtractorLabel');
+      const successMsg = t('modelActionSuccess')
+        .replace('{type}', modelType)
+        .replace('{name}', info.name || id)
+        .replace('{action}', actionText);
+      uiState.showError(successMsg, t('confirmTitle'));
     } catch (error) {
       console.error(`Error ${action}ing ${type}:`, error);
+      const modelType = type === 'embedder' ? t('embedderLabel') : t('pitchExtractorLabel');
+      const errorMsg = t('modelActionFailed')
+        .replace('{action}', action)
+        .replace('{type}', modelType)
+        .replace('{error}', error instanceof Error ? error.message : String(error));
       uiState.showError(
-        `Failed to ${action} ${type}: ${error instanceof Error ? error.message : String(error)}`,
-        'Error'
+        errorMsg,
+        t('errorTitle')
       );
     } finally {
       setLoadingItems((prev) => {
@@ -140,21 +150,21 @@ const DownloaderView = (props: DownloaderViewProps) => {
           <span className="font-semibold text-on-surface text-sm break-words">{name}</span>
           {isInUse ? (
             <span className="ml-2.5 px-2.5 py-0.5 text-[10px] font-semibold bg-secondary-container text-on-secondary-container rounded-full">
-              In Use
+              {t('inUseLabel')}
             </span>
           ) : info.mandatory ? (
             <span className="ml-2.5 px-2.5 py-0.5 text-[10px] font-semibold bg-tertiary-container text-on-tertiary-container rounded-full">
-              Required
+              {t('requiredLabel')}
             </span>
           ) : null}
         </div>
         <div className="flex items-center space-x-2.5">
           {info.downloaded ? (
             <>
-              <span className="inline-flex items-center px-2.5 py-0.5 text-[10px] font-semibold text-on-primary-container bg-primary-container rounded-full">
-                <FontAwesomeIcon icon={faCheck} className="mr-1" />
-                Installed
-              </span>
+                <span className="inline-flex items-center px-2.5 py-0.5 text-[10px] font-semibold text-on-primary-container bg-primary-container rounded-full">
+                  <FontAwesomeIcon icon={faCheck} className="mr-1" />
+                  {t('installedLabel')}
+                </span>
               {!uiState.isConverting && !info.mandatory && !isInUse && (
                 <button
                   onClick={() => handleModelAction(type, 'delete', id, info)}
@@ -166,7 +176,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
                   ) : (
                     <FontAwesomeIcon icon={faTrash} className="mr-1" />
                   )}
-                  Delete
+                  {t('deleteTooltip')}
                 </button>
               )}
             </>
@@ -185,12 +195,12 @@ const DownloaderView = (props: DownloaderViewProps) => {
               {isDownloading ? (
                 <>
                   <FontAwesomeIcon icon={faSpinner} className="animate-spin mr-1" />
-                  Downloading
+                  {t('uploadingLabel')}
                 </>
               ) : (
                 <>
                   <FontAwesomeIcon icon={faDownload} className="mr-1" />
-                  Download
+                  {t('uploadLabel')}
                 </>
               )}
             </button>
@@ -217,7 +227,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
   return (
     <div className="space-y-6 max-h-[500px] overflow-y-auto pr-1.5">
       <div>
-        <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 pl-1">Embedders</h3>
+        <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 pl-1">{t('embeddersTitle')}</h3>
         <div className="space-y-3">
           {sortedEmbedders.length > 0 ? (
             <div className="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden">
@@ -225,7 +235,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
             </div>
           ) : (
             <div className="text-center py-8 text-on-surface-variant/60 italic bg-surface-container-low rounded-lg border border-outline-variant text-sm">
-              No embedders available
+              {t('noEmbeddersAvailable')}
             </div>
           )}
         </div>
@@ -233,7 +243,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
 
       <div>
         <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 pl-1">
-          Pitch Extraction Algorithms
+          {t('f0DetectorLabel')}
         </h3>
         <div className="space-y-3">
           {sortedPitchExtractors.length > 0 ? (
@@ -242,7 +252,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
             </div>
           ) : (
             <div className="text-center py-8 text-on-surface-variant/60 italic bg-surface-container-low rounded-lg border border-outline-variant text-sm">
-              No pitch extraction algorithms available
+              {t('noPitchExtractorsAvailable')}
             </div>
           )}
         </div>

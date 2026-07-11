@@ -1,9 +1,10 @@
 import { PerfStatus } from './PerformanceStatsCard';
+import { t } from '../../locales';
 
 const STATUS_LABELS: Record<PerfStatus, { text: string; color: string; bg: string }> = {
-  good: { text: 'Good', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' },
-  warning: { text: 'Warning', color: '#fbbf24', bg: 'rgba(251, 191, 36, 0.15)' },
-  critical: { text: 'Critical', color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.15)' },
+  good: { text: t('statusGood'), color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' },
+  warning: { text: t('statusWarning'), color: '#fbbf24', bg: 'rgba(251, 191, 36, 0.15)' },
+  critical: { text: t('statusCritical'), color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.15)' },
 };
 
 function CustomTooltip({ active, payload, label }: any) {
@@ -30,12 +31,12 @@ function CustomTooltip({ active, payload, label }: any) {
             </span>
           </div>
           <div className="flex justify-between text-xs">
-            <span className="text-[var(--text-secondary)]">Process Time:</span>
+            <span className="text-[var(--text-secondary)]">{t('processTimeLabel')}</span>
             <span className="text-[var(--text-primary)] font-semibold">{Math.round(mainProcessData.value)} ms</span>
           </div>
           {chunkData && (
             <div className="flex justify-between text-xs">
-              <span className="text-[var(--text-secondary)]">Chunk Limit:</span>
+              <span className="text-[var(--text-secondary)]">{t('chunkLimitLabel')}</span>
               <span className="text-[var(--text-tertiary)] font-medium">{Math.round(chunkData.value)} ms</span>
             </div>
           )}

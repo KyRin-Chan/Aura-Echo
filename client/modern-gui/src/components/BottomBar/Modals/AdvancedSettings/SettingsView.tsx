@@ -50,7 +50,7 @@ function SettingsView(): JSX.Element {
   // Handle silence front change
   const handleSilenceFrontChange = async (val: boolean) => {
     const value = val ? 1 : 0;
-    uiState.startLoading(`${value === 1 ? "Enabling" : "Disabling"} Silence Front`);
+    uiState.startLoading(value === 1 ? t('enablingSilenceFront') : t('disablingSilenceFront'));
     await appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       silenceFront: value
@@ -61,7 +61,7 @@ function SettingsView(): JSX.Element {
   // Handle force fp32 change
   const handleForceFp32Change = async (val: boolean) => {
     const value = val ? 1 : 0;
-    uiState.startLoading(`${value === 1 ? "Enabling" : "Disabling"} Force FP32 Mode`);
+    uiState.startLoading(value === 1 ? t('enablingForceFp32') : t('disablingForceFp32'));
     await appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       forceFp32: value
@@ -72,7 +72,7 @@ function SettingsView(): JSX.Element {
   // Handle disable jit change
   const handleDisableJitChange = async (val: boolean) => {
     const value = val ? 1 : 0;
-    uiState.startLoading(`${value === 1 ? "Disabling" : "Enabling"} JIT Compilation`);
+    uiState.startLoading(value === 1 ? t('disablingJit') : t('enablingJit'));
     await appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       disableJit: value
@@ -83,7 +83,7 @@ function SettingsView(): JSX.Element {
   // Handle use onnx change
   const handleUseONNXChange = async (val: boolean) => {
     const value = val ? 1 : 0;
-    uiState.startLoading(`${value === 1 ? "Enabling" : "Disabling"} Convert to ONNX`);
+    uiState.startLoading(value === 1 ? t('enablingUseOnnx') : t('disablingUseOnnx'));
     await appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       useONNX: value
@@ -148,7 +148,7 @@ function SettingsView(): JSX.Element {
       <div>
         <MD3Select
           id="language"
-          label="Language / 语言"
+          label={t('languageLabel')}
           value={localLang}
           onChange={(e) => handleLangChange(e.target.value as LangType)}
           options={languageOptions}
@@ -158,7 +158,7 @@ function SettingsView(): JSX.Element {
       <div>
         <MD3Select
           id="protocol"
-          label="Protocol"
+          label={t('websocketProtocolLabel')}
           value={appState.setting.workletNodeSetting.protocol}
           onChange={(e) =>
             appState.setWorkletNodeSetting({
@@ -172,7 +172,7 @@ function SettingsView(): JSX.Element {
 
       <div>
         <label htmlFor="crossfade" className={CSS_CLASSES.label}>
-          Crossfade Overlap
+          {t('crossfadeOverlapLabel')}
         </label>
         <MD3Slider
           id="crossfade"
@@ -193,37 +193,37 @@ function SettingsView(): JSX.Element {
         <MD3Switch
           checked={appState.serverSetting.serverSetting.silenceFront === 1}
           onChange={handleSilenceFrontChange}
-          label="Silence Front"
+          label={t('silenceFrontLabel')}
         />
 
         <MD3Switch
           checked={appState.serverSetting.serverSetting.forceFp32 === 1}
           onChange={handleForceFp32Change}
-          label="Force FP32 Mode"
+          label={t('forceFp32Label')}
         />
 
         <MD3Switch
           checked={appState.serverSetting.serverSetting.disableJit === 1}
           onChange={handleDisableJitChange}
-          label="Disable JIT Compilation"
+          label={t('disableJitLabel')}
         />
 
         <MD3Switch
           checked={appState.serverSetting.serverSetting.useONNX === 1}
           onChange={handleUseONNXChange}
-          label="Convert to ONNX"
+          label={t('convertToOnnxLabel')}
         />
 
         <MD3Switch
           checked={appState.setting.voiceChangerClientSetting.agcEnabled ?? false}
           onChange={handleAGCChange}
-          label="Auto Gain Control (Limiter)"
+          label={t('agcLabel')}
         />
       </div>
 
       <div>
         <label htmlFor="protect" className={CSS_CLASSES.label}>
-          Protect
+          {t('protectLabel')}
         </label>
         <MD3Slider
           id="protect"
@@ -243,12 +243,12 @@ function SettingsView(): JSX.Element {
       <div className="border border-error/50 p-4 rounded-lg bg-error/5 space-y-2 mt-2">
         <div className="flex items-center text-error mb-2 text-sm font-semibold">
           <FontAwesomeIcon icon={faExclamationTriangle} className="mr-2" />
-          <span>Danger Zone</span>
+          <span>{t('dangerZoneLabel')}</span>
         </div>
         <MD3Checkbox
           checked={appState.setting.voiceChangerClientSetting.passThroughConfirmationSkip ?? false}
           onChange={handlePassThroughConfirmationSkipChange}
-          label="Skip Pass through confirmation"
+          label={t('skipPassthroughConfirmLabel')}
         />
         <button
           onClick={handleResetSettings}

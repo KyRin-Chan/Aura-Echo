@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../../locales';
 
 const WelcomeModal: React.FC = () => {
   return (
@@ -7,7 +8,7 @@ const WelcomeModal: React.FC = () => {
         <span className="bg-gradient-to-r from-primary to-tertiary bg-clip-text text-transparent">AuraEcho</span>
       </h2>
       <p className="text-xs text-on-surface-variant tracking-wider max-w-xs leading-relaxed font-medium">
-        Initialize the real-time audio engine and start the application.
+        {t('welcomeModalDesc')}
       </p>
     </div>
   );

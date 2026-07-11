@@ -4,6 +4,7 @@ import { CSS_CLASSES } from "../../styles/constants";
 import MD3Slider from "../Helpers/MD3Slider";
 import MD3Select from "../Helpers/MD3Select";
 import { useAppState } from "../../context/AppContext";
+import { t } from '../../locales';
 
 interface ModelSettingsProps {
   model: RVCModelSlot;
@@ -53,7 +54,7 @@ function ModelSettings({
           value: Number(id),
           label: name as string
         }))
-      : [{ value: 0, label: "No speakers" }];
+      : [{ value: 0, label: t('noSpeakersLabel') }];
 
   // ---------------- Render ----------------
 
@@ -61,7 +62,7 @@ function ModelSettings({
     <div className={`space-y-4 bg-surface-container-low p-3 rounded-md border border-outline-variant ${!model ? 'opacity-50 pointer-events-none' : ''}`}>
       <div>
         <label htmlFor="pitch" className={CSS_CLASSES.label}>
-          Pitch:
+          {t('pitchLabel')}
         </label>
         <MD3Slider
           id="pitch"
@@ -78,7 +79,7 @@ function ModelSettings({
       </div>
       <div>
         <label htmlFor="formatShift" className={CSS_CLASSES.label}>
-          Formant Shift:
+          {t('formantShiftLabel')}
         </label>
         <MD3Slider
           id="formatShift"
@@ -96,7 +97,7 @@ function ModelSettings({
       {model.indexFile !== '' && (
         <div>
           <label htmlFor="indexRatio" className={CSS_CLASSES.label}>
-            Index Ratio:
+            {t('indexRatioLabel')}
           </label>
           <MD3Slider
             id="indexRatio"
@@ -116,7 +117,7 @@ function ModelSettings({
         <div className="pt-1">
           <MD3Select
             id="speaker"
-            label="Speaker"
+            label={t('speakerLabel')}
             disabled={!model || !model.speakers || Object.keys(model.speakers).length === 0}
             value={appState.serverSetting?.serverSetting?.dstId ?? 0}
             onChange={(e) => handleSpeakerChange(Number(e.target.value))}

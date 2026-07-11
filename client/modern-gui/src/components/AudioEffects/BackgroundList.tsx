@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faTrash, faShuffle, faRepeat } from '@fortawesome/free-solid-svg-icons';
 import { CSS_CLASSES } from '../../styles/constants';
 import { BackgroundTrack } from '@dannadori/voice-changer-client-js';
+import { t } from '../../locales';
 
 export type BackgroundListProps = {
   tracks: BackgroundTrack[];
@@ -45,7 +46,7 @@ function TrackItem({
             className={`${CSS_CLASSES.iconButton} ${
               track.enabled ? 'text-primary' : 'text-on-surface-variant/40'
             }`}
-            title={track.enabled ? 'Disable' : 'Enable'}
+            title={track.enabled ? t('disableTooltip') : t('enableTooltip')}
           >
             <FontAwesomeIcon icon={track.mode === 'loop' ? faRepeat : faShuffle} className="h-4 w-4" />
           </button>
@@ -53,17 +54,17 @@ function TrackItem({
           <div>
             <div className="font-semibold text-on-surface text-sm flex items-center space-x-2">
               <span className="truncate max-w-[180px]" title={track.name || track.filename}>
-                {track.name || track.filename || 'Untitled'}
+                {track.name || track.filename || t('untitled')}
               </span>
             </div>
             <div className="text-xs text-on-surface-variant flex items-center space-x-2">
               <span className="capitalize">{track.mode}</span>
               <span>•</span>
               {track.mode === 'loop' ? (
-                <span>Pause {track.loopPauseSec?.toFixed(1) ?? '0.0'}s</span>
+                <span>{t('pauseLabel')} {track.loopPauseSec?.toFixed(1) ?? '0.0'}s</span>
               ) : (
                 <span>
-                  Pause {track.random?.minPauseSec?.toFixed(1) ?? '2.0'}–
+                  {t('pauseLabel')} {track.random?.minPauseSec?.toFixed(1) ?? '2.0'}–
                   {track.random?.maxPauseSec?.toFixed(1) ?? '5.0'}s
                 </span>
               )}
@@ -79,7 +80,7 @@ function TrackItem({
             onDelete();
           }}
           className={`${CSS_CLASSES.iconButton} text-error hover:text-error/80`}
-          title="Delete"
+          title={t('deleteTooltip')}
         >
           <FontAwesomeIcon icon={faTrash} className="h-4 w-4" />
         </button>
@@ -103,9 +104,9 @@ export default function BackgroundList({
       {/* Header */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-outline-variant">
         <div>
-          <h5 className="font-semibold text-on-surface text-base">Background Tracks</h5>
+          <h5 className="font-semibold text-on-surface text-base">{t('backgroundTracksTitle')}</h5>
           <div className="text-xs text-on-surface-variant mt-1">
-            Tracks will be mixed with converted audio
+            {t('bgTracksDesc')}
           </div>
         </div>
         <div>
@@ -122,7 +123,7 @@ export default function BackgroundList({
           <button
             onClick={() => fileInputRef.current?.click()}
             className={`${CSS_CLASSES.iconButton} text-primary`}
-            title="Add audio file(s)"
+            title={t('addAudioFilesTooltip')}
           >
             <FontAwesomeIcon icon={faPlus} className="h-4 w-4" />
           </button>
@@ -133,7 +134,7 @@ export default function BackgroundList({
       <div className="flex-1 min-h-0 overflow-y-auto pr-1">
         {tracks.length === 0 ? (
           <div className="text-center py-12 text-on-surface-variant/60 text-sm italic">
-            No background tracks yet. Use the + button to add audio files.
+            {t('noBgTracksDesc')}
           </div>
         ) : (
           <div className="space-y-1">

@@ -128,7 +128,7 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
           })),
         });
 
-        guiState.showError('Models merged successfully!', 'Confirm');
+        guiState.showError(t('modelsMergedSuccess'), t('confirmTitle'));
 
         // Fetch the merged model file once
         const response = await fetch("/tmp/merged.pth");
@@ -144,7 +144,7 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url); // Clean up
-          guiState.showError('Models downloaded successfully!', 'Confirm');
+          guiState.showError(t('modelsDownloadedSuccess'), t('confirmTitle'));
         }
 
         // Upload to slot if requested
@@ -152,7 +152,7 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
           let slotIndex = saveToEmptySlot ? getFirstEmptySlot() : 499;
 
           if (saveToEmptySlot && !slotIndex) {
-            guiState.showError('No empty slots available for saving.', 'Error');
+            guiState.showError(t('noEmptySlotsForSaving'), t('errorTitle'));
             return;
           }
 
@@ -192,16 +192,16 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
     <GenericModal
       isOpen={showMerge}
       onClose={handleClose}
-      title="Merge Lab"
+      title={t('mergeLabTitle')}
       closeOnOutsideClick={false}
       primaryButton={{
-        text: `${appState.serverSetting.isUploading ? `Merging... (${appState.serverSetting.uploadProgress.toFixed(1)}%)` : 'Merge'}`,
+        text: `${appState.serverSetting.isUploading ? `${t('mergingLabel')} (${appState.serverSetting.uploadProgress.toFixed(1)}%)` : t('mergeLabTitle')}`,
         onClick: handleMerge,
         disabled: ((selectedModels.length === 0) || appState.serverSetting.isUploading),
         className: CSS_CLASSES.modalPrimaryButton,
       }}
       secondaryButton={{
-        text: 'Close',
+        text: t('closeLabel'),
         onClick: handleClose,
         className: CSS_CLASSES.modalSecondaryButton,
         disabled: appState.serverSetting.isUploading

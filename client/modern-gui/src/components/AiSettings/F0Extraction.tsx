@@ -16,7 +16,7 @@ function F0Extraction({ appState, uiState, appGuiSettingState }: F0ExtractionPro
 
   // Handle F0 Detector Change
   const handleChangeF0Detector = async (value: string) => {
-    uiState.startLoading(`Changing F0 Detector to ${value}`);
+    uiState.startLoading(`${t('changingF0Detector')}${value}`);
     await appState.serverSetting.updateServerSettings({
       ...appState.serverSetting?.serverSetting,
       f0Detector: value as F0Detector

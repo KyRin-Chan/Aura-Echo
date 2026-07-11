@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../../locales';
 
 type ErrorType = 'Error' | 'Warning' | 'Confirm';
 
@@ -34,7 +35,9 @@ const ErrorNotifications: React.FC<ErrorNotificationsProps> = ({ errors, removeE
         )}`}
       >
         <div>
-          <strong className="block text-xs uppercase tracking-wider font-bold mb-1 opacity-80">{err.type}</strong>
+          <strong className="block text-xs uppercase tracking-wider font-bold mb-1 opacity-80">
+            {err.type === 'Error' ? t('errorTitle') : err.type === 'Warning' ? t('warningTitle') : t('confirmTitle')}
+          </strong>
           <p className="text-xs font-semibold leading-relaxed">{err.message}</p>
         </div>
         <button

@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { useMemo, useState, useEffect } from "react";
 import { CSS_CLASSES } from "../../styles/constants";
 import MD3Select from "../Helpers/MD3Select";
+import { t } from "../../locales";
 
 interface ModelFilterProps {
   appState: ClientState;
@@ -150,7 +151,7 @@ function ModelFilter({ appState, setFilteredAndSortedModels }: ModelFilterProps)
       <div className="relative mb-2.5">
         <input
           type="search"
-          placeholder="Search Models..."
+          placeholder={t('searchModelsPlaceholder')}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full p-2.5 pr-10 rounded-full focus:outline-none focus:ring-1 focus:ring-primary text-xs bg-surface-container border border-outline-variant text-on-surface [&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-cancel-button]:hidden"
@@ -168,7 +169,7 @@ function ModelFilter({ appState, setFilteredAndSortedModels }: ModelFilterProps)
           className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-full bg-surface-container border border-outline-variant text-on-surface hover:bg-primary/8 transition-all"
         >
           <span>
-            <FontAwesomeIcon icon={faFilter} className="mr-2 text-primary" /> Filter & Sort
+            <FontAwesomeIcon icon={faFilter} className="mr-2 text-primary" /> {t('filterAndSort')}
           </span>
           <FontAwesomeIcon icon={isSortFilterVisible ? faTimes : faSort} className="text-on-surface-variant" />
         </button>
@@ -181,7 +182,7 @@ function ModelFilter({ appState, setFilteredAndSortedModels }: ModelFilterProps)
           <div className="space-y-2 pb-2.5 border-b border-outline-variant/30">
             <label className="text-[10px] font-bold text-on-surface-variant flex items-center uppercase tracking-wider">
               <FontAwesomeIcon icon={faSort} className="mr-1.5 text-primary" />
-              Sort by:
+              {t('sortBy')}
             </label>
             <div className="flex gap-2 items-center">
               <div className="flex-1">
@@ -195,7 +196,7 @@ function ModelFilter({ appState, setFilteredAndSortedModels }: ModelFilterProps)
               <button
                 onClick={() => setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
                 className="p-2 rounded-full border border-outline-variant text-on-surface hover:bg-primary/8 transition-all"
-                title={sortDirection === 'asc' ? 'Sort Descending' : 'Sort Ascending'}
+                title={sortDirection === 'asc' ? t('sortDescending') : t('sortAscending')}
               >
                 <FontAwesomeIcon icon={sortDirection === 'asc' ? faArrowUpAZ : faArrowDownAZ} className="text-xs" />
               </button>
@@ -206,7 +207,7 @@ function ModelFilter({ appState, setFilteredAndSortedModels }: ModelFilterProps)
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-on-surface-variant flex items-center uppercase tracking-wider">
               <FontAwesomeIcon icon={faFilter} className="mr-1.5 text-primary" />
-              Filter by:
+              {t('filterBy')}
             </p>
             <div className="space-y-2">
               <MD3Select

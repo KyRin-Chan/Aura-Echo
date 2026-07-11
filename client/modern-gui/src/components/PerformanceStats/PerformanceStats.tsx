@@ -1,4 +1,5 @@
 import { CalculatedMetricValues, PerfStatus } from "./PerformanceStatsCard";
+import { t } from '../../locales';
 
 interface PerformanceStatsProps {
   calculatedMetrics: CalculatedMetricValues;
@@ -12,14 +13,14 @@ const PERF_TEXT_CLASSES: Record<PerfStatus, string> = {
 
 function PerformanceStats({ calculatedMetrics }: PerformanceStatsProps) {
   // ---------------- States ----------------
-  const performanceMetricKeys: string[] = ["Vol", "Ping", "Total", "Perf"];
+  const performanceMetricKeys: string[] = [t('volLabel'), t('pingLabel'), t('totalLabel'), t('perfLabel')];
 
   // Calculate display values from metrics
   const displayValues: Record<string, { value: string | number; unit?: string; className?: string }> = {
-    Vol: { value: calculatedMetrics.volumeDb, unit: ' dB' },
-    Ping: { value: Math.round(calculatedMetrics.ping), unit: ' ms' },
-    Total: { value: Math.round(calculatedMetrics.totalLatencyTime), unit: ' ms' },
-    Perf: {
+    [t('volLabel')]: { value: calculatedMetrics.volumeDb, unit: ' dB' },
+    [t('pingLabel')]: { value: Math.round(calculatedMetrics.ping), unit: ' ms' },
+    [t('totalLabel')]: { value: Math.round(calculatedMetrics.totalLatencyTime), unit: ' ms' },
+    [t('perfLabel')]: {
       value: `${Math.round(calculatedMetrics.perfTime)}ms / ${Math.round(calculatedMetrics.chunkTime)}ms`,
       className: PERF_TEXT_CLASSES[calculatedMetrics.perfStatus]
     }

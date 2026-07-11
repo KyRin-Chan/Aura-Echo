@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../../locales';
 
 interface PerformanceHistoryProps {
   maxDataPoints: number;
@@ -8,7 +9,7 @@ interface PerformanceHistoryProps {
 function PerformanceHistory({ maxDataPoints, setMaxDataPoints }: PerformanceHistoryProps) {
   return (
     <div className="flex items-center space-x-2">
-      <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">History:</span>
+      <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">{t('historyLabel')}</span>
       <div className="inline-flex rounded-full border border-outline overflow-hidden bg-surface-container-low">
         {[20, 50, 100].map((num) => (
           <button

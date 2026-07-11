@@ -5,6 +5,7 @@ import { useInitialPlaceholder } from "../../scripts/usePlaceholder";
 import { useState } from "react";
 import DeleteModelModal from "./Modals/DeleteModelModal";
 import EditModelModal from "./Modals/EditModelModal";
+import { t } from "../../locales";
 
 interface ModelSlotProps {
   selected: boolean;
@@ -19,7 +20,7 @@ function ModelSlot(props: ModelSlotProps) {
   const [showDelete, setShowDelete] = useState<boolean>(false);
 
   // Generate icon URL from model directory and icon file path (or placeholder if not existing)
-  const icon = props.model.iconFile.length > 0 ? "/" + props.modelDir + "/" + props.model.slotIndex + "/" + props.model.iconFile.split(/[\/\\]/).pop() : "";
+  const icon = props.model.iconFile.length > 0 ? "/model_dir/" + props.model.slotIndex + "/" + props.model.iconFile.split(/[\/\\]/).pop() : "";
   const placeholder = useInitialPlaceholder(props.model.name);
 
   // ---------------- Render ----------------
@@ -69,7 +70,7 @@ function ModelSlot(props: ModelSlotProps) {
             className={`p-1.5 rounded-full transition-all hover:bg-surface-variant/30 ${
               props.selected ? 'text-on-primary' : 'text-secondary'
             }`}
-            title="Edit Model"
+            title={t('editModelTooltip')}
           >
             <FontAwesomeIcon icon={faPen} className="h-3 w-3" />
           </button>
@@ -82,7 +83,7 @@ function ModelSlot(props: ModelSlotProps) {
             className={`p-1.5 rounded-full transition-all hover:bg-surface-variant/30 ${
               props.selected ? 'text-on-primary' : 'text-error'
             }`}
-            title="Delete Model"
+            title={t('deleteModelTitle')}
           >
             <FontAwesomeIcon icon={faTrash} className="h-3 w-3" />
           </button>

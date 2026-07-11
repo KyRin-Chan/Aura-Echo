@@ -1,5 +1,6 @@
 import ModelSlot from "./ModelSlot";
 import { ClientState, RVCModelSlot } from "@dannadori/voice-changer-client-js";
+import { t } from "../../locales";
 
 interface ModelListProps {
   filteredAndSortedModels: RVCModelSlot[];
@@ -32,7 +33,7 @@ function ModelList({
       ) : (
         // Empty state: Show when no models match current filter criteria
         <p className="text-center text-xs text-on-surface-variant/60 italic py-6">
-          No models found
+          {t('noModelsFoundLabel')}
         </p>
       )}
     </ul>

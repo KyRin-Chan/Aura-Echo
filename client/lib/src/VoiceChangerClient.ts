@@ -67,10 +67,12 @@ export class VoiceChangerClient {
             this.currentMediaStreamAudioDestinationNode = this.ctx.createMediaStreamDestination(); // output node
             this.outputGainNode = this.ctx.createGain();
             this.outputGainNode.gain.value = this.setting.outputGain;
+            this.outputGainNode.connect(this.currentMediaStreamAudioDestinationNode);
 
             this.currentMediaStreamAudioDestinationMonitorNode = this.ctx.createMediaStreamDestination(); // output node
             this.monitorGainNode = this.ctx.createGain();
             this.monitorGainNode.gain.value = this.setting.monitorGain;
+            this.monitorGainNode.connect(this.currentMediaStreamAudioDestinationMonitorNode);
 
             this.compressorNode = this.ctx.createDynamicsCompressor();
             this.compressorNode.threshold.value = -12;

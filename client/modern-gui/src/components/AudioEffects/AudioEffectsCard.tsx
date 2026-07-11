@@ -11,6 +11,7 @@ import { useAppState } from '../../context/AppContext';
 import BackgroundConfig from './BackgroundConfig';
 import BackgroundList from './BackgroundList';
 import { useUIContext } from '../../context/UIContext';
+import { t } from '../../locales';
 
 // UI type with index for client-side management
 type AudioEffectWithIndex = AudioEffect & { index: number };
@@ -153,7 +154,7 @@ function AudioEffectsCard({ dndAttributes, dndListeners }: AudioEffectsCardProps
     console.log('Background sound uploaded successfully.');
 
     // Notify user of successful upload and refresh server state
-    guiState.showError("Background sound uploaded successfully!", "Confirm");
+    guiState.showError(t('bgSoundUploadSuccess'), t('confirmTitle'));
     await appState.serverSetting.reloadServerInfo();
   }
 
@@ -200,13 +201,13 @@ function AudioEffectsCard({ dndAttributes, dndListeners }: AudioEffectsCardProps
     >
       <div className={CSS_CLASSES.cardHeader}>
         <div className="flex items-center space-x-3">
-          <h4 className={CSS_CLASSES.heading}>Audio Effects</h4>
+          <h4 className={CSS_CLASSES.heading}>{t('audioEffectsTitle')}</h4>
           <div className="flex items-center space-x-2">
             <span className="px-2.5 py-0.5 text-xs rounded-full bg-primary-container text-on-primary-container font-medium">
-              {totalActiveEffects} Effects
+              {totalActiveEffects} {t('effectsLabel')}
             </span>
             <span className="px-2.5 py-0.5 text-xs rounded-full bg-secondary-container text-on-secondary-container font-medium">
-              {totalActiveBackground} Background Tracks
+              {totalActiveBackground} {t('backgroundTracksLabel')}
             </span>
           </div>
         </div>
@@ -214,11 +215,11 @@ function AudioEffectsCard({ dndAttributes, dndListeners }: AudioEffectsCardProps
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
             className={CSS_CLASSES.iconButton}
-            title={isCollapsed ? "Expand" : "Collapse"}
+            title={isCollapsed ? t('expandLabel') : t('collapseLabel')}
           >
             <FontAwesomeIcon icon={isCollapsed ? faChevronDown : faChevronUp} className="h-5 w-5" />
           </button>
-          <DragHandle attributes={dndAttributes} listeners={dndListeners} title="Drag" />
+          <DragHandle attributes={dndAttributes} listeners={dndListeners} title={t('dragLabel')} />
         </div>
       </div>
 
@@ -239,7 +240,13 @@ function AudioEffectsCard({ dndAttributes, dndListeners }: AudioEffectsCardProps
                   }`}
                 >
                   <div className="flex items-center justify-center space-x-1">
-                    <span className="capitalize">{tab}</span>
+                    <span>
+                      {tab === 'input'
+                        ? t('tabInput')
+                        : tab === 'output'
+                        ? t('tabOutput')
+                        : t('tabBackground')}
+                    </span>
                   </div>
                 </button>
               ))}

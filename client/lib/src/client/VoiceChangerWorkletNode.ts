@@ -113,15 +113,15 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
         );
       });
       this.socket.on("connect", () => {
-        console.log(`[SIO] connect to ${this.setting.serverUrl}`);
-        console.log(`[SIO] ${this.socket?.id}`);
+        // console.log(`[SIO] connect to ${this.setting.serverUrl}`);
+        // console.log(`[SIO] ${this.socket?.id}`);
       });
-      this.socket.on("close", function (socket) {
-        console.log(`[SIO] close ${socket.id}`);
+      this.socket.on("close", function () {
+        // console.log(`[SIO] close socket`);
       });
 
-      this.socket.on("message", (response: any[]) => {
-        console.log("message:", response);
+      this.socket.on("message", () => {
+        // console.log("message");
       });
 
       this.socket.on("error", (response: any) => {
@@ -164,7 +164,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
       });
     } else if (this.setting.protocol === "ws") {
       const wsUrl = this.setting.serverUrl.replace(/^http/, "ws") + "/ws/voice";
-      console.log(`[WS] Connecting to ${wsUrl}`);
+      // console.log(`[WS] Connecting to ${wsUrl}`);
       this.wsSocket = new WebSocket(wsUrl);
       this.wsSocket.binaryType = "arraybuffer";
 
@@ -176,11 +176,11 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
       };
 
       this.wsSocket.onopen = () => {
-        console.log(`[WS] connected to ${wsUrl}`);
+        // console.log(`[WS] connected to ${wsUrl}`);
       };
 
       this.wsSocket.onclose = () => {
-        console.log(`[WS] closed connection`);
+        // console.log(`[WS] closed connection`);
       };
 
       this.wsSocket.onmessage = async (event: MessageEvent) => {
@@ -237,11 +237,14 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
   };
 
   postReceivedVoice = (u8data: Uint8Array) => {
-    // Copy to a new Uint8Array to ensure a clean, aligned ArrayBuffer at byteOffset 0.
-    // This resolves any protocol-specific alignment or shared buffer issues.
-    const alignedData = new Uint8Array(u8data);
-    const dataLength = Math.floor(alignedData.length / 2);
-    const i16Data = new Int16Array(alignedData.buffer, 0, dataLength);
+    const dataLength = Math.floor(u8data.length / 2);
+    let i16Data: Int16Array;
+    if (u8data.byteOffset % 2 === 0) {
+      i16Data = new Int16Array(u8data.buffer, u8data.byteOffset, dataLength);
+    } else {
+      const aligned = u8data.slice();
+      i16Data = new Int16Array(aligned.buffer, aligned.byteOffset, dataLength);
+    }
     const f32Data = new Float32Array(dataLength);
     
     // Fast hardware-friendly vector division instead of manual bit-shifting and sign checks
@@ -297,15 +300,15 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
     } else if (event.data.responseType === "pop_detected") {
       const { type, count } = event.data;
       const timestamp = new Date().toLocaleTimeString();
-      console.warn(`[Audio Diagnostic] Pop/Click detected! Type: ${type}, Count: ${count || 1} at ${timestamp}`);
+      // console.warn(`[Audio Diagnostic] Pop/Click detected! Type: ${type}, Count: ${count || 1} at ${timestamp}`);
       if (this.listener.notifyPop) {
         this.listener.notifyPop(type, timestamp, count || 1);
       }
     } else {
-      console.warn(
-        `[worklet_node][voice-changer-worklet-processor] unknown response ${event.data.responseType}`,
-        event.data
-      );
+      // console.warn(
+      //   `[worklet_node][voice-changer-worklet-processor] unknown response ${event.data.responseType}`,
+      //   event.data
+      // );
     }
   }
 
@@ -313,7 +316,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
     const timestamp = Date.now();
     if (this.setting.protocol === "ws") {
       if (!this.wsSocket || this.wsSocket.readyState !== WebSocket.OPEN) {
-        console.warn(`ws is not initialized or not open`);
+        // console.warn(`ws is not initialized or not open`);
         return;
       }
       const combined = new ArrayBuffer(8 + newBuffer.byteLength);
@@ -325,7 +328,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
       this.wsSocket.send(combined);
     } else if (this.setting.protocol === "sio") {
       if (!this.socket) {
-        console.warn(`sio is not initialized`);
+        // console.warn(`sio is not initialized`);
         return;
       }
       // console.log("emit!")

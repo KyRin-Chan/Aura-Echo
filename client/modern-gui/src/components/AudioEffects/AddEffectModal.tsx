@@ -6,6 +6,7 @@ import { getAvailableEffectTypesFromServer } from './serverEffectsUtils';
 import { CSS_CLASSES } from '../../styles/constants';
 import GenericModal from '../Modals/GenericModal';
 import MD3Select from '../Helpers/MD3Select';
+import { t } from '../../locales';
 
 interface AddEffectModalProps {
   isOpen: boolean;
@@ -79,12 +80,12 @@ function AddEffectModal({
   };
 
   const providerOptions = [
-    { value: 'all', label: `All Providers (${availableEffects.length} effects)` },
+    { value: 'all', label: t('allProvidersLabel').replace('{count}', String(availableEffects.length)) },
     ...providers.map((provider: any) => {
       const providerEffects = availableEffects.filter((effect) => effect.provider === provider.name);
       return {
         value: provider.name,
-        label: `${provider.name} (${providerEffects.length} effects)`
+        label: t('providerEffectsLabel').replace('{provider}', provider.name).replace('{count}', String(providerEffects.length))
       };
     })
   ];
@@ -93,18 +94,17 @@ function AddEffectModal({
     <GenericModal
       isOpen={isOpen}
       onClose={handleClose}
-      title="Add Audio Effect"
+      title={t('addAudioEffectTitle')}
       size="large"
       secondaryButton={{
-        text: 'Cancel',
+        text: t('cancelLabel'),
         onClick: handleClose
       }}
     >
       <div className="space-y-4 pt-1">
         {/* Subtitle */}
         <p className="text-sm text-on-surface-variant">
-          Choose an effect for the <span className="font-semibold capitalize text-primary">{channel}</span>{' '}
-          channel
+          {t('chooseEffectForChannel').replace('{channel}', channel)}
         </p>
 
         {/* Search and Filter */}
@@ -117,7 +117,7 @@ function AddEffectModal({
             />
             <input
               type="text"
-              placeholder="Search effects..."
+              placeholder={t('searchEffectsPlaceholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className={`${CSS_CLASSES.input} pl-10`}
@@ -130,7 +130,7 @@ function AddEffectModal({
             <div className="flex-1">
               <MD3Select
                 id="providerFilter"
-                label="Filter by Provider"
+                label={t('filterByProviderLabel')}
                 value={selectedProvider}
                 onChange={(e) => setSelectedProvider(e.target.value)}
                 options={providerOptions}
@@ -143,8 +143,8 @@ function AddEffectModal({
         <div className="max-h-96 overflow-y-auto pr-1">
           {filteredEffects.length === 0 ? (
             <div className="text-center py-12 text-on-surface-variant/60 italic">
-              <p>No effects found</p>
-              {searchTerm && <p className="text-sm mt-2">Try adjusting your search terms</p>}
+              <p>{t('noEffectsFound')}</p>
+              {searchTerm && <p className="text-sm mt-2">{t('adjustSearchTerms')}</p>}
             </div>
           ) : selectedProvider === 'all' ? (
             // Group by provider when showing all
@@ -182,7 +182,7 @@ function AddEffectModal({
 
         {/* Footer Info */}
         <div className="text-xs text-on-surface-variant/80 text-center pt-3 border-t border-outline-variant font-semibold">
-          {filteredEffects.length} of {availableEffects.length} effects shown
+          {t('effectsShownLabel').replace('{shown}', String(filteredEffects.length)).replace('{total}', String(availableEffects.length))}
         </div>
       </div>
     </GenericModal>

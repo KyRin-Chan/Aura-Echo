@@ -8,6 +8,7 @@ import { CSS_CLASSES } from '../../styles/constants';
 import { useInitialPlaceholder } from '../../scripts/usePlaceholder';
 import ModelInfo from './ModelInfo';
 import ModelSettings from './ModelSettings';
+import { t } from '../../locales';
 
 interface ModelSettingsCardProps {
   dndAttributes?: Record<string, any>;
@@ -20,8 +21,7 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [model, setModel] = useState<RVCModelSlot>();
 
-  const modelDir = appState.serverSetting.serverSetting.voiceChangerParams.model_dir;
-  const icon = (model?.iconFile && model?.iconFile.length > 0) ? "/" + modelDir + "/" + model.slotIndex + "/" + model.iconFile.split(/[\/\\]/).pop() : "";
+  const icon = (model?.iconFile && model?.iconFile.length > 0) ? "/model_dir/" + model.slotIndex + "/" + model.iconFile.split(/[\/\\]/).pop() : "";
   const placeholder = useInitialPlaceholder(model?.name || "");
 
   // ---------------- Hooks ----------------
@@ -77,12 +77,12 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
       className={`${CSS_CLASSES.card} flex-1 min-h-0 flex flex-col ${isCollapsed ? 'h-auto' : ''}`}
     >
       <div className={CSS_CLASSES.cardHeader}>
-        <h4 className={CSS_CLASSES.heading}>Model Settings</h4>
+        <h4 className={CSS_CLASSES.heading}>{t('modelSettingsTitle')}</h4>
         <div className="flex space-x-1 items-center">
-          <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? "Expand" : "Collapse"}>
+          <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? t('expandLabel') : t('collapseLabel')}>
             <FontAwesomeIcon icon={isCollapsed ? faChevronDown : faChevronUp} className="h-5 w-5" />
           </button>
-          <DragHandle attributes={dndAttributes} listeners={dndListeners} title="Drag" />
+          <DragHandle attributes={dndAttributes} listeners={dndListeners} title={t('dragLabel')} />
         </div>
       </div>
       {!isCollapsed && (
@@ -94,7 +94,7 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
             />
           ) : (
             <div className="flex items-center justify-center mb-6 p-8 rounded-md bg-surface-container min-h-[160px]">
-              <p className="text-on-surface-variant italic text-center">Select a model from the list <br /> to see its settings.</p>
+              <p className="text-on-surface-variant italic text-center">{t('selectModelToSeeSettings')}</p>
             </div>
           )}
           {
@@ -116,7 +116,7 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
           onClick={handleSaveSettings}
           className={CSS_CLASSES.primaryButton}
         >
-          Save Settings
+          {t('saveSettingsBtn')}
         </button>
       </div>
     </div>

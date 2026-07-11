@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from './locales';
 import { AppContextProvider } from './context/AppContext';
 import App from './App';
 import GenericModal from './components/Modals/GenericModal';
@@ -54,7 +55,7 @@ const AppContent: React.FC = () => {
               fadeOut ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100'
             }`}
             primaryButton={{
-              text: "Continue",
+              text: t('continueLabel'),
               onClick: handleWelcomeComplete
             }}
           >
