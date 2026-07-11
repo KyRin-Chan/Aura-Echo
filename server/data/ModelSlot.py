@@ -8,6 +8,8 @@ import json
 import logging
 logger = logging.getLogger(__name__)
 
+from voice_changer.utils.ZipUtils import sanitize_filename
+
 @dataclass
 class ModelSlot:
     slotIndex: int = -1
@@ -65,11 +67,112 @@ def loadSlotInfo(model_dir: str, slotIndex: int) -> ModelSlots:
         return ModelSlot()
 
 
+def sanitize_and_rename_slot_files(model_dir: str, slotInfo: ModelSlots):
+    if not isinstance(slotInfo, RVCModelSlot):
+        return
+    
+    slot_index = slotInfo.slotIndex
+    slotDir = os.path.join(model_dir, str(slot_index))
+    if not os.path.exists(slotDir):
+        return
+        
+    changed = False
+    
+    # Check modelFile
+    if slotInfo.modelFile:
+        sanitized = sanitize_filename(slotInfo.modelFile)
+        if sanitized != slotInfo.modelFile:
+            src_path = os.path.join(slotDir, slotInfo.modelFile)
+            dst_path = os.path.join(slotDir, sanitized)
+            if os.path.exists(src_path):
+                try:
+                    logger.info(f"Renaming unsafe model file: {src_path} -> {dst_path}")
+                    if os.path.exists(dst_path):
+                        os.remove(dst_path)
+                    os.rename(src_path, dst_path)
+                    slotInfo.modelFile = sanitized
+                    changed = True
+                except Exception as e:
+                    logger.warning(f"Failed to rename model file: {e}")
+            else:
+                if os.path.exists(dst_path):
+                    slotInfo.modelFile = sanitized
+                    changed = True
+                    
+    # Check modelFileOnnx
+    if slotInfo.modelFileOnnx:
+        sanitized = sanitize_filename(slotInfo.modelFileOnnx)
+        if sanitized != slotInfo.modelFileOnnx:
+            src_path = os.path.join(slotDir, slotInfo.modelFileOnnx)
+            dst_path = os.path.join(slotDir, sanitized)
+            if os.path.exists(src_path):
+                try:
+                    logger.info(f"Renaming unsafe ONNX file: {src_path} -> {dst_path}")
+                    if os.path.exists(dst_path):
+                        os.remove(dst_path)
+                    os.rename(src_path, dst_path)
+                    slotInfo.modelFileOnnx = sanitized
+                    changed = True
+                except Exception as e:
+                    logger.warning(f"Failed to rename ONNX file: {e}")
+            else:
+                if os.path.exists(dst_path):
+                    slotInfo.modelFileOnnx = sanitized
+                    changed = True
+
+    # Check indexFile
+    if slotInfo.indexFile:
+        sanitized = sanitize_filename(slotInfo.indexFile)
+        if sanitized != slotInfo.indexFile:
+            src_path = os.path.join(slotDir, slotInfo.indexFile)
+            dst_path = os.path.join(slotDir, sanitized)
+            if os.path.exists(src_path):
+                try:
+                    logger.info(f"Renaming unsafe index file: {src_path} -> {dst_path}")
+                    if os.path.exists(dst_path):
+                        os.remove(dst_path)
+                    os.rename(src_path, dst_path)
+                    slotInfo.indexFile = sanitized
+                    changed = True
+                except Exception as e:
+                    logger.warning(f"Failed to rename index file: {e}")
+            else:
+                if os.path.exists(dst_path):
+                    slotInfo.indexFile = sanitized
+                    changed = True
+
+    # Check iconFile
+    if slotInfo.iconFile:
+        sanitized = sanitize_filename(slotInfo.iconFile)
+        if sanitized != slotInfo.iconFile:
+            src_path = os.path.join(slotDir, slotInfo.iconFile)
+            dst_path = os.path.join(slotDir, sanitized)
+            if os.path.exists(src_path):
+                try:
+                    logger.info(f"Renaming unsafe icon file: {src_path} -> {dst_path}")
+                    if os.path.exists(dst_path):
+                        os.remove(dst_path)
+                    os.rename(src_path, dst_path)
+                    slotInfo.iconFile = sanitized
+                    changed = True
+                except Exception as e:
+                    logger.warning(f"Failed to rename icon file: {e}")
+            else:
+                if os.path.exists(dst_path):
+                    slotInfo.iconFile = sanitized
+                    changed = True
+
+    if changed:
+        saveSlotInfo(model_dir, slot_index, slotInfo)
+
+
 def loadAllSlotInfo(model_dir: str):
     slotInfos: list[ModelSlots] = []
     for slotIndex in range(MAX_SLOT_NUM):
         slotInfo = loadSlotInfo(model_dir, slotIndex)
         slotInfo.slotIndex = slotIndex  # スロットインデックスは動的に注入
+        # Self-healing: sanitize and rename existing files if they contain unsafe characters
+        sanitize_and_rename_slot_files(model_dir, slotInfo)
         slotInfos.append(slotInfo)
     return slotInfos
 

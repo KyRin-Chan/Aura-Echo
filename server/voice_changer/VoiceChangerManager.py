@@ -15,6 +15,7 @@ from voice_changer.utils.LoadSoundParams import LoadSoundParams
 from voice_changer.utils.ModelMerger import MergeElement, ModelMergerRequest
 from voice_changer.utils.VoiceChangerModel import AudioInOutFloat
 from settings import get_settings
+from voice_changer.utils.ZipUtils import sanitize_filename
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from Exceptions import (
     PipelineNotInitializedException,
@@ -146,17 +147,18 @@ class VoiceChangerManager(ServerAudioCallbacks):
 
         for file in params.files:
             logger.info(f"FILE: {file}")
+            sanitized_name = sanitize_filename(file.name)
             srcPath = os.path.join(UPLOAD_DIR, file.dir, file.name)
             dstDir = os.path.join(
                 self.params.model_dir,
                 str(params.slot),
                 file.dir,
             )
-            dstPath = os.path.join(dstDir, file.name)
+            dstPath = os.path.join(dstDir, sanitized_name)
             os.makedirs(dstDir, exist_ok=True)
             logger.info(f"Moving {srcPath} -> {dstPath}")
             shutil.move(srcPath, dstPath)
-            file.name = os.path.basename(dstPath)
+            file.name = sanitized_name
 
         # メタデータ作成(各VCで定義)
         if params.voiceChangerType == "RVC":

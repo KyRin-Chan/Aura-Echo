@@ -114,21 +114,36 @@ if !gpu_count! equ 0 (
 )
 
 echo.
-echo Supported GPU clocks for Memory %chosen_mem% MHz:
+echo Supported GPU clocks for Memory %chosen_mem% MHz (spaced across entire range):
 echo ----------------------------------------------------------
-set display_limit=25
-if !gpu_count! lss 25 (
-    set display_limit=!gpu_count!
+set /a step=gpu_count / 15
+if !step! equ 0 set step=1
+
+set idx=1
+set menu_idx=0
+
+:loop_gpu
+set /a menu_idx+=1
+set /a actual_idx=idx
+
+for %%k in (!actual_idx!) do (
+    set "menu_gpu[!menu_idx!]=!gpu_val[%%k]!"
+    echo [!menu_idx!] !gpu_val[%%k]! MHz
 )
 
-for /l %%i in (1,1,!display_limit!) do (
-    echo [%%i] !gpu_val[%%i]! MHz
-)
-if !gpu_count! gtr !display_limit! (
-    echo [Min] !gpu_val[%gpu_count%]! MHz (Minimum supported)
+set /a idx+=step
+if !idx! lss !gpu_count! goto loop_gpu
+
+REM Print the minimum clock if it wasn't the last printed one
+if !actual_idx! lss !gpu_count! (
+    set /a menu_idx+=1
+    for %%k in (!gpu_count!) do (
+        set "menu_gpu[!menu_idx!]=!gpu_val[%%k]!"
+        echo [!menu_idx!] !gpu_val[%%k]! MHz (Minimum supported)
+    )
 )
 echo ----------------------------------------------------------
-set /p gpu_choice="Select GPU Clock (1-!display_limit!, or enter a custom MHz value): "
+set /p gpu_choice="Select GPU Clock option (1-!menu_idx!), or enter a custom MHz value directly: "
 if "%gpu_choice%"=="" (
     echo No selection made.
     goto cleanup_and_exit
@@ -136,8 +151,8 @@ if "%gpu_choice%"=="" (
 
 set gpu_clock=
 for %%i in (!gpu_choice!) do (
-    if defined gpu_val[%%i] (
-        set gpu_clock=!gpu_val[%%i]!
+    if defined menu_gpu[%%i] (
+        set gpu_clock=!menu_gpu[%%i]!
     )
 )
 

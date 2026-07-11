@@ -1,6 +1,6 @@
 from const import UPLOAD_DIR
 from data.ModelSlot import ModelSlots, loadAllSlotInfo, saveSlotInfo
-from voice_changer.utils.ZipUtils import FileUtils
+from voice_changer.utils.ZipUtils import FileUtils, sanitize_filename
 from typing import Optional, Union
 import json
 import os
@@ -106,22 +106,23 @@ class ModelSlotManager:
                 logger.warning(f"Failed to remove uploaded zip file {upload_path}: {e}")
         else:
             # Handle single file uploads
-            file_extension = os.path.splitext(params_dict["file"])[1].lower()
-            dest_path = os.path.join(store_dir, params_dict["file"])
+            sanitized_name = sanitize_filename(params_dict["file"])
+            file_extension = os.path.splitext(sanitized_name)[1].lower()
+            dest_path = os.path.join(store_dir, sanitized_name)
             
             # Move the uploaded file to the model directory
             shutil.move(upload_path, dest_path)
             
             # Update slot info based on file type / asset name
             if params_dict.get("name") == "iconFile":
-                slot_info.iconFile = params_dict["file"]
+                slot_info.iconFile = sanitized_name
             elif file_extension == '.onnx':
-                slot_info.modelFileOnnx = params_dict["file"]
+                slot_info.modelFileOnnx = sanitized_name
                 slot_info.isONNX = True
             elif file_extension == '.index':
-                slot_info.indexFile = params_dict["file"]
+                slot_info.indexFile = sanitized_name
             else:  # Assume it's a model file if not index or onnx
-                slot_info.modelFile = params_dict["file"]
+                slot_info.modelFile = sanitized_name
                 slot_info.isONNX = False
         
         # Save the updated slot info

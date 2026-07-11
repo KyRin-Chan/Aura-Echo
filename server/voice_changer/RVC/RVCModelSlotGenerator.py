@@ -11,7 +11,7 @@ from data.ModelSlot import RVCModelSlot
 from voice_changer.common.SafetensorsUtils import convert_single
 from voice_changer.utils.LoadModelParams import LoadModelParams
 from voice_changer.utils.ModelSlotGenerator import ModelSlotGenerator
-from voice_changer.utils.ZipUtils import FileUtils
+from voice_changer.utils.ZipUtils import FileUtils, sanitize_filename
 from settings import get_settings
 import logging
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ class RVCModelSlotGenerator(ModelSlotGenerator):
                 # Get the original extension and base name
                 original_ext = os.path.splitext(result['model_file'])[1]
                 zip_basename = os.path.splitext(os.path.basename(model_zip_path))[0]
-                new_model_filename = f"{zip_basename}{original_ext}"
+                new_model_filename = sanitize_filename(f"{zip_basename}{original_ext}")
                 new_model_path = os.path.join(slot_dir, new_model_filename)
                 
                 # Rename the file if it doesn't match the ZIP name

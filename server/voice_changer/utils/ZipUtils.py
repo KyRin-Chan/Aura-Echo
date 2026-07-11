@@ -4,8 +4,45 @@ import zipfile
 from pathlib import Path
 from typing import Optional, Tuple, Set, List, Dict, Any
 import logging
+import re
+import urllib.parse
 
 logger = logging.getLogger(__name__)
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitizes a filename to ensure it only contains ASCII alphanumeric characters,
+    underscores, hyphens, and dots.
+    If the name becomes empty, uses a default based on extension.
+    """
+    if not filename:
+        return ""
+    try:
+        filename = urllib.parse.unquote(filename)
+    except Exception:
+        pass
+        
+    base, ext = os.path.splitext(filename)
+    
+    # Replace spaces with underscores
+    base = base.replace(' ', '_')
+    # Keep only alphanumeric, hyphens, underscores, dots
+    sanitized_base = re.sub(r'[^a-zA-Z0-9_\-.]', '', base)
+    
+    # If the sanitized base name is empty, fallback to a default
+    if not sanitized_base:
+        if ext.lower() in ('.index',):
+            sanitized_base = "index"
+        elif ext.lower() in ('.onnx',):
+            sanitized_base = "model"
+        elif ext.lower() in ('.pth', '.pt', '.safetensors'):
+            sanitized_base = "model"
+        else:
+            sanitized_base = "file"
+            
+    sanitized_ext = re.sub(r'[^a-zA-Z0-9.]', '', ext)
+    
+    return f"{sanitized_base}{sanitized_ext}"
 
 class FileUtils:
     """Utility class for file operations including ZIP handling."""
@@ -89,9 +126,14 @@ class FileUtils:
                 extracted_files = []
                 for file in files_to_extract:
                     try:
+                        # Split by slash to sanitize each path component
+                        parts = re.split(r'[/\\]', file)
+                        sanitized_parts = [sanitize_filename(p) if p else '' for p in parts]
+                        sanitized_file = '/'.join(p for p in sanitized_parts if p)
+
                         zip_ref.extract(file, temp_dir)
                         src_path = os.path.join(temp_dir, file)
-                        dest_path = os.path.join(extract_to, file)
+                        dest_path = os.path.join(extract_to, sanitized_file)
                         
                         # Create subdirectories if needed
                         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
@@ -102,30 +144,31 @@ class FileUtils:
                         shutil.move(src_path, dest_path)
                         
                         # Update result with file info
-                        file_lower = file.lower()
+                        file_lower = sanitized_file.lower()
                         if any(file_lower.endswith(ext) for ext in model_exts):
                             # Store relative path from ZIP root
-                            result['model_file'] = file
-                            logger.info(f"Found model file: {file}")
+                            result['model_file'] = sanitized_file
+                            logger.info(f"Found model file: {sanitized_file}")
                         elif any(file_lower.endswith(ext) for ext in index_exts):
                             # Only update index file if not already set or if this one is in a more specific path
-                            if result['index_file'] is None or file.count('/') + file.count('\\') < result['index_file'].count('/') + result['index_file'].count('\\'):
-                                result['index_file'] = file
-                                logger.info(f"Found index file: {file}")
+                            if result['index_file'] is None or sanitized_file.count('/') + sanitized_file.count('\\') < result['index_file'].count('/') + result['index_file'].count('\\'):
+                                result['index_file'] = sanitized_file
+                                logger.info(f"Found index file: {sanitized_file}")
                         
-                        extracted_files.append(file)
-                        logger.debug(f"Extracted: {file}")
+                        extracted_files.append(sanitized_file)
+                        logger.debug(f"Extracted: {sanitized_file}")
                         
                         # If this is the model file, ensure it's in the root of the extraction directory
-                        if any(file_lower.endswith(ext) for ext in model_exts) and ('/' in file or '\\' in file):
+                        if any(file_lower.endswith(ext) for ext in model_exts) and ('/' in sanitized_file or '\\' in sanitized_file):
                             # Move the model file to the root of the extraction directory
-                            base_name = os.path.basename(file)
-                            root_dest = os.path.join(extract_to, base_name)
+                            base_name = os.path.basename(sanitized_file)
+                            sanitized_base_name = sanitize_filename(base_name)
+                            root_dest = os.path.join(extract_to, sanitized_base_name)
                             if os.path.exists(root_dest):
                                 os.remove(root_dest)
                             shutil.move(dest_path, root_dest)
-                            result['model_file'] = base_name
-                            logger.info(f"Moved model file to root: {base_name}")
+                            result['model_file'] = sanitized_base_name
+                            logger.info(f"Moved model file to root: {sanitized_base_name}")
                     except Exception as e:
                         logger.warning(f"Failed to extract {file}: {str(e)}")
                 
