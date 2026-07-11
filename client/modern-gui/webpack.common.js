@@ -6,6 +6,9 @@ const webpack = require("webpack");
 module.exports = {
     mode: "production",
     entry: "./src/index.tsx",
+    performance: {
+        hints: false,
+    },
     resolve: {
         extensions: [".ts", ".tsx", ".js"],
         fallback: {
