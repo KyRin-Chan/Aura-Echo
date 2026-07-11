@@ -26,6 +26,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         super().__init__(namespace)
         self.voiceChangerManager = voiceChangerManager
         self.min_diffs = {}
+        self.stale_stats = {}
         # self.voiceChangerManager.voiceChanger.emitTo = self.emit_coroutine
         self.voiceChangerManager.setEmitTo(self.emit_coroutine)
 
@@ -39,6 +40,11 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         self.sid = sid
         logger.info(f"Connected SID: {sid}")
         self.min_diffs[sid] = None
+        self.stale_stats[sid] = {
+            "count": 0,
+            "ages": [],
+            "last_log_time": 0.0
+        }
 
     async def on_request_message(self, sid, msg):
         recv_timestamp = round(time() * 1000)
@@ -55,14 +61,36 @@ class MMVC_Namespace(socketio.AsyncNamespace):
             min_diff = diff
         relative_age = diff - min_diff
 
+        stats = self.stale_stats.setdefault(sid, {"count": 0, "ages": [], "last_log_time": 0.0})
+
         if relative_age > 150:
             # Packet is too stale, skip inference to catch up
-            logger.warning(f"[SIO] Stale packet detected (relative age: {relative_age}ms). Skipping inference.")
+            stats["count"] += 1
+            stats["ages"].append(relative_age)
+            current_time = time()
+            if stats["last_log_time"] == 0.0:
+                stats["last_log_time"] = current_time
+            elif current_time - stats["last_log_time"] >= 3.0:
+                avg_age = sum(stats["ages"]) // len(stats["ages"])
+                logger.warning(f"[SIO] Stale packets detected: {stats['count']} packet(s) skipped in the last {current_time - stats['last_log_time']:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
+                stats["count"] = 0
+                stats["ages"] = []
+                stats["last_log_time"] = current_time
+
             out_audio = np.zeros_like(input_audio)
             vol = 0.0
             perf = [0.0, 0.0, 0.0]
             err = None
         else:
+            if stats["count"] > 0:
+                current_time = time()
+                duration = current_time - stats["last_log_time"]
+                avg_age = sum(stats["ages"]) // len(stats["ages"])
+                logger.warning(f"[SIO] Stale packets detected: {stats['count']} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
+                stats["count"] = 0
+                stats["ages"] = []
+                stats["last_log_time"] = 0.0
+
             out_audio, vol, perf, err = await asyncio.to_thread(self.voiceChangerManager.change_voice, input_audio)
 
         if err is not None:
@@ -81,3 +109,11 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         logger.info(f"Disconnected SID: {sid}")
         if sid in self.min_diffs:
             del self.min_diffs[sid]
+        if sid in self.stale_stats:
+            stats = self.stale_stats[sid]
+            if stats["count"] > 0:
+                current_time = time()
+                duration = current_time - stats["last_log_time"]
+                avg_age = sum(stats["ages"]) // len(stats["ages"])
+                logger.warning(f"[SIO] Stale packets detected for SID {sid}: {stats['count']} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
+            del self.stale_stats[sid]

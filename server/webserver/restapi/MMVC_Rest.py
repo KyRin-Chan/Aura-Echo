@@ -123,6 +123,9 @@ class MMVC_Rest:
                 await websocket.accept()
                 active_websockets.add(websocket)
                 min_diff = None
+                stale_count = 0
+                stale_ages = []
+                last_stale_log_time = 0.0
                 try:
                     while True:
                         data = await websocket.receive_bytes()
@@ -143,12 +146,32 @@ class MMVC_Rest:
 
                         if relative_age > 150:
                             # Packet is too stale, skip inference to catch up
-                            logger.warning(f"[WS] Stale packet detected (relative age: {relative_age}ms). Skipping inference.")
+                            stale_count += 1
+                            stale_ages.append(relative_age)
+                            current_time = time()
+                            if last_stale_log_time == 0.0:
+                                last_stale_log_time = current_time
+                            elif current_time - last_stale_log_time >= 3.0:
+                                avg_age = sum(stale_ages) // len(stale_ages)
+                                logger.warning(f"[WS] Stale packets detected: {stale_count} packet(s) skipped in the last {current_time - last_stale_log_time:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
+                                stale_count = 0
+                                stale_ages = []
+                                last_stale_log_time = current_time
+
                             out_audio = np.zeros_like(input_audio)
                             vol = 0.0
                             perf = [0.0, 0.0, 0.0]
                             err = None
                         else:
+                            if stale_count > 0:
+                                current_time = time()
+                                duration = current_time - last_stale_log_time
+                                avg_age = sum(stale_ages) // len(stale_ages)
+                                logger.warning(f"[WS] Stale packets detected: {stale_count} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
+                                stale_count = 0
+                                stale_ages = []
+                                last_stale_log_time = 0.0
+
                             out_audio, vol, perf, err = await asyncio.to_thread(voiceChangerManager.change_voice, input_audio)
                         if err is not None:
                             error_code, error_message = err
@@ -171,6 +194,11 @@ class MMVC_Rest:
                     logger.exception(f"Error in websocket_voice: {e}")
                 finally:
                     active_websockets.discard(websocket)
+                    if stale_count > 0:
+                        current_time = time()
+                        duration = current_time - last_stale_log_time
+                        avg_age = sum(stale_ages) // len(stale_ages)
+                        logger.warning(f"[WS] Stale packets detected: {stale_count} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
 
             cls._instance = app_fastapi
             logger.info("Initialized.")

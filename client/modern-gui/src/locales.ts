@@ -339,10 +339,10 @@ export const locales = {
         modelUploadedMsg: "模型上传成功！",
         
         // Voice Analyzer
-        voiceAnalyzerTitle: "语音分析实验室 (Voice Lab)",
-        voiceAnalyzerDesc: "上传目标参考音频（例如：声线模型原唱/原作者的说话声）以及你自己的输入音频。分析器将自动计算并推荐你的音高偏移（协变）与基频偏移（共振峰）。",
-        voiceAnalyzerStandardTarget: "标准参考样本 (Target)",
-        voiceAnalyzerYourInput: "输入样本音频 (Input)",
+        voiceAnalyzerTitle: "语音分析",
+        voiceAnalyzerDesc: "上传目标参考音频（例如：声线模型原唱/原作者的说话声）以及你自己的输入音频。分析器将自动计算并推荐你的音高偏移与基频偏移（共振峰）",
+        voiceAnalyzerStandardTarget: "标准参考样本",
+        voiceAnalyzerYourInput: "输入样本音频",
         voiceAnalyzerComparing: "正在对比分析...",
         voiceAnalyzerStartAnalysis: "开始对比分析",
         voiceAnalyzerDiagnostics: "声学对比分析结果",
