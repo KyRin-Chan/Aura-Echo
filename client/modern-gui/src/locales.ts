@@ -56,7 +56,35 @@ export const locales = {
         // Model Settings
         pitchLabel: "Pitch:",
         f0DetectorLabel: "Pitch Extraction Algorithm",
-        noPitchExtractors: "No downloaded pitch extractors available"
+        noPitchExtractors: "No downloaded pitch extractors available",
+
+        // New Voice Analyzer & General Translations
+        selectModelFirst: "Select a voice model first.",
+        selectAudioInputFirst: "Select an audio input device.",
+        selectAudioOutputFirst: "Select an audio output device.",
+        voiceAnalyzerUploadBoth: "Please upload both Reference and Input samples.",
+        voiceAnalyzerUploadWarning: "Warning",
+        voiceAnalyzerFailedAnalysis: "Failed to analyze audio: ",
+        voiceAnalyzerAppliedFormantSuccess: "Applied recommended Formant Shift: ",
+        voiceAnalyzerFormantLabel: ", Formant: ",
+        voiceAnalyzerPreviewAudio: "Preview Audio:",
+        voiceAnalyzerStandardTargetLabel: "Standard Target:",
+        voiceAnalyzerYourInputLabel: "Your Input:",
+        voiceAnalyzerFormantResonanceLabel: "Formant Resonance",
+        voiceAnalyzerSemitones: "semitones",
+
+        mergeLabTitle: "Merge Lab",
+        advancedSettingsTitle: "Advanced Settings",
+        serverInfoTitle: "Server Info",
+        clientInfoTitle: "Client Info",
+        btnStop: "Stop",
+        btnStart: "Start",
+        passthroughOn: "Passthrough ON",
+        passthroughOff: "Passthrough OFF",
+
+        modelSelectorTitle: "Model Selector",
+        availableModelsLabel: "Available Models",
+        uploadNewModelTitle: "Upload New Model"
     },
     zh: {
         // UI Prompts
@@ -98,7 +126,35 @@ export const locales = {
         // Model Settings
         pitchLabel: "音高变调 (Pitch)：",
         f0DetectorLabel: "音高提取算法",
-        noPitchExtractors: "无已下载的音高提取算法可用"
+        noPitchExtractors: "无已下载的音高提取算法可用",
+
+        // New Voice Analyzer & General Translations
+        selectModelFirst: "请先选择一个声线模型。",
+        selectAudioInputFirst: "请选择音频输入设备。",
+        selectAudioOutputFirst: "请选择音频输出设备。",
+        voiceAnalyzerUploadBoth: "请同时上传参考样本与输入样本。",
+        voiceAnalyzerUploadWarning: "警告",
+        voiceAnalyzerFailedAnalysis: "音频分析失败：",
+        voiceAnalyzerAppliedFormantSuccess: "已应用推荐共振峰偏移：",
+        voiceAnalyzerFormantLabel: ", 共振峰: ",
+        voiceAnalyzerPreviewAudio: "预览音频:",
+        voiceAnalyzerStandardTargetLabel: "标准参考:",
+        voiceAnalyzerYourInputLabel: "你的输入:",
+        voiceAnalyzerFormantResonanceLabel: "共振峰共鸣",
+        voiceAnalyzerSemitones: "半音",
+
+        mergeLabTitle: "融合实验室",
+        advancedSettingsTitle: "高级设置",
+        serverInfoTitle: "服务端信息",
+        clientInfoTitle: "客户端信息",
+        btnStop: "停止",
+        btnStart: "启动",
+        passthroughOn: "直通已开启",
+        passthroughOff: "直通已关闭",
+
+        modelSelectorTitle: "模型选择",
+        availableModelsLabel: "可用模型",
+        uploadNewModelTitle: "上传新模型"
     },
     ja: {
         // UI Prompts
@@ -140,7 +196,35 @@ export const locales = {
         // Model Settings
         pitchLabel: "ピッチ:",
         f0DetectorLabel: "ピッチ抽出アルゴリズム",
-        noPitchExtractors: "ダウンロード済みのピッチ抽出アルゴリズムがありません"
+        noPitchExtractors: "ダウンロード済みのピッチ抽出アルゴリズムがありません",
+
+        // New Voice Analyzer & General Translations
+        selectModelFirst: "最初にボイスモデルを選択してください。",
+        selectAudioInputFirst: "オーディオ入力デバイスを選択してください。",
+        selectAudioOutputFirst: "オーディオ出力デバイスを選択してください。",
+        voiceAnalyzerUploadBoth: "参照サンプルと入力サンプルの両方をアップロードしてください。",
+        voiceAnalyzerUploadWarning: "警告",
+        voiceAnalyzerFailedAnalysis: "オーディオ分析に失敗しました: ",
+        voiceAnalyzerAppliedFormantSuccess: "推奨フォルマントシフトを適用しました：",
+        voiceAnalyzerFormantLabel: ", フォルマント: ",
+        voiceAnalyzerPreviewAudio: "プレビューオーディオ:",
+        voiceAnalyzerStandardTargetLabel: "標準参照:",
+        voiceAnalyzerYourInputLabel: "入力オーディオ:",
+        voiceAnalyzerFormantResonanceLabel: "フォルマント共鳴",
+        voiceAnalyzerSemitones: "半音",
+
+        mergeLabTitle: "マージラボ",
+        advancedSettingsTitle: "詳細設定",
+        serverInfoTitle: "サーバー情報",
+        clientInfoTitle: "クライアント情報",
+        btnStop: "停止",
+        btnStart: "起動",
+        passthroughOn: "パススルー ON",
+        passthroughOff: "パススルー OFF",
+
+        modelSelectorTitle: "モデル選択",
+        availableModelsLabel: "利用可能なモデル",
+        uploadNewModelTitle: "新規モデルのアップロード"
     }
 };
 

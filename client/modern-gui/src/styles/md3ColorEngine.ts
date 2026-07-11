@@ -126,6 +126,10 @@ export function applyMD3Theme(palettes: MD3Palettes, mode: 'light' | 'dark') {
   const vars: Record<string, string> = {};
 
   if (mode === 'light') {
+    // Generate light beige neutral and neutralVariant (Hue: 38, Saturation: 10% / 16%)
+    const lightNeutral = generateTonalPalette(38, 10);
+    const lightNeutralVariant = generateTonalPalette(38, 16);
+
     // MD3 Light theme colors
     vars['--md-sys-color-primary'] = primary[40];
     vars['--md-sys-color-on-primary'] = primary[100];
@@ -147,24 +151,28 @@ export function applyMD3Theme(palettes: MD3Palettes, mode: 'light' | 'dark') {
     vars['--md-sys-color-error-container'] = error[90];
     vars['--md-sys-color-on-error-container'] = error[10];
 
-    vars['--md-sys-color-surface'] = neutral[98];
-    vars['--md-sys-color-on-surface'] = neutral[10];
-    vars['--md-sys-color-surface-variant'] = neutralVariant[90];
-    vars['--md-sys-color-on-surface-variant'] = neutralVariant[30];
+    vars['--md-sys-color-surface'] = lightNeutral[98];
+    vars['--md-sys-color-on-surface'] = lightNeutral[10];
+    vars['--md-sys-color-surface-variant'] = lightNeutralVariant[90];
+    vars['--md-sys-color-on-surface-variant'] = lightNeutralVariant[30];
 
-    vars['--md-sys-color-outline'] = neutralVariant[50];
-    vars['--md-sys-color-outline-variant'] = neutralVariant[80];
+    vars['--md-sys-color-outline'] = lightNeutralVariant[50];
+    vars['--md-sys-color-outline-variant'] = lightNeutralVariant[80];
 
-    vars['--md-sys-color-surface-container-lowest'] = neutral[100];
-    vars['--md-sys-color-surface-container-low'] = neutral[96];
-    vars['--md-sys-color-surface-container'] = neutral[94];
-    vars['--md-sys-color-surface-container-high'] = neutral[92];
-    vars['--md-sys-color-surface-container-highest'] = neutral[90];
+    vars['--md-sys-color-surface-container-lowest'] = lightNeutral[100];
+    vars['--md-sys-color-surface-container-low'] = lightNeutral[96];
+    vars['--md-sys-color-surface-container'] = lightNeutral[94];
+    vars['--md-sys-color-surface-container-high'] = lightNeutral[92];
+    vars['--md-sys-color-surface-container-highest'] = lightNeutral[90];
 
-    vars['--md-sys-color-inverse-surface'] = neutral[20];
-    vars['--md-sys-color-inverse-on-surface'] = neutral[95];
+    vars['--md-sys-color-inverse-surface'] = lightNeutral[20];
+    vars['--md-sys-color-inverse-on-surface'] = lightNeutral[95];
     vars['--md-sys-color-scrim'] = '#000000';
   } else {
+    // Generate unified dark neutral and neutralVariant (Hue: 224, Saturation: 6% / 10%)
+    const darkNeutral = generateTonalPalette(224, 6);
+    const darkNeutralVariant = generateTonalPalette(224, 10);
+
     // MD3 Dark theme colors
     vars['--md-sys-color-primary'] = primary[80];
     vars['--md-sys-color-on-primary'] = primary[20];
@@ -186,22 +194,22 @@ export function applyMD3Theme(palettes: MD3Palettes, mode: 'light' | 'dark') {
     vars['--md-sys-color-error-container'] = error[30];
     vars['--md-sys-color-on-error-container'] = error[90];
 
-    vars['--md-sys-color-surface'] = neutral[6];
-    vars['--md-sys-color-on-surface'] = neutral[90];
-    vars['--md-sys-color-surface-variant'] = neutralVariant[30];
-    vars['--md-sys-color-on-surface-variant'] = neutralVariant[80];
+    vars['--md-sys-color-surface'] = darkNeutral[6];
+    vars['--md-sys-color-on-surface'] = darkNeutral[90];
+    vars['--md-sys-color-surface-variant'] = darkNeutralVariant[30];
+    vars['--md-sys-color-on-surface-variant'] = darkNeutralVariant[80];
 
-    vars['--md-sys-color-outline'] = neutralVariant[60];
-    vars['--md-sys-color-outline-variant'] = neutralVariant[30];
+    vars['--md-sys-color-outline'] = darkNeutralVariant[60];
+    vars['--md-sys-color-outline-variant'] = darkNeutralVariant[30];
 
-    vars['--md-sys-color-surface-container-lowest'] = neutral[4];
-    vars['--md-sys-color-surface-container-low'] = neutral[10];
-    vars['--md-sys-color-surface-container'] = neutral[12];
-    vars['--md-sys-color-surface-container-high'] = neutral[17];
-    vars['--md-sys-color-surface-container-highest'] = neutral[22];
+    vars['--md-sys-color-surface-container-lowest'] = darkNeutral[4];
+    vars['--md-sys-color-surface-container-low'] = darkNeutral[10];
+    vars['--md-sys-color-surface-container'] = darkNeutral[12];
+    vars['--md-sys-color-surface-container-high'] = darkNeutral[17];
+    vars['--md-sys-color-surface-container-highest'] = darkNeutral[22];
 
-    vars['--md-sys-color-inverse-surface'] = neutral[90];
-    vars['--md-sys-color-inverse-on-surface'] = neutral[20];
+    vars['--md-sys-color-inverse-surface'] = darkNeutral[90];
+    vars['--md-sys-color-inverse-on-surface'] = darkNeutral[20];
     vars['--md-sys-color-scrim'] = '#000000';
   }
 

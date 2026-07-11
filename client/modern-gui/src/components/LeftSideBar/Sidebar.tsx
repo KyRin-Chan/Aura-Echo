@@ -4,6 +4,7 @@ import { faPlus } from '@fortawesome/free-solid-svg-icons';
 import { RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import { useAppState } from '../../context/AppContext';
 import { useUIContext } from '../../context/UIContext';
+import { t } from '../../locales';
 import ModelList from './ModelList';
 import ModelFilter from './ModelFilter';
 import UploadModelModal from './Modals/UploadModelModal';
@@ -41,7 +42,7 @@ function LeftSidebar(): JSX.Element | null {
 
       <hr className="my-3 border-outline-variant" />
 
-      <h3 className="text-xl font-semibold text-on-surface">Model Selector</h3>
+      <h3 className="text-xl font-semibold text-on-surface">{t('modelSelectorTitle')}</h3>
 
       <UploadModelModal
         appState={appState}
@@ -52,11 +53,11 @@ function LeftSidebar(): JSX.Element | null {
 
       {/* Model count display and upload button */}
       <div className="flex justify-between items-center mb-2">
-        <span className="text-sm font-medium text-on-surface-variant">Available Models ({filteredAndSortedModels.length})</span>
+        <span className="text-sm font-medium text-on-surface-variant">{t('availableModelsLabel')} ({filteredAndSortedModels.length})</span>
         <button
           onClick={() => setShowUpload(true)}
           className="p-1 text-primary hover:opacity-80 transition-opacity"
-          title="Upload New Model"
+          title={t('uploadNewModelTitle')}
         >
           <FontAwesomeIcon icon={faPlus} size="lg" />
         </button>

@@ -80,7 +80,7 @@ function VoiceAnalyzerModal({
 
   const handleAnalyze = async () => {
     if (!targetFile || !inputFile) {
-      guiState.showError('Please upload both Reference and Input samples.', 'Warning');
+      guiState.showError(t('voiceAnalyzerUploadBoth'), t('voiceAnalyzerUploadWarning'));
       return;
     }
 
@@ -110,7 +110,7 @@ function VoiceAnalyzerModal({
     } catch (error) {
       console.error('Voice analysis error:', error);
       guiState.showError(
-        `Failed to analyze audio: ${error instanceof Error ? error.message : String(error)}`,
+        `${t('voiceAnalyzerFailedAnalysis')}${error instanceof Error ? error.message : String(error)}`,
         t('errorTitle')
       );
     } finally {
@@ -139,7 +139,7 @@ function VoiceAnalyzerModal({
       formantShift: result.recommended_formant_shift
     });
     guiState.showError(
-      `Applied recommended Formant Shift: ${result.recommended_formant_shift >= 0 ? '+' : ''}${
+      `${t('voiceAnalyzerAppliedFormantSuccess')}${result.recommended_formant_shift >= 0 ? '+' : ''}${
         result.recommended_formant_shift
       }`,
       t('confirmTitle')
@@ -156,7 +156,7 @@ function VoiceAnalyzerModal({
     guiState.showError(
       `${t('voiceAnalyzerAppliedBothSuccess')}${result.recommended_pitch >= 0 ? '+' : ''}${
         result.recommended_pitch
-      }, Formant: ${result.recommended_formant_shift >= 0 ? '+' : ''}${result.recommended_formant_shift}`,
+      }${t('voiceAnalyzerFormantLabel')}${result.recommended_formant_shift >= 0 ? '+' : ''}${result.recommended_formant_shift}`,
       t('confirmTitle')
     );
   };
@@ -192,7 +192,7 @@ function VoiceAnalyzerModal({
             </div>
             {targetPreviewUrl && (
               <div className="mt-4">
-                <p className="text-[10px] text-on-surface-variant font-bold mb-1">Preview Audio:</p>
+                <p className="text-[10px] text-on-surface-variant font-bold mb-1">{t('voiceAnalyzerPreviewAudio')}</p>
                 <audio src={targetPreviewUrl} controls className="w-full h-8" />
               </div>
             )}
@@ -209,7 +209,7 @@ function VoiceAnalyzerModal({
             </div>
             {inputPreviewUrl && (
               <div className="mt-4">
-                <p className="text-[10px] text-on-surface-variant font-bold mb-1">Preview Audio:</p>
+                <p className="text-[10px] text-on-surface-variant font-bold mb-1">{t('voiceAnalyzerPreviewAudio')}</p>
                 <audio src={inputPreviewUrl} controls className="w-full h-8" />
               </div>
             )}
@@ -244,23 +244,23 @@ function VoiceAnalyzerModal({
               <div className="p-4 rounded-xl bg-surface-container border border-outline-variant space-y-2">
                 <p className="font-bold text-primary">{t('voiceAnalyzerPitchComparison')}</p>
                 <div className="flex justify-between">
-                  <span className="text-on-surface-variant/70">Standard Target:</span>
+                  <span className="text-on-surface-variant/70">{t('voiceAnalyzerStandardTargetLabel')}</span>
                   <span className="font-semibold text-on-surface">{hzToNote(result.target_f0)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-on-surface-variant/70">Your Input:</span>
+                  <span className="text-on-surface-variant/70">{t('voiceAnalyzerYourInputLabel')}</span>
                   <span className="font-semibold text-on-surface">{hzToNote(result.input_f0)}</span>
                 </div>
               </div>
 
               <div className="p-4 rounded-xl bg-surface-container border border-outline-variant space-y-2">
-                <p className="font-bold text-secondary">Formant Resonance</p>
+                <p className="font-bold text-secondary">{t('voiceAnalyzerFormantResonanceLabel')}</p>
                 <div className="flex justify-between">
-                  <span className="text-on-surface-variant/70">Standard Target:</span>
+                  <span className="text-on-surface-variant/70">{t('voiceAnalyzerStandardTargetLabel')}</span>
                   <span className="font-semibold text-on-surface">{Math.round(result.target_centroid)} Hz</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-on-surface-variant/70">Your Input:</span>
+                  <span className="text-on-surface-variant/70">{t('voiceAnalyzerYourInputLabel')}</span>
                   <span className="font-semibold text-on-surface">{Math.round(result.input_centroid)} Hz</span>
                 </div>
               </div>
@@ -279,7 +279,7 @@ function VoiceAnalyzerModal({
                     {result.recommended_pitch >= 0 ? '+' : ''}
                     {result.recommended_pitch}
                   </span>
-                  <span className="ml-1 text-[10px] text-on-surface-variant font-medium">semitones</span>
+                  <span className="ml-1 text-[10px] text-on-surface-variant font-medium">{t('voiceAnalyzerSemitones')}</span>
                 </div>
                 <button
                   onClick={handleApplyPitch}
@@ -297,7 +297,7 @@ function VoiceAnalyzerModal({
                     {result.recommended_formant_shift >= 0 ? '+' : ''}
                     {result.recommended_formant_shift}
                   </span>
-                  <span className="ml-1 text-[10px] text-on-surface-variant font-medium">semitones</span>
+                  <span className="ml-1 text-[10px] text-on-surface-variant font-medium">{t('voiceAnalyzerSemitones')}</span>
                 </div>
                 <button
                   onClick={handleApplyFormant}

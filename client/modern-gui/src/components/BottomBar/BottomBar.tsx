@@ -12,6 +12,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { AppContextValue, useAppState } from '../../context/AppContext';
 import { useUIContext } from '../../context/UIContext';
+import { t } from '../../locales';
 import MergeLabModal from './Modals/Merge/MergeLabModal';
 import VoiceAnalyzerModal from './Modals/VoiceAnalyzer/VoiceAnalyzerModal';
 import AdvancedSettingsModal from './Modals/AdvancedSettings/AdvancedSettingsModal';
@@ -63,7 +64,7 @@ function BottomBar(): JSX.Element {
   const handleStart = async () => {
     // Check if model is selected
     if (appState.serverSetting.serverSetting.modelSlotIndex === -1) {
-      uiContext.showError('Select a voice model first.', "Warning");
+      uiContext.showError(t('selectModelFirst'), t('voiceAnalyzerUploadWarning'));
       return;
     }
 
@@ -74,13 +75,13 @@ function BottomBar(): JSX.Element {
         !appState.setting.voiceChangerClientSetting.audioInput ||
         appState.setting.voiceChangerClientSetting.audioInput == 'none'
       ) {
-        uiContext.showError('Select an audio input device.', "Warning");
+        uiContext.showError(t('selectAudioInputFirst'), t('voiceAnalyzerUploadWarning'));
         return;
       }
 
       // Check if audio output is selected
       if (uiContext.audioOutputForGUI == 'none') {
-        uiContext.showError('Select an audio output device.', "Warning");
+        uiContext.showError(t('selectAudioOutputFirst'), t('voiceAnalyzerUploadWarning'));
         return;
       }
 
@@ -110,7 +111,7 @@ function BottomBar(): JSX.Element {
           (device) => device.index === appState.serverSetting.serverSetting.serverInputDeviceId
         )
       ) {
-        uiContext.showError('Select an audio input device.', "Warning");
+        uiContext.showError(t('selectAudioInputFirst'), t('voiceAnalyzerUploadWarning'));
         return;
       }
 
@@ -120,7 +121,7 @@ function BottomBar(): JSX.Element {
           (device) => device.index === appState.serverSetting.serverSetting.serverOutputDeviceId
         )
       ) {
-        uiContext.showError('Select an audio output device.', "Warning");
+        uiContext.showError(t('selectAudioOutputFirst'), t('voiceAnalyzerUploadWarning'));
         return;
       }
 
@@ -198,13 +199,13 @@ function BottomBar(): JSX.Element {
         {/* Left group: tools */}
         <div className="flex space-x-2">
           <button onClick={() => setShowMerge(true)} className={CSS_CLASSES.modalSecondaryButton}>
-            Merge Lab
+            {t('mergeLabTitle')}
           </button>
           <button onClick={() => setShowVoiceAnalyzer(true)} className={CSS_CLASSES.modalSecondaryButton}>
-            Voice Analyzer
+            {t('voiceAnalyzerTitle')}
           </button>
           <button onClick={() => setShowSettings(true)} className={CSS_CLASSES.modalSecondaryButton}>
-            Advanced Settings
+            {t('advancedSettingsTitle')}
           </button>
         </div>
 
@@ -217,7 +218,7 @@ function BottomBar(): JSX.Element {
             }`}
           >
             <FontAwesomeIcon icon={uiContext.isConverting ? faStop : faPlay} />
-            <span>{uiContext.isConverting ? 'Stop' : 'Start'}</span>
+            <span>{uiContext.isConverting ? t('btnStop') : t('btnStart')}</span>
           </button>
           <button
             onClick={
@@ -236,8 +237,8 @@ function BottomBar(): JSX.Element {
             />
             <span>
               {appState.serverSetting?.serverSetting?.passThrough
-                ? 'Passthrough ON'
-                : 'Passthrough OFF'}
+                ? t('passthroughOn')
+                : t('passthroughOff')}
             </span>
           </button>
         </div>
@@ -245,10 +246,10 @@ function BottomBar(): JSX.Element {
         {/* Right group: info & theme */}
         <div className="flex items-center space-x-2 relative">
           <button onClick={() => setShowServerInfo(true)} className={CSS_CLASSES.modalSecondaryButton}>
-            Server Info
+            {t('serverInfoTitle')}
           </button>
           <button onClick={() => setShowClientInfo(true)} className={CSS_CLASSES.modalSecondaryButton}>
-            Client Info
+            {t('clientInfoTitle')}
           </button>
 
           {/* Seed Color Picker */}
