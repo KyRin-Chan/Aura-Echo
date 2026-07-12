@@ -210,7 +210,13 @@ class Pipeline:
                                 # 1. Post-filter (target envelope coloring)
                                 f_tgt = np.linspace(0, target_sr / 2, len(tgt_env))
                                 log_env_tgt_out = np.interp(f_out, f_tgt, tgt_env)
-                                log_H_post = strength * log_env_tgt_out
+                                
+                                # Zero-mean & Tilt detrending to prevent volume attenuation and muddiness
+                                x_post = np.arange(len(log_env_tgt_out))
+                                slope_post, intercept_post = np.polyfit(x_post, log_env_tgt_out, 1)
+                                log_env_tgt_out_normalized = log_env_tgt_out - (slope_post * x_post + intercept_post)
+                                
+                                log_H_post = strength * log_env_tgt_out_normalized
                                 H_post = np.exp(log_H_post)
                                 self._formant_filter_post_tensor = torch.tensor(H_post, dtype=torch.float32, device=device)
                                 
@@ -220,10 +226,15 @@ class Pipeline:
                                 f_in = np.linspace(0, input_sr / 2, len(in_env))
                                 log_env_in_out = np.interp(f_in_out, f_in, in_env)
                                 
+                                # Zero-mean & Tilt detrending to prevent volume boosting and phonetic distortions
+                                x_pre = np.arange(len(log_env_in_out))
+                                slope_pre, intercept_pre = np.polyfit(x_pre, log_env_in_out, 1)
+                                log_env_in_out_normalized = log_env_in_out - (slope_pre * x_pre + intercept_pre)
+                                
                                 # Use "Soft-whitening" with beta = 0.5 * strength (typically 0.17 to 0.35)
                                 # to avoid over-flattening the spectrum and protect Hubert's phonetic comprehension.
                                 beta = 0.5 * strength
-                                log_H_pre = -beta * log_env_in_out
+                                log_H_pre = -beta * log_env_in_out_normalized
                                 log_H_pre = np.clip(log_H_pre, -1.5, 1.5)
                                 H_pre = np.exp(log_H_pre)
                                 self._formant_filter_pre_tensor = torch.tensor(H_pre, dtype=torch.float32, device=device)

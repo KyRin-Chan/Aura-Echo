@@ -258,9 +258,12 @@ class VoiceChangerManager(ServerAudioCallbacks):
             logger.warning(f"Failed to attach audio mixer: {e}")
 
     def update_settings(self, key: str, val: Any):
-        # Only log audio effects changes at debug level to reduce noise
-        if key == 'audioEffects':
-            logger.debug(f"update configuration {key}: {val}")
+        # Only log audio effects changes and large envelopes at debug level to reduce noise
+        if key in ['audioEffects', 'formantProfileInputEnvelope', 'formantProfileTargetEnvelope']:
+            log_val = val
+            if isinstance(val, str) and len(val) > 80:
+                log_val = val[:77] + "..."
+            logger.debug(f"update configuration {key}: {log_val}")
         else:
             logger.info(f"update configuration {key}: {val}")
         error, old_value = self.settings.set_property(key, val)
