@@ -138,8 +138,8 @@ class MMVC_Rest_VoiceChanger:
             y_tgt, sr_tgt = librosa.load(target_path, sr=None)
             y_in, sr_in = librosa.load(input_path, sr=None)
             
-            f0_tgt, cent_tgt = self._analyze_audio(y_tgt, sr_tgt)
-            f0_in, cent_in = self._analyze_audio(y_in, sr_in)
+            f0_tgt, cent_tgt, env_tgt = self._analyze_audio(y_tgt, sr_tgt)
+            f0_in, cent_in, env_in = self._analyze_audio(y_in, sr_in)
             
             recommended_pitch = 0.0
             if f0_tgt > 0 and f0_in > 0:
@@ -163,7 +163,11 @@ class MMVC_Rest_VoiceChanger:
                 "target_centroid": round(float(cent_tgt), 1),
                 "input_centroid": round(float(cent_in), 1),
                 "recommended_pitch": recommended_pitch,
-                "recommended_formant_shift": recommended_formant
+                "recommended_formant_shift": recommended_formant,
+                "target_envelope": env_tgt.tolist(),
+                "target_sr": int(sr_tgt),
+                "input_envelope": env_in.tolist(),
+                "input_sr": int(sr_in)
             })
             
         except Exception as e:
@@ -239,4 +243,8 @@ class MMVC_Rest_VoiceChanger:
         voiced_cent = centroid_frames[voiced_frames] if np.any(voiced_frames) else centroid_frames
         cent_median = np.median(voiced_cent) if len(voiced_cent) > 0 else 0.0
         
-        return f0_median, cent_median
+        # Compute mean log envelope across voiced frames
+        voiced_log_envelope = log_envelope[:, voiced_frames] if np.any(voiced_frames) else log_envelope
+        mean_log_envelope = np.mean(voiced_log_envelope, axis=1)
+        
+        return f0_median, cent_median, mean_log_envelope

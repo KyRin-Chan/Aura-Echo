@@ -77,7 +77,10 @@ class Pipeline:
 
         self.dtype = torch.float16 if self.is_half else torch.float32
 
-        self.resamplers = {}
+        self.settings = None
+        self._formant_filter_pre_tensor = None
+        self._formant_filter_post_tensor = None
+        self._formant_filter_cache_key = None
         
         # Initialize Audio Effects Manager with provider system
         try:
@@ -166,7 +169,6 @@ class Pipeline:
         pitch: torch.Tensor | None,  # torch.tensor [m]
         pitchf: torch.Tensor | None,  # torch.tensor [m]
         f0_up_key: float,
-        formant_shift: float,
         index_rate: float,
         audio_feats_len: int,
         silence_front: int,
@@ -180,8 +182,92 @@ class Pipeline:
             # 16000のサンプリングレートで入ってきている。以降この世界は16000で処理。
             assert audio.dim() == 1, audio.dim()
 
-            formant_factor = 2 ** (formant_shift / 12)
-            formant_length = int(np.ceil(return_length * formant_factor))
+            # Precompute formant filters if settings are available and changed
+            if self.settings is not None:
+                active = getattr(self.settings, "formantProfileActive", False)
+                target_env = getattr(self.settings, "formantProfileTargetEnvelope", "[]")
+                target_sr = getattr(self.settings, "formantProfileTargetSr", 0)
+                input_env = getattr(self.settings, "formantProfileInputEnvelope", "[]")
+                input_sr = getattr(self.settings, "formantProfileInputSr", 0)
+                strength = getattr(self.settings, "formantProfileStrength", 0.35)
+                device = self.device
+                model_sr = self.model_sr
+
+                cache_key = (active, target_env, target_sr, input_env, input_sr, strength, model_sr, str(device))
+                if cache_key != self._formant_filter_cache_key:
+                    self._formant_filter_cache_key = cache_key
+                    if active and target_env and input_env and target_sr > 0 and input_sr > 0:
+                        try:
+                            import json
+                            import numpy as np
+                            tgt_env = np.array(json.loads(target_env), dtype=np.float32)
+                            in_env = np.array(json.loads(input_env), dtype=np.float32)
+                            
+                            if len(tgt_env) > 0 and len(in_env) > 0:
+                                n_fft_out = 2048
+                                f_out = np.linspace(0, model_sr / 2, n_fft_out // 2 + 1)
+                                
+                                # 1. Post-filter (target envelope coloring)
+                                f_tgt = np.linspace(0, target_sr / 2, len(tgt_env))
+                                log_env_tgt_out = np.interp(f_out, f_tgt, tgt_env)
+                                log_H_post = strength * log_env_tgt_out
+                                H_post = np.exp(log_H_post)
+                                self._formant_filter_post_tensor = torch.tensor(H_post, dtype=torch.float32, device=device)
+                                
+                                # 2. Pre-filter (input envelope inverse filtering / whitening)
+                                input_audio_sr = 16000
+                                f_in_out = np.linspace(0, input_audio_sr / 2, n_fft_out // 2 + 1)
+                                f_in = np.linspace(0, input_sr / 2, len(in_env))
+                                log_env_in_out = np.interp(f_in_out, f_in, in_env)
+                                
+                                # Use "Soft-whitening" with beta = 0.5 * strength (typically 0.17 to 0.35)
+                                # to avoid over-flattening the spectrum and protect Hubert's phonetic comprehension.
+                                beta = 0.5 * strength
+                                log_H_pre = -beta * log_env_in_out
+                                log_H_pre = np.clip(log_H_pre, -1.5, 1.5)
+                                H_pre = np.exp(log_H_pre)
+                                self._formant_filter_pre_tensor = torch.tensor(H_pre, dtype=torch.float32, device=device)
+                                
+                                logger.info(f"Formant profile pre- and post-filters precomputed successfully")
+                            else:
+                                self._formant_filter_pre_tensor = None
+                                self._formant_filter_post_tensor = None
+                        except Exception as ex:
+                            logger.error(f"Error precomputing formant filters: {ex}")
+                            self._formant_filter_pre_tensor = None
+                            self._formant_filter_post_tensor = None
+                    else:
+                          self._formant_filter_pre_tensor = None
+                          self._formant_filter_post_tensor = None
+
+            # Apply pre-whitening filter to input audio if active
+            if self._formant_filter_pre_tensor is not None:
+                try:
+                    n_fft = 2048
+                    hop_length = 256  # Smaller hop length (87.5% overlap) to prevent time-smearing & window boundary artifacts
+                    audio_float = audio.to(device=self.device, dtype=torch.float32)
+                    if audio_float.shape[0] >= n_fft:
+                        window = torch.hann_window(n_fft, device=self.device)
+                        S = torch.stft(
+                            audio_float,
+                            n_fft=n_fft,
+                            hop_length=hop_length,
+                            window=window,
+                            return_complex=True
+                        )
+                        S_filtered = S * self._formant_filter_pre_tensor.unsqueeze(-1)
+                        audio_filtered = torch.istft(
+                            S_filtered,
+                            n_fft=n_fft,
+                            hop_length=hop_length,
+                            window=window,
+                            length=audio_float.shape[0]
+                        )
+                        audio = audio_filtered.to(device=audio.device, dtype=audio.dtype)
+                except Exception as ex:
+                    logger.error(f"Error applying pre-whitening filter: {ex}")
+
+            formant_length = return_length
             t.record("pre-process")
 
             # Audio Effects vor Voice Conversion anwenden
@@ -273,19 +359,41 @@ class Pipeline:
             # 推論実行
             out_audio = self.inferencer.infer(feats, p_len, pitch, pitchf, sid, skip_head, return_length, formant_length).float()
             t.record("infer")
-
-            # Formant shift sample rate adjustment
-            scaled_window = int(np.floor(formant_factor * self.model_window))
-            if scaled_window != self.model_window:
-                if scaled_window not in self.resamplers:
-                    self.resamplers[scaled_window] = tat.Resample(
-                        orig_freq=scaled_window,
-                        new_freq=self.model_window,
-                        dtype=torch.float32,
-                    ).to(self.device)
-                out_audio = self.resamplers[scaled_window](
-                    out_audio[: return_length * scaled_window]
-                )
+            
+            # Apply formant profile warp filter if active
+            if self._formant_filter_post_tensor is not None:
+                try:
+                    n_fft = 2048
+                    hop_length = 256  # Smaller hop length (87.5% overlap) to prevent time-smearing & window boundary artifacts
+                    
+                    # Ensure out_audio is float32 and on the correct device
+                    out_audio_float = out_audio.to(device=self.device, dtype=torch.float32)
+                    
+                    # STFT requires input length >= n_fft to avoid padding issues or errors
+                    if out_audio_float.shape[0] >= n_fft:
+                        window = torch.hann_window(n_fft, device=self.device)
+                        S = torch.stft(
+                            out_audio_float,
+                            n_fft=n_fft,
+                            hop_length=hop_length,
+                            window=window,
+                            return_complex=True
+                        )
+                        
+                        # Pointwise scaling of magnitude spectrum
+                        S_filtered = S * self._formant_filter_post_tensor.unsqueeze(-1)
+                        
+                        # Reconstruct via ISTFT
+                        out_audio_filtered = torch.istft(
+                            S_filtered,
+                            n_fft=n_fft,
+                            hop_length=hop_length,
+                            window=window,
+                            length=out_audio_float.shape[0]
+                        )
+                        out_audio = out_audio_filtered.to(device=out_audio.device, dtype=out_audio.dtype)
+                except Exception as ex:
+                    logger.error(f"Error applying formant profile filter: {ex}")
             
             # Audio Effects nach Voice Conversion anwenden
             if self.audio_effects_manager is not None:

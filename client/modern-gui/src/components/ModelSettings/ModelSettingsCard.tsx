@@ -41,14 +41,6 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
     });
   };
 
-  // Handle format shift change
-  const handleFormatShiftChange = (val: number) => {
-    appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      formantShift: val
-    });
-  };
-
   // Handle index ratio change
   const handleIndexRatioChange = (val: number) => {
     appState.serverSetting.updateServerSettings({
@@ -102,7 +94,6 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
               <ModelSettings
                 model={model}
                 handlePitchChange={handlePitchChange}
-                handleFormatShiftChange={handleFormatShiftChange}
                 handleIndexRatioChange={handleIndexRatioChange}
                 handleSpeakerChange={handleSpeakerChange}
                 setModel={setModel}

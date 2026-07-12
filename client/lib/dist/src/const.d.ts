@@ -126,6 +126,12 @@ export declare const ServerSettingKey: {
     readonly inputSampleRate: "inputSampleRate";
     readonly audioEffects: "audioEffects";
     readonly audioBackgrounds: "audioBackgrounds";
+    readonly formantProfileActive: "formantProfileActive";
+    readonly formantProfileTargetEnvelope: "formantProfileTargetEnvelope";
+    readonly formantProfileTargetSr: "formantProfileTargetSr";
+    readonly formantProfileInputEnvelope: "formantProfileInputEnvelope";
+    readonly formantProfileInputSr: "formantProfileInputSr";
+    readonly formantProfileStrength: "formantProfileStrength";
     readonly embedders: "embedders";
     readonly pitchExtractors: "pitchExtractors";
 };
@@ -188,6 +194,12 @@ export type VoiceChangerServerSetting = {
     inputSampleRate: InputSampleRate;
     audioEffects: AudioEffectsConfiguration;
     audioBackgrounds: BackgroundsConfiguration;
+    formantProfileActive: boolean;
+    formantProfileTargetEnvelope: string;
+    formantProfileTargetSr: number;
+    formantProfileInputEnvelope: string;
+    formantProfileInputSr: number;
+    formantProfileStrength: number;
     embedders: ModelInfoDict;
     pitchExtractors: ModelInfoDict;
 };

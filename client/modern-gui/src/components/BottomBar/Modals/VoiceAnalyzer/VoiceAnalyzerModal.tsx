@@ -22,6 +22,10 @@ interface AnalysisResult {
   input_centroid: number;
   recommended_pitch: number;
   recommended_formant_shift: number;
+  target_envelope: number[];
+  target_sr: number;
+  input_envelope: number[];
+  input_sr: number;
 }
 
 function VoiceAnalyzerModal({
@@ -104,6 +108,76 @@ function VoiceAnalyzerModal({
       const data: AnalysisResult = await response.json();
       if (data.success) {
         setResult(data);
+        
+        try {
+          const activeSlotIndex = appState.serverSetting.serverSetting.modelSlotIndex;
+          const activeModelName = appState.serverSetting.serverSetting.modelSlots[activeSlotIndex]?.name || `Model ${activeSlotIndex}`;
+          
+          const targetProfileId = `target-slot-${activeSlotIndex}`;
+          const inputProfileId = `input-default`;
+          
+          const targetProfile = {
+            id: targetProfileId,
+            name: `Target: ${activeModelName}`,
+            type: 'target',
+            envelope: data.target_envelope,
+            sr: data.target_sr,
+            f0: data.target_f0,
+            centroid: data.target_centroid
+          };
+          
+          const inputProfile = {
+            id: inputProfileId,
+            name: `Input: My Voice (Auto-Generated)`,
+            type: 'input',
+            envelope: data.input_envelope,
+            sr: data.input_sr,
+            f0: data.input_f0,
+            centroid: data.input_centroid
+          };
+          
+          const storedProfilesStr = localStorage.getItem('formant_profiles') || '[]';
+          let storedProfiles: any[] = [];
+          try {
+            storedProfiles = JSON.parse(storedProfilesStr);
+          } catch (e) {
+            storedProfiles = [];
+          }
+          
+          storedProfiles = storedProfiles.filter(p => p.id !== targetProfileId && p.id !== inputProfileId);
+          storedProfiles.push(targetProfile);
+          storedProfiles.push(inputProfile);
+          localStorage.setItem('formant_profiles', JSON.stringify(storedProfiles));
+          
+          const storedBindingsStr = localStorage.getItem('model_formant_bindings') || '{}';
+          let storedBindings: any = {};
+          try {
+            storedBindings = JSON.parse(storedBindingsStr);
+          } catch (e) {
+            storedBindings = {};
+          }
+          storedBindings[activeSlotIndex] = {
+            targetProfileId,
+            inputProfileId,
+            recommendedPitch: data.recommended_pitch,
+            recommendedFormantShift: data.recommended_formant_shift
+          };
+          localStorage.setItem('model_formant_bindings', JSON.stringify(storedBindings));
+          
+          appState.serverSetting.updateServerSettings({
+            ...appState.serverSetting.serverSetting,
+            tran: data.recommended_pitch,
+            formantShift: data.recommended_formant_shift,
+            formantProfileActive: true,
+            formantProfileTargetEnvelope: JSON.stringify(data.target_envelope),
+            formantProfileTargetSr: data.target_sr,
+            formantProfileInputEnvelope: JSON.stringify(data.input_envelope),
+            formantProfileInputSr: data.input_sr,
+            formantProfileStrength: 0.35
+          });
+        } catch (autoErr) {
+          console.error('Error auto-generating/applying formant profile:', autoErr);
+        }
       } else {
         throw new Error(t('voiceAnalysisUnsuccessful'));
       }
@@ -136,7 +210,13 @@ function VoiceAnalyzerModal({
     if (!result) return;
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
-      formantShift: result.recommended_formant_shift
+      formantShift: result.recommended_formant_shift,
+      formantProfileActive: true,
+      formantProfileTargetEnvelope: JSON.stringify(result.target_envelope),
+      formantProfileTargetSr: result.target_sr,
+      formantProfileInputEnvelope: JSON.stringify(result.input_envelope),
+      formantProfileInputSr: result.input_sr,
+      formantProfileStrength: 0.35
     });
     guiState.showError(
       `${t('voiceAnalyzerAppliedFormantSuccess')}${result.recommended_formant_shift >= 0 ? '+' : ''}${
@@ -151,7 +231,13 @@ function VoiceAnalyzerModal({
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       tran: result.recommended_pitch,
-      formantShift: result.recommended_formant_shift
+      formantShift: result.recommended_formant_shift,
+      formantProfileActive: true,
+      formantProfileTargetEnvelope: JSON.stringify(result.target_envelope),
+      formantProfileTargetSr: result.target_sr,
+      formantProfileInputEnvelope: JSON.stringify(result.input_envelope),
+      formantProfileInputSr: result.input_sr,
+      formantProfileStrength: 0.35
     });
     guiState.showError(
       `${t('voiceAnalyzerAppliedBothSuccess')}${result.recommended_pitch >= 0 ? '+' : ''}${

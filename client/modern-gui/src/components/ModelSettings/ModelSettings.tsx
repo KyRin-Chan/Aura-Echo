@@ -9,7 +9,6 @@ import { t } from '../../locales';
 interface ModelSettingsProps {
   model: RVCModelSlot;
   handlePitchChange: (val: number) => void;
-  handleFormatShiftChange: (val: number) => void;
   handleIndexRatioChange: (val: number) => void;
   handleSpeakerChange: (val: number) => void;
   setModel: (model: RVCModelSlot) => void;
@@ -18,7 +17,6 @@ interface ModelSettingsProps {
 function ModelSettings({
   model,
   handlePitchChange,
-  handleFormatShiftChange,
   handleIndexRatioChange,
   handleSpeakerChange,
   setModel
@@ -29,24 +27,39 @@ function ModelSettings({
   const [immediatePitch, setImmediatePitch] = useState<number>(
     appState.serverSetting?.serverSetting?.tran ?? 0
   );
-  const [immediateFormant, setImmediateFormant] = useState<number>(
-    appState.serverSetting?.serverSetting?.formantShift ?? 0
-  );
   const [immediateIndexRatio, setImmediateIndexRatio] = useState<number>(
     appState.serverSetting?.serverSetting?.indexRatio ?? 0.5
+  );
+  const [immediateStrength, setImmediateStrength] = useState<number>(
+    appState.serverSetting?.serverSetting?.formantProfileStrength ?? 0.35
   );
 
   useEffect(() => {
     if (appState.serverSetting?.serverSetting) {
       setImmediatePitch(appState.serverSetting.serverSetting.tran);
-      setImmediateFormant(appState.serverSetting.serverSetting.formantShift);
       setImmediateIndexRatio(appState.serverSetting.serverSetting.indexRatio);
+      setImmediateStrength(appState.serverSetting.serverSetting.formantProfileStrength ?? 0.35);
     }
   }, [
     appState.serverSetting?.serverSetting?.tran,
-    appState.serverSetting?.serverSetting?.formantShift,
-    appState.serverSetting?.serverSetting?.indexRatio
+    appState.serverSetting?.serverSetting?.indexRatio,
+    appState.serverSetting?.serverSetting?.formantProfileStrength
   ]);
+
+  const handleWarpFilterActiveChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const active = e.target.checked;
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      formantProfileActive: active
+    });
+  };
+
+  const handleWarpFilterStrengthChange = (val: number) => {
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      formantProfileStrength: val
+    });
+  };
 
   const speakerOptions =
     model && model.speakers && Object.keys(model.speakers).length > 0
@@ -77,23 +90,38 @@ function ModelSettings({
           valueFormatter={(val) => `${val > 0 ? '+' : ''}${val}`}
         />
       </div>
-      <div>
-        <label htmlFor="formatShift" className={CSS_CLASSES.label}>
-          {t('formantShiftLabel')}
+      <div className="flex items-center space-x-3 py-1">
+        <label className="flex items-center space-x-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={appState.serverSetting?.serverSetting?.formantProfileActive ?? false}
+            onChange={handleWarpFilterActiveChange}
+            className="w-4 h-4 rounded text-primary focus:ring-primary border-outline-variant bg-surface-container"
+          />
+          <span className="text-xs font-semibold text-on-surface">
+            {t('timbreWarpFilterLabel')}
+          </span>
         </label>
-        <MD3Slider
-          id="formatShift"
-          min={-2.0}
-          max={2.0}
-          step={0.01}
-          value={appState.serverSetting?.serverSetting?.formantShift ?? 0}
-          onChange={handleFormatShiftChange}
-          onImmediateChange={setImmediateFormant}
-          disabled={!model}
-          showValue={true}
-          valueFormatter={(val) => val.toFixed(2)}
-        />
       </div>
+      {appState.serverSetting?.serverSetting?.formantProfileActive && (
+        <div className="animate-fadeIn">
+          <label htmlFor="formantProfileStrength" className={CSS_CLASSES.label}>
+            {t('timbreWarpStrengthLabel')}
+          </label>
+          <MD3Slider
+            id="formantProfileStrength"
+            min={0.0}
+            max={1.0}
+            step={0.05}
+            value={appState.serverSetting?.serverSetting?.formantProfileStrength ?? 0.35}
+            onChange={handleWarpFilterStrengthChange}
+            onImmediateChange={setImmediateStrength}
+            disabled={!model}
+            showValue={true}
+            valueFormatter={(val) => val.toFixed(2)}
+          />
+        </div>
+      )}
       {model.indexFile !== '' && (
         <div>
           <label htmlFor="indexRatio" className={CSS_CLASSES.label}>

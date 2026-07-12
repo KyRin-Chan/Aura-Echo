@@ -441,3 +441,64 @@ class VoiceChangerSettings:
     def embedders(self, value):
         # This is a no-op setter to prevent errors when client tries to set this read-only property
         pass
+
+    # Formant Profile Settings
+    _formantProfileActive: bool = False
+    _formantProfileTargetEnvelope: str = "[]"
+    _formantProfileTargetSr: int = 0
+    _formantProfileInputEnvelope: str = "[]"
+    _formantProfileInputSr: int = 0
+    _formantProfileStrength: float = 0.35
+
+    @property
+    def formantProfileActive(self):
+        return self._formantProfileActive
+
+    @formantProfileActive.setter
+    def formantProfileActive(self, val: Any):
+        if isinstance(val, bool):
+            self._formantProfileActive = val
+        elif isinstance(val, int):
+            self._formantProfileActive = bool(val)
+        else:
+            self._formantProfileActive = str(val).lower() == "true" or str(val) == "1"
+
+    @property
+    def formantProfileTargetEnvelope(self):
+        return self._formantProfileTargetEnvelope
+
+    @formantProfileTargetEnvelope.setter
+    def formantProfileTargetEnvelope(self, val: Any):
+        self._formantProfileTargetEnvelope = str(val)
+
+    @property
+    def formantProfileTargetSr(self):
+        return self._formantProfileTargetSr
+
+    @formantProfileTargetSr.setter
+    def formantProfileTargetSr(self, val: Any):
+        self._formantProfileTargetSr = int(val)
+
+    @property
+    def formantProfileInputEnvelope(self):
+        return self._formantProfileInputEnvelope
+
+    @formantProfileInputEnvelope.setter
+    def formantProfileInputEnvelope(self, val: Any):
+        self._formantProfileInputEnvelope = str(val)
+
+    @property
+    def formantProfileInputSr(self):
+        return self._formantProfileInputSr
+
+    @formantProfileInputSr.setter
+    def formantProfileInputSr(self, val: Any):
+        self._formantProfileInputSr = int(val)
+
+    @property
+    def formantProfileStrength(self):
+        return self._formantProfileStrength
+
+    @formantProfileStrength.setter
+    def formantProfileStrength(self, val: Any):
+        self._formantProfileStrength = float(val)

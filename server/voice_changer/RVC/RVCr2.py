@@ -86,6 +86,8 @@ class RVCr2(VoiceChangerModel):
                 self.slotInfo, self.settings.f0Detector, self.settings.useONNX, force_reload,
                 progress_callback=_cb,
             )
+            if self.pipeline is not None:
+                self.pipeline.settings = self.settings
             
             # Configure initial audio effects from settings
             if self.pipeline is not None and hasattr(self.settings, 'audioEffects'):
@@ -231,7 +233,6 @@ class RVCr2(VoiceChangerModel):
             None,
             None,
             self.settings.tran,
-            self.settings.formantShift,
             self.settings.indexRatio,
             convert_feature_size_16k,
             0,
@@ -276,7 +277,6 @@ class RVCr2(VoiceChangerModel):
                     self.pitch_buffer,
                     self.pitchf_buffer,
                     self.settings.tran,
-                    self.settings.formantShift,
                     self.settings.indexRatio,
                     self.convert_feature_size_16k,
                     self.silence_front,
@@ -296,7 +296,6 @@ class RVCr2(VoiceChangerModel):
             self.pitch_buffer,
             self.pitchf_buffer,
             self.settings.tran,
-            self.settings.formantShift,
             self.settings.indexRatio,
             self.convert_feature_size_16k,
             self.silence_front,

@@ -164,6 +164,13 @@ export const ServerSettingKey = {
     audioEffects: "audioEffects",
     audioBackgrounds: "audioBackgrounds",
     
+    formantProfileActive: "formantProfileActive",
+    formantProfileTargetEnvelope: "formantProfileTargetEnvelope",
+    formantProfileTargetSr: "formantProfileTargetSr",
+    formantProfileInputEnvelope: "formantProfileInputEnvelope",
+    formantProfileInputSr: "formantProfileInputSr",
+    formantProfileStrength: "formantProfileStrength",
+    
     embedders: "embedders",
     pitchExtractors: "pitchExtractors",
 } as const;
@@ -237,6 +244,14 @@ export type VoiceChangerServerSetting = {
     inputSampleRate: InputSampleRate;
     audioEffects: AudioEffectsConfiguration;
     audioBackgrounds: BackgroundsConfiguration;
+    
+    formantProfileActive: boolean;
+    formantProfileTargetEnvelope: string;
+    formantProfileTargetSr: number;
+    formantProfileInputEnvelope: string;
+    formantProfileInputSr: number;
+    formantProfileStrength: number;
+
     embedders: ModelInfoDict;
     pitchExtractors: ModelInfoDict;
 };
@@ -366,6 +381,14 @@ export const DefaultServerSetting: ServerInfo = {
     modelSlotIndex: 0,
     audioEffects: [],
     audioBackgrounds: [],
+    
+    formantProfileActive: false,
+    formantProfileTargetEnvelope: "[]",
+    formantProfileTargetSr: 0,
+    formantProfileInputEnvelope: "[]",
+    formantProfileInputSr: 0,
+    formantProfileStrength: 0.35,
+
     gpus: [],
 
     //

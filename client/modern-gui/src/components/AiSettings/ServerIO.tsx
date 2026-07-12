@@ -24,6 +24,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [reloadTrigger, setReloadTrigger] = useState<number>(Date.now());
   const {
     audioOutputForAnalyzer,
     setAudioOutputForAnalyzer,
@@ -80,14 +81,31 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
 
   // Record start
   const onServerIORecordStart = async () => {
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        recordIO: 1
+      });
+    } catch (e) {
+      console.error('Error starting server recording:', e);
+    }
     appState.startOutputRecording();
     setIsRecording(true);
   };
 
   // Record stop
   const onServerIORecordStop = async () => {
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        recordIO: 0
+      });
+    } catch (e) {
+      console.error('Error stopping server recording:', e);
+    }
     const outputWav = await appState.stopOutputRecording();
     setIsRecording(false);
+    setReloadTrigger(Date.now());
     const wavUrl = URL.createObjectURL(new Blob([outputWav], { type: "audio/wav" }));
     const audioInput = document.getElementById(AUDIO_KEYS.AUDIO_ELEMENT_FOR_SAMPLING_INPUT) as HTMLAudioElement;
     if (audioInput) {
@@ -188,7 +206,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
             <div>
               <label className={CSS_CLASSES.label}>{t('inputAudioLabel')}</label>
               <AudioPlayer
-                src="/tmp/in.wav"
+                src={`/tmp/in.wav?t=${reloadTrigger}`}
                 title="Input Audio"
                 id={AUDIO_KEYS.AUDIO_ELEMENT_FOR_SAMPLING_INPUT}
                 outputDeviceId={audioOutputForAnalyzer}
@@ -207,7 +225,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
             <div>
               <label className={CSS_CLASSES.label}>{t('outputAudioLabel')}</label>
               <AudioPlayer
-                src="/tmp/out.wav"
+                src={`/tmp/out.wav?t=${reloadTrigger}`}
                 title="Output Audio"
                 id={AUDIO_KEYS.AUDIO_ELEMENT_FOR_SAMPLING_OUTPUT}
                 outputDeviceId={audioOutputForAnalyzer}

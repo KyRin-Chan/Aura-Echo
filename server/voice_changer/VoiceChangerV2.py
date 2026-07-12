@@ -35,6 +35,8 @@ class VoiceChangerV2:
             self.settings.inputSampleRate,
             self.settings.outputSampleRate,
         )
+        if self.settings.recordIO:
+            self.io_recorder.open(self.settings.inputSampleRate, self.settings.outputSampleRate)
         self._generate_strength()
 
         # Optional background audio mixer
@@ -60,7 +62,8 @@ class VoiceChangerV2:
         return self.vcmodel.voiceChangerType
 
     def set_input_sample_rate(self):
-        self.io_recorder.open(self.settings.inputSampleRate, self.settings.outputSampleRate)
+        if self.settings.recordIO:
+            self.io_recorder.open(self.settings.inputSampleRate, self.settings.outputSampleRate)
 
         self.extra_frame = int(self.settings.extraConvertSize * self.settings.inputSampleRate)
         self.crossfade_frame = int(self.settings.crossFadeOverlapSize * self.settings.inputSampleRate)
@@ -71,7 +74,8 @@ class VoiceChangerV2:
         self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
 
     def set_output_sample_rate(self):
-        self.io_recorder.open(self.settings.inputSampleRate, self.settings.outputSampleRate)
+        if self.settings.recordIO:
+            self.io_recorder.open(self.settings.inputSampleRate, self.settings.outputSampleRate)
 
         self.vcmodel.set_sampling_rate(self.settings.inputSampleRate, self.settings.outputSampleRate)
 
@@ -95,6 +99,12 @@ class VoiceChangerV2:
         elif key == 'crossFadeOverlapSize':
             self.crossfade_frame = int(val * self.settings.inputSampleRate)
             self._generate_strength()
+        elif key == 'recordIO':
+            enable = int(val)
+            if enable == 1:
+                self.io_recorder.open(self.settings.inputSampleRate, self.settings.outputSampleRate)
+            else:
+                self.io_recorder.close()
 
         if self.vcmodel is not None:
             self.vcmodel.update_settings(key, val, old_val)
