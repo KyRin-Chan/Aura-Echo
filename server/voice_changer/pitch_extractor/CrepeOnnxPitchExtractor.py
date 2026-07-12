@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import onnxruntime
-from const import PitchExtractorType, F0_MIN, F0_MAX
+from const import PitchExtractorType, F0_MIN, TRACKER_F0_MAX
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.pitch_extractor.PitchExtractor import PitchExtractor
 from voice_changer.pitch_extractor import onnxcrepe
@@ -37,7 +37,7 @@ class CrepeOnnxPitchExtractor(PitchExtractor):
             sr,
             precision=10.0,
             fmin=F0_MIN,
-            fmax=F0_MAX,
+            fmax=TRACKER_F0_MAX,
             return_periodicity=True,
             decoder=onnxcrepe.decode.weighted_argmax,
         )
