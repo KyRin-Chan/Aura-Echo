@@ -114,7 +114,7 @@ class MMVC_Rest_VoiceChanger:
         except Exception as e:
             logger.exception(e)
 
-    async def post_analyze_voice(self, target_file: UploadFile, input_file: UploadFile):
+    async def post_analyze_voice(self, target_file: UploadFile, input_file: UploadFile = None):
         import uuid
         import os
         from const import TMP_DIR
@@ -122,53 +122,58 @@ class MMVC_Rest_VoiceChanger:
         import numpy as np
 
         target_ext = os.path.splitext(target_file.filename)[1] or ".wav"
-        input_ext = os.path.splitext(input_file.filename)[1] or ".wav"
-        
         target_path = os.path.join(TMP_DIR, f"target_{uuid.uuid4().hex}{target_ext}")
-        input_path = os.path.join(TMP_DIR, f"input_{uuid.uuid4().hex}{input_ext}")
+        input_path = None
         
         try:
-            # Save uploaded files temporarily
+            # Save uploaded target file temporarily
             with open(target_path, "wb") as f:
                 f.write(await target_file.read())
-            with open(input_path, "wb") as f:
-                f.write(await input_file.read())
                 
-            # Load audio using librosa
+            # Load target audio using librosa
             y_tgt, sr_tgt = librosa.load(target_path, sr=None)
-            y_in, sr_in = librosa.load(input_path, sr=None)
-            
             f0_tgt, cent_tgt, env_tgt = self._analyze_audio(y_tgt, sr_tgt)
-            f0_in, cent_in, env_in = self._analyze_audio(y_in, sr_in)
             
-            recommended_pitch = 0.0
-            if f0_tgt > 0 and f0_in > 0:
-                recommended_pitch = 12 * np.log2(f0_tgt / f0_in)
-                # Round to nearest 0.5 semitone
-                recommended_pitch = round(recommended_pitch * 2) / 2
+            if input_file is not None:
+                input_ext = os.path.splitext(input_file.filename)[1] or ".wav"
+                input_path = os.path.join(TMP_DIR, f"input_{uuid.uuid4().hex}{input_ext}")
+                with open(input_path, "wb") as f:
+                    f.write(await input_file.read())
+                y_in, sr_in = librosa.load(input_path, sr=None)
+                f0_in, cent_in, env_in = self._analyze_audio(y_in, sr_in)
                 
-            recommended_formant = 0.0
-            if cent_tgt > 0 and cent_in > 0:
-                # RVC converts speaker identity (formants) automatically.
-                # Formant shift is used to compensate for input formant leakage (typically ~35% leakage).
-                # Using 100% of the difference would cause extreme double-correction.
-                leakage_coefficient = 0.35
-                recommended_formant = leakage_coefficient * 12 * np.log2(cent_tgt / cent_in)
-                recommended_formant = round(recommended_formant, 2)
-                
-            return JSONResponse({
-                "success": True,
-                "target_f0": round(float(f0_tgt), 1),
-                "input_f0": round(float(f0_in), 1),
-                "target_centroid": round(float(cent_tgt), 1),
-                "input_centroid": round(float(cent_in), 1),
-                "recommended_pitch": recommended_pitch,
-                "recommended_formant_shift": recommended_formant,
-                "target_envelope": env_tgt.tolist(),
-                "target_sr": int(sr_tgt),
-                "input_envelope": env_in.tolist(),
-                "input_sr": int(sr_in)
-            })
+                recommended_pitch = 0.0
+                if f0_tgt > 0 and f0_in > 0:
+                    recommended_pitch = 12 * np.log2(f0_tgt / f0_in)
+                    recommended_pitch = round(recommended_pitch * 2) / 2
+                    
+                recommended_formant = 0.0
+                if cent_tgt > 0 and cent_in > 0:
+                    leakage_coefficient = 0.35
+                    recommended_formant = leakage_coefficient * 12 * np.log2(cent_tgt / cent_in)
+                    recommended_formant = round(recommended_formant, 2)
+                    
+                return JSONResponse({
+                    "success": True,
+                    "target_f0": round(float(f0_tgt), 1),
+                    "input_f0": round(float(f0_in), 1),
+                    "target_centroid": round(float(cent_tgt), 1),
+                    "input_centroid": round(float(cent_in), 1),
+                    "recommended_pitch": recommended_pitch,
+                    "recommended_formant_shift": recommended_formant,
+                    "target_envelope": env_tgt.tolist(),
+                    "target_sr": int(sr_tgt),
+                    "input_envelope": env_in.tolist(),
+                    "input_sr": int(sr_in)
+                })
+            else:
+                return JSONResponse({
+                    "success": True,
+                    "target_f0": round(float(f0_tgt), 1),
+                    "target_centroid": round(float(cent_tgt), 1),
+                    "target_envelope": env_tgt.tolist(),
+                    "target_sr": int(sr_tgt)
+                })
             
         except Exception as e:
             logger.exception(e)
@@ -187,7 +192,7 @@ class MMVC_Rest_VoiceChanger:
                     os.remove(target_path)
                 except Exception as ex:
                     logger.warning(f"Failed to remove temp file {target_path}: {ex}")
-            if os.path.exists(input_path):
+            if input_path and os.path.exists(input_path):
                 try:
                     os.remove(input_path)
                 except Exception as ex:
