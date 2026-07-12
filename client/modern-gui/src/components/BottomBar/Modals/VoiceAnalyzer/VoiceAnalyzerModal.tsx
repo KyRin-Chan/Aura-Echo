@@ -638,7 +638,7 @@ function VoiceAnalyzerModal({
                   </div>
 
                   <div className="p-4 rounded-xl bg-surface-container border border-outline-variant space-y-2">
-                    <p className="font-bold text-secondary">声道特征音色比对 (重心)</p>
+                    <p className="font-bold text-secondary">{t('voiceAnalyzerFormantResonanceLabel')}</p>
                     <div className="flex justify-between">
                       <span className="text-on-surface-variant/70">{t('voiceAnalyzerStandardTargetLabel')}</span>
                       <span className="font-semibold text-on-surface">{Math.round(compareResult.target_centroid)} Hz</span>
