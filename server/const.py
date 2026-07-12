@@ -47,7 +47,7 @@ class EnumInferenceTypes(Enum):
 
 # F0 Extractor
 F0_MIN = 50
-F0_MAX = 1100
+F0_MAX = 1600
 F0_MEL_MIN = 1127 * np.log(1 + F0_MIN / 700)
 F0_MEL_MAX = 1127 * np.log(1 + F0_MAX / 700)
 

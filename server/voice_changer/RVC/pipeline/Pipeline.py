@@ -132,6 +132,7 @@ class Pipeline:
             out=f0_mel
         )
         f0_coarse = torch.round(f0_mel, out=f0_mel).long()
+        f0_coarse[f0 == 0] = 0
 
         if pitch is not None and pitchf is not None:
             circular_write(f0_coarse, pitch)
