@@ -13,8 +13,12 @@ def set_high_process_priority():
     if os.name != 'nt':
         return
     try:
-        # GetCurrentProcess returns a pseudo-handle for the current process
         kernel32 = ctypes.windll.kernel32
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.SetPriorityClass.restype = wintypes.BOOL
+
+        # GetCurrentProcess returns a pseudo-handle for the current process
         process = kernel32.GetCurrentProcess()
         # HIGH_PRIORITY_CLASS is 0x00000080
         HIGH_PRIORITY_CLASS = 0x00000080
@@ -22,7 +26,8 @@ def set_high_process_priority():
         if success:
             logger.info("Successfully elevated Windows process priority class to HIGH_PRIORITY_CLASS")
         else:
-            logger.warning("Failed to elevate process priority class. Might lack administrator/sufficient privileges.")
+            err = kernel32.GetLastError()
+            logger.warning(f"Failed to elevate process priority class (GetLastError: {err}). Might lack administrator/sufficient privileges.")
     except Exception as e:
         logger.error(f"Error setting process priority class: {e}")
 
@@ -31,10 +36,23 @@ def register_current_thread_mmcss():
     with a robust fallback to SetThreadPriority if MMCSS fails or is disabled."""
     if os.name != 'nt':
         return
-    if getattr(_thread_local, 'mmcss_registered', False) or getattr(_thread_local, 'thread_priority_set', False):
+    if getattr(_thread_local, 'priority_optimized', False):
         return
+
+    # Mark as optimized upfront to avoid recursion/repeated attempts
+    _thread_local.priority_optimized = True
+    _thread_local.mmcss_registered = False
+    _thread_local.thread_priority_set = False
+    _thread_local.mmcss_handle = None
+
     try:
         kernel32 = ctypes.windll.kernel32
+        kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+        kernel32.GetCurrentThread.restype = wintypes.HANDLE
+        kernel32.SetThreadPriority.argtypes = [wintypes.HANDLE, ctypes.c_int]
+        kernel32.SetThreadPriority.restype = wintypes.BOOL
+        kernel32.GetLastError.restype = wintypes.DWORD
+
         tid = kernel32.GetCurrentThreadId()
 
         # Try MMCSS first
@@ -52,6 +70,11 @@ def register_current_thread_mmcss():
                 return
             else:
                 err = kernel32.GetLastError()
+                if err == 1552:  # ERROR_THREAD_ALREADY_IN_TASK
+                    _thread_local.mmcss_registered = True
+                    _thread_local.mmcss_handle = None
+                    logger.info(f"Thread {threading.current_thread().name} (TID {tid}) is already registered to MMCSS (ERROR_THREAD_ALREADY_IN_TASK)")
+                    return
                 logger.warning(f"AvSetMmThreadCharacteristicsW returned null for 'Pro Audio' (GetLastError: {err}). Falling back to SetThreadPriority.")
         except Exception as mmcss_ex:
             logger.warning(f"MMCSS registration failed: {mmcss_ex}. Falling back to SetThreadPriority.")
@@ -62,7 +85,6 @@ def register_current_thread_mmcss():
         THREAD_PRIORITY_TIME_CRITICAL = 15
         success = kernel32.SetThreadPriority(thread_handle, THREAD_PRIORITY_TIME_CRITICAL)
         if success:
-            _thread_local.mmcss_registered = False
             _thread_local.thread_priority_set = True
             logger.info(f"Successfully elevated thread {threading.current_thread().name} (TID {tid}) priority to THREAD_PRIORITY_TIME_CRITICAL (15)")
         else:
@@ -83,11 +105,13 @@ def revert_current_thread_mmcss():
             avrt.AvRevertMmThreadCharacteristics.argtypes = [wintypes.HANDLE]
             avrt.AvRevertMmThreadCharacteristics.restype = wintypes.BOOL
             
-            success = avrt.AvRevertMmThreadCharacteristics(_thread_local.mmcss_handle)
-            if success:
-                _thread_local.mmcss_registered = False
-                _thread_local.mmcss_handle = None
-                logger.info(f"Reverted thread {threading.current_thread().name} from Windows MMCSS")
+            handle = getattr(_thread_local, 'mmcss_handle', None)
+            if handle:
+                success = avrt.AvRevertMmThreadCharacteristics(handle)
+                if success:
+                    logger.info(f"Reverted thread {threading.current_thread().name} from Windows MMCSS")
+            _thread_local.mmcss_registered = False
+            _thread_local.mmcss_handle = None
         except Exception as e:
             logger.warning(f"Failed to revert thread from Windows MMCSS: {e}")
 
@@ -95,12 +119,19 @@ def revert_current_thread_mmcss():
     if getattr(_thread_local, 'thread_priority_set', False):
         try:
             kernel32 = ctypes.windll.kernel32
+            kernel32.GetCurrentThread.restype = wintypes.HANDLE
+            kernel32.SetThreadPriority.argtypes = [wintypes.HANDLE, ctypes.c_int]
+            kernel32.SetThreadPriority.restype = wintypes.BOOL
+            
             thread_handle = kernel32.GetCurrentThread()
             # THREAD_PRIORITY_NORMAL is 0
             THREAD_PRIORITY_NORMAL = 0
             success = kernel32.SetThreadPriority(thread_handle, THREAD_PRIORITY_NORMAL)
             if success:
-                _thread_local.thread_priority_set = False
                 logger.info(f"Reverted thread {threading.current_thread().name} priority to THREAD_PRIORITY_NORMAL (0)")
+            _thread_local.thread_priority_set = False
         except Exception as e:
             logger.warning(f"Failed to revert thread priority: {e}")
+
+    _thread_local.priority_optimized = False
+

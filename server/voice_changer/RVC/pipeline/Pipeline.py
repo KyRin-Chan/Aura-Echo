@@ -78,6 +78,7 @@ class Pipeline:
         self.dtype = torch.float16 if self.is_half else torch.float32
 
         self.settings = None
+        self.last_f0_smoothed = None
         self._formant_filter_pre_tensor = None
         self._formant_filter_post_tensor = None
         self._formant_filter_cache_key = None
@@ -133,6 +134,75 @@ class Pipeline:
             WINDOW_SIZE,
         )
         f0 *= 2 ** (f0_up_key / 12)
+
+        # Apply Chromatic Auto-Tune & Pitch Ceiling Pre-processing from AudioEffectsManager
+        if self.audio_effects_manager is not None:
+            # Look for an active "autoTune" effect in the input chain
+            auto_tune_effect = None
+            for effect in self.audio_effects_manager.input_effects:
+                if effect.effect_type == "autoTune" and effect.is_enabled():
+                    auto_tune_effect = effect
+                    break
+            
+            if auto_tune_effect is not None:
+                # Extract parameters from the active autoTune effect
+                ceiling_str = auto_tune_effect.parameters.get("pitchCeiling", "Off")
+                retune_speed = float(auto_tune_effect.parameters.get("retuneSpeed", 35.0))
+                
+                # Map note name strings to MIDI notes
+                midi_map = {
+                    "G4": 67, "G#4": 68, "A4": 69, "A#4": 70, "B4": 71,
+                    "C5": 72, "C#5": 73, "D5": 74, "D#5": 75, "E5": 76,
+                    "F5": 77, "F#5": 78, "G5": 79, "A5": 81, "C6": 84
+                }
+                ceiling_midi = midi_map.get(ceiling_str, 0)
+                
+                f0_np = f0.cpu().numpy()
+                f0_smoothed = np.zeros_like(f0_np)
+                num_frames = len(f0_np)
+                
+                # Each frame corresponds to 10ms of audio (100 Hz frame rate)
+                alpha = np.exp(-10.0 / max(1.0, retune_speed))
+                last_val = self.last_f0_smoothed if hasattr(self, 'last_f0_smoothed') and self.last_f0_smoothed is not None else None
+                
+                for t in range(num_frames):
+                    hz = f0_np[t]
+                    if hz <= 0:
+                        f0_smoothed[t] = 0.0
+                        continue
+                    
+                    # Convert frequency (Hz) to MIDI note
+                    midi = 69.0 + 12.0 * np.log2(hz / 440.0)
+                    
+                    # Snap to nearest semitone center (Chromatic Scale)
+                    midi_snapped = np.round(midi)
+                    
+                    # Clamp to ceiling MIDI note if active
+                    if ceiling_midi > 0:
+                        midi_snapped = min(midi_snapped, ceiling_midi)
+                    
+                    # Convert back to frequency (Hz)
+                    target_hz = 440.0 * (2.0 ** ((midi_snapped - 69.0) / 12.0))
+                    
+                    # Exponential smoothing to prevent robotic electro-stutter
+                    if t == 0:
+                        if last_val is None or last_val <= 0:
+                            val = target_hz
+                        else:
+                            val = alpha * last_val + (1.0 - alpha) * target_hz
+                    else:
+                        if f0_np[t-1] <= 0:
+                            # Onset Protection: if previous frame was unvoiced, start fresh
+                            val = target_hz
+                        else:
+                            val = alpha * f0_smoothed[t-1] + (1.0 - alpha) * target_hz
+                            
+                    f0_smoothed[t] = val
+                    last_val = val
+                
+                # Save the last voiced sample for cross-chunk continuity
+                self.last_f0_smoothed = last_val
+                f0 = torch.tensor(f0_smoothed, dtype=f0.dtype, device=f0.device)
 
         f0_mel = 1127.0 * torch.log(1.0 + f0 / 700.0)
         f0_mel = torch.clip(

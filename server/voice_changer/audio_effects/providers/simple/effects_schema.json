@@ -233,5 +233,46 @@
         "description": "How quickly the expander fades out background noise"
       }
     }
+  },
+  "autoTune": {
+    "name": "Chromatic Auto-Tune",
+    "description": "Snaps pitch to chromatic semitones and caps high notes to prevent RVC glitches",
+    "provider": "Simple",
+    "parameters": {
+      "pitchCeiling": {
+        "name": "Pitch Ceiling",
+        "type": "select",
+        "defaultValue": "Off",
+        "options": [
+          "Off",
+          "G4",
+          "G#4",
+          "A4",
+          "A#4",
+          "B4",
+          "C5",
+          "C#5",
+          "D5",
+          "D#5",
+          "E5",
+          "F5",
+          "F#5",
+          "G5",
+          "A5",
+          "C6"
+        ],
+        "description": "Maximum pitch note allowed to prevent RVC high-frequency blind-zone glitches"
+      },
+      "retuneSpeed": {
+        "name": "Retune Speed",
+        "type": "slider",
+        "defaultValue": 35,
+        "min": 10,
+        "max": 100,
+        "step": 1,
+        "unit": "ms",
+        "description": "Auto-tune response time. 20ms-50ms is recommended for natural speech."
+      }
+    }
   }
 }

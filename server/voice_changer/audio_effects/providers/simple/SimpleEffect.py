@@ -35,6 +35,8 @@ class SimpleEffect(AudioEffect):
             pass
         elif self.effect_type == "noiseExpander":
             self._expander_env = 0.0
+        elif self.effect_type == "autoTune":
+            pass
 
     def set_parameters(self, parameters: Dict[str, Any]) -> None:
         super().set_parameters(parameters)
@@ -61,6 +63,8 @@ class SimpleEffect(AudioEffect):
                 return self._apply_resonance_suppressor(audio, sample_rate)
             elif self.effect_type == "noiseExpander":
                 return self._apply_noise_expander(audio, sample_rate)
+            elif self.effect_type == "autoTune":
+                return audio
             else:
                 return audio
         except Exception as e:
