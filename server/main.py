@@ -271,6 +271,13 @@ if __name__ == "__main__":
         # Initialize settings and logger at the module level
         settings = get_settings()
         logger = setup_logging('info')
+
+        # Elevate process priority to HIGH on Windows to minimize latency spikes
+        try:
+            from voice_changer.utils.SystemPriority import set_high_process_priority
+            set_high_process_priority()
+        except Exception as priority_err:
+            logger.warning(f"Could not import or set high process priority: {priority_err}")
         
         # Set up event loop with connection reset handling
         loop = setup_event_loop()

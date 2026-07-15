@@ -15,6 +15,7 @@ export type ResponseType = (typeof ResponseType)[keyof typeof ResponseType];
 export type VoiceChangerWorkletProcessorRequest = {
     requestType: RequestType;
     voice: Float32Array;
+    cushion?: number;
 };
 export type VoiceChangerWorkletProcessorResponse = {
     responseType: ResponseType;

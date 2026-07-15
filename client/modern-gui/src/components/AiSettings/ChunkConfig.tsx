@@ -20,6 +20,9 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
   const [localExtraSize, setLocalExtraSize] = useState<number>(
     appState.serverSetting?.serverSetting?.extraConvertSize ?? 1
   );
+  const [localCushion, setLocalCushion] = useState<number>(
+    appState.setting.workletNodeSetting?.playBufferCushion ?? 2
+  );
 
   // ---------------- Hooks ----------------
 
@@ -38,6 +41,14 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
       setLocalExtraSize(ex);
     }
   }, [appState.serverSetting?.serverSetting?.extraConvertSize]);
+
+  // Set local safety cushion size
+  useEffect(() => {
+    const pc = appState.setting.workletNodeSetting?.playBufferCushion;
+    if (pc !== undefined) {
+      setLocalCushion(pc);
+    }
+  }, [appState.setting.workletNodeSetting?.playBufferCushion]);
 
   // ---------------- Handlers ----------------
 
@@ -61,6 +72,15 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
     });
   };
 
+  // Handle safety cushion change
+  const handleChangeCushion = (value: number) => {
+    setLocalCushion(value);
+    appState.setWorkletNodeSetting({
+      ...appState.setting.workletNodeSetting,
+      playBufferCushion: Number(value)
+    });
+  };
+
   // ---------------- Render ----------------
 
   return (
@@ -80,6 +100,23 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
           disabled={uiState.isConverting}
           showValue={true}
           valueFormatter={(val) => `${((val * 128 * 1000) / 48000).toFixed(1)}ms`}
+        />
+      </div>
+      <div>
+        <label htmlFor="cushion" className={CSS_CLASSES.label}>
+          {t('safetyCushionLabel')}:
+        </label>
+        <MD3Slider
+          id="cushion"
+          min={1}
+          max={10}
+          step={1}
+          value={localCushion}
+          onImmediateChange={setLocalCushion}
+          onChange={handleChangeCushion}
+          disabled={uiState.isConverting}
+          showValue={true}
+          valueFormatter={(val) => `${val} Chunk(s)`}
         />
       </div>
       <div>

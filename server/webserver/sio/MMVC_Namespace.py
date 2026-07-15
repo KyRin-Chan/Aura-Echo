@@ -3,6 +3,7 @@ import numpy as np
 import socketio
 from time import time
 from voice_changer.VoiceChangerManager import VoiceChangerManager
+from voice_changer.utils.PacketLossConcealment import PacketLossConcealment
 
 import asyncio
 
@@ -36,6 +37,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         self.voiceChangerManager = voiceChangerManager
         self.min_diffs = {}
         self.stale_stats = {}
+        self.plc_buffers = {}
         # self.voiceChangerManager.voiceChanger.emitTo = self.emit_coroutine
         self.voiceChangerManager.setEmitTo(self.emit_coroutine)
         self.voiceChangerManager.setProgressEmitTo(self.emit_progress_coroutine)
@@ -87,8 +89,10 @@ class MMVC_Namespace(socketio.AsyncNamespace):
                 stats["ages"] = []
                 stats["last_log_time"] = current_time
 
-            out_audio = np.zeros_like(input_audio)
-            vol = 0.0
+            # Use Packet Loss Concealment to extrapolate missing audio instead of hard silence
+            plc = self.plc_buffers.setdefault(sid, PacketLossConcealment())
+            out_audio = plc.conceal(len(input_audio))
+            vol = float(np.sqrt(np.square(out_audio).mean(dtype=np.float32))) if len(out_audio) > 0 else 0.0
             perf = [0.0, 0.0, 0.0]
             err = None
         else:
@@ -102,6 +106,9 @@ class MMVC_Namespace(socketio.AsyncNamespace):
                 stats["last_log_time"] = 0.0
 
             out_audio, vol, perf, err = await asyncio.to_thread(self.voiceChangerManager.change_voice, input_audio)
+            if err is None:
+                plc = self.plc_buffers.setdefault(sid, PacketLossConcealment())
+                plc.update(out_audio)
 
         if err is not None:
             error_code, error_message = err
@@ -127,3 +134,5 @@ class MMVC_Namespace(socketio.AsyncNamespace):
                 avg_age = sum(stats["ages"]) // len(stats["ages"])
                 logger.warning(f"[SIO] Stale packets detected for SID {sid}: {stats['count']} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
             del self.stale_stats[sid]
+        if sid in self.plc_buffers:
+            del self.plc_buffers[sid]

@@ -445,6 +445,7 @@ export type WorkletNodeSetting = {
     sendingSampleRate: SendingSampleRate;
     inputChunkNum: number;
     downSamplingMode: DownSamplingMode;
+    playBufferCushion: number;
 };
 
 ///////////////////////
@@ -487,6 +488,7 @@ export const DefaultClientSettng: ClientSetting = {
         sendingSampleRate: 48000,
         inputChunkNum: 192,
         downSamplingMode: "average",
+        playBufferCushion: 2,
     },
     voiceChangerClientSetting: {
         audioInput: null,

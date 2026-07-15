@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from typing import Callable
 from voice_changer.VoiceChangerManager import VoiceChangerManager
+from voice_changer.utils.PacketLossConcealment import PacketLossConcealment
 
 from webserver.restapi.MMVC_Rest_Sounds import MMVC_Rest_Sounds
 from webserver.restapi.MMVC_Rest_VoiceChanger import MMVC_Rest_VoiceChanger
@@ -147,6 +148,7 @@ class MMVC_Rest:
                 stale_count = 0
                 stale_ages = []
                 last_stale_log_time = 0.0
+                plc = PacketLossConcealment()
                 try:
                     while True:
                         data = await websocket.receive_bytes()
@@ -179,8 +181,9 @@ class MMVC_Rest:
                                 stale_ages = []
                                 last_stale_log_time = current_time
 
-                            out_audio = np.zeros_like(input_audio)
-                            vol = 0.0
+                            # Use Packet Loss Concealment to extrapolate missing audio instead of hard silence
+                            out_audio = plc.conceal(len(input_audio))
+                            vol = float(np.sqrt(np.square(out_audio).mean(dtype=np.float32))) if len(out_audio) > 0 else 0.0
                             perf = [0.0, 0.0, 0.0]
                             err = None
                         else:
@@ -194,6 +197,8 @@ class MMVC_Rest:
                                 last_stale_log_time = 0.0
 
                             out_audio, vol, perf, err = await asyncio.to_thread(voiceChangerManager.change_voice, input_audio)
+                            if err is None:
+                                plc.update(out_audio)
                         if err is not None:
                             error_code, error_message = err
                             logger.error(f"[WS] change_voice error: {error_code}: {error_message}")

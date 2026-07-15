@@ -17,6 +17,7 @@ export type ResponseType = (typeof ResponseType)[keyof typeof ResponseType];
 export type VoiceChangerWorkletProcessorRequest = {
     requestType: RequestType;
     voice: Float32Array;
+    cushion?: number;
 };
 
 export type VoiceChangerWorkletProcessorResponse = {
@@ -34,6 +35,7 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
     private wasPlaying = false;
     private unpushedF32Data: Float32Array = new Float32Array(0);
     private chunkSize = 4;
+    private cushion = 2; // Dynamic playback cushion multiplier
 
     playBuffer: Float32Array[] = [];
     /**
@@ -53,7 +55,9 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
     handleMessage(event: any) {
         const request = event.data as VoiceChangerWorkletProcessorRequest;
         if (request.requestType === "config") {
-            // console.log("[worklet] worklet configured", request);
+            if (request.cushion !== undefined) {
+                this.cushion = request.cushion;
+            }
             return;
         } else if (request.requestType === "start") {
             if (this.isRecording) {
@@ -90,12 +94,11 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
 
         const chunkSize = Math.floor(concatedF32Data.length / this.BLOCK_SIZE);
         this.chunkSize = chunkSize;
-        // Allow a jitter buffer headroom (chunkSize + 48 blocks, which is ~100ms of delay tolerance at 48kHz)
-        // to prevent packet arrival jitter from constantly dropping samples and causing robotic metallic sound.
-        const maxBufferBlocks = chunkSize + 48;
+        // Allow a dynamic jitter buffer headroom based on the configured cushion
+        // to prevent packet arrival jitter from causing constant sample drops.
+        const maxBufferBlocks = this.chunkSize * (this.cushion + 2) + 16;
         if (this.playBuffer.length > maxBufferBlocks) {
-            // console.log(`[worklet] Truncate ${this.playBuffer.length} > ${maxBufferBlocks}`);
-            this.trancateBuffer(this.playBuffer.length - (chunkSize + 2)); // keep a small safety cushion
+            this.trancateBuffer(this.playBuffer.length - (this.chunkSize * this.cushion)); 
         }
 
         for (let i = 0; i < chunkSize; i++) {
@@ -126,9 +129,28 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
         }
 
         let voice: Float32Array | undefined = undefined;
-        // Warm-up buffer: when starting playback after silence/underflow, wait until we have
-        // accumulated at least 2 packets (chunkSize * 2) in the queue to absorb GPU wake-up latency.
-        const minStartBlocks = Math.max(8, this.chunkSize * 2);
+        // Silence-Aware Catch-up:
+        // If our playBuffer length exceeds our target cushion + 4 blocks,
+        // and we are actively playing, scan and skip silent blocks from the front.
+        const targetBlocks = this.chunkSize * this.cushion;
+        const catchUpThreshold = targetBlocks + 4;
+        if (this.wasPlaying && this.playBuffer.length > catchUpThreshold) {
+            const frontBlock = this.playBuffer[0];
+            if (frontBlock) {
+                let isSilent = true;
+                for (let i = 0; i < frontBlock.length; i++) {
+                    if (Math.abs(frontBlock[i]) >= 0.02) {
+                        isSilent = false;
+                        break;
+                    }
+                }
+                if (isSilent) {
+                    this.playBuffer.shift();
+                }
+            }
+        }
+
+        const minStartBlocks = Math.max(8, targetBlocks);
         if (!this.wasPlaying) {
             if (this.playBuffer.length >= minStartBlocks) {
                 voice = this.playBuffer.shift();

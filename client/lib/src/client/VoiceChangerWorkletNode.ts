@@ -84,6 +84,14 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
     } else {
       this.setting = setting;
     }
+
+    // Send updated cushion configuration to worklet processor
+    const req: VoiceChangerWorkletProcessorRequest = {
+      requestType: "config",
+      voice: new Float32Array(0),
+      cushion: setting.playBufferCushion,
+    };
+    this.port.postMessage(req);
   };
 
   getSettings = (): WorkletNodeSetting => {

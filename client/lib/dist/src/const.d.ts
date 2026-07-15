@@ -295,6 +295,7 @@ export type WorkletNodeSetting = {
     sendingSampleRate: SendingSampleRate;
     inputChunkNum: number;
     downSamplingMode: DownSamplingMode;
+    playBufferCushion: number;
 };
 export declare const SampleRate: {
     readonly "48000": 48000;
