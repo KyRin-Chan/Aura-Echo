@@ -108,7 +108,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
             out_audio, vol, perf, err = await asyncio.to_thread(self.voiceChangerManager.change_voice, input_audio)
             if err is None:
                 plc = self.plc_buffers.setdefault(sid, PacketLossConcealment())
-                plc.update(out_audio)
+                out_audio = plc.process_normal(out_audio)
 
         if err is not None:
             error_code, error_message = err

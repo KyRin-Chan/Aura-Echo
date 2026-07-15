@@ -90,6 +90,16 @@ class Pipeline:
             logger.error(f"Failed to initialize AudioEffectsManager: {e}")
             self.audio_effects_manager = None
 
+        # Initialize a high-priority CUDA stream if CUDA is available
+        self.cuda_stream = None
+        if self.device.type == 'cuda':
+            try:
+                least_p, greatest_p = torch.cuda.Stream.priority_range()
+                self.cuda_stream = torch.cuda.Stream(priority=greatest_p)
+                logger.info(f"Initialized High-Priority CUDA Stream (Priority: {greatest_p}, Range: {least_p} to {greatest_p})")
+            except Exception as e:
+                logger.warning(f"Failed to initialize high-priority CUDA stream: {e}")
+
 
 
     def getPipelineInfo(self):
@@ -305,7 +315,14 @@ class Pipeline:
 
                 def _run_feats():
                     try:
-                        feats_res[0] = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
+                        if self.cuda_stream is not None:
+                            current_stream = torch.cuda.current_stream()
+                            self.cuda_stream.wait_stream(current_stream)
+                            with torch.cuda.stream(self.cuda_stream):
+                                feats_res[0] = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
+                            current_stream.wait_stream(self.cuda_stream)
+                        else:
+                            feats_res[0] = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
                     except Exception as e:
                         exceptions.append(e)
 
@@ -325,7 +342,14 @@ class Pipeline:
                 feats = feats_res[0]
             else:
                 pitch, pitchf = None, None
-                feats = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
+                if self.cuda_stream is not None:
+                    current_stream = torch.cuda.current_stream()
+                    self.cuda_stream.wait_stream(current_stream)
+                    with torch.cuda.stream(self.cuda_stream):
+                        feats = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
+                    current_stream.wait_stream(self.cuda_stream)
+                else:
+                    feats = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
 
             feats = torch.cat((feats, feats[:, -1:, :]), 1)
             t.record("extract-pitch-and-feats")
@@ -369,7 +393,14 @@ class Pipeline:
             sid = torch.tensor([sid], device=self.device, dtype=torch.int64)
             t.record("mid-precess")
             # 推論実行
-            out_audio = self.inferencer.infer(feats, p_len, pitch, pitchf, sid, skip_head, return_length, formant_length).float()
+            if self.cuda_stream is not None:
+                current_stream = torch.cuda.current_stream()
+                self.cuda_stream.wait_stream(current_stream)
+                with torch.cuda.stream(self.cuda_stream):
+                    out_audio = self.inferencer.infer(feats, p_len, pitch, pitchf, sid, skip_head, return_length, formant_length).float()
+                current_stream.wait_stream(self.cuda_stream)
+            else:
+                out_audio = self.inferencer.infer(feats, p_len, pitch, pitchf, sid, skip_head, return_length, formant_length).float()
             t.record("infer")
             
             # Apply formant profile warp filter if active

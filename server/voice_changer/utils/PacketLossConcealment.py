@@ -5,35 +5,40 @@ class PacketLossConcealment:
     Packet Loss Concealment (PLC) helper to mitigate audio dropouts (哑音/吞音) 
     during real-time streaming when inference chunks are skipped or late.
     
-    Uses windowed waveform replication with a gain decay profile across consecutive skips.
+    Instead of repeating long blocks (which causes robotic stutter and pitch shifts),
+    this implementation applies a quick 10ms fade-out to silence when a frame is skipped,
+    and a quick 10ms fade-in when normal stream resumes, ensuring click-free transitions.
     """
     def __init__(self):
         self.last_out = None
         self.consecutive_skips = 0
 
     def conceal(self, length: int) -> np.ndarray:
-        """Generates replacement audio chunk of the given length using the last valid output."""
-        if self.last_out is None or len(self.last_out) == 0:
-            return np.zeros(length, dtype=np.float32)
-        
-        last_len = len(self.last_out)
+        """Generates a click-free fade-out to silence for the skipped frame."""
+        out = np.zeros(length, dtype=np.float32)
+        if self.last_out is not None and len(self.last_out) > 0:
+            # 10ms at 48kHz is 480 samples. 512 is a good power-of-two approximation (~10.6ms)
+            fade_len = min(512, len(self.last_out), length)
+            out[:fade_len] = self.last_out[-fade_len:]
+            fade = np.linspace(1.0, 0.0, fade_len, dtype=np.float32)
+            out[:fade_len] *= fade
         self.consecutive_skips += 1
-        
-        # Tile last_out to cover the requested length
-        repeats = (length + last_len - 1) // last_len
-        replicated = np.tile(self.last_out, repeats)[:length]
-        
-        # Apply a step-down linear fade-out to prevent robotic sound or loop artifacts
-        # We fade out to 0 over 3 consecutive skips (approx 200-300ms)
-        start_gain = max(0.0, 1.0 - (self.consecutive_skips - 1) * 0.35)
-        end_gain = max(0.0, 1.0 - self.consecutive_skips * 0.35)
-        
-        fade = np.linspace(start_gain, end_gain, length, dtype=np.float32)
-        concealed_audio = replicated * fade
-        return concealed_audio
+        return out
 
-    def update(self, out_audio: np.ndarray):
-        """Updates the internal buffer with the last successfully generated audio chunk."""
-        if out_audio is not None and len(out_audio) > 0:
-            self.last_out = out_audio.copy()
+    def process_normal(self, out_audio: np.ndarray) -> np.ndarray:
+        """Processes a normal output block, applying a fade-in if returning from a skip."""
+        if out_audio is None or len(out_audio) == 0:
+            return out_audio
+            
+        self.last_out = out_audio.copy()
+        
+        if self.consecutive_skips > 0:
+            # We are returning from a skip/mute! Apply a quick fade-in to avoid boundary clicks.
+            fade_len = min(512, len(out_audio))
+            if fade_len > 0:
+                fade = np.linspace(0.0, 1.0, fade_len, dtype=np.float32)
+                out_audio = out_audio.copy()
+                out_audio[:fade_len] *= fade
             self.consecutive_skips = 0
+            
+        return out_audio

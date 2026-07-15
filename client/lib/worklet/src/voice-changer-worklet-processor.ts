@@ -35,7 +35,10 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
     private wasPlaying = false;
     private unpushedF32Data: Float32Array = new Float32Array(0);
     private chunkSize = 4;
-    private cushion = 2; // Dynamic playback cushion multiplier
+    private cushion = 2; // User-configured cushion
+    private adaptiveCushion = 2; // Current dynamic safety cushion
+    private maxCushion = 8; // Maximum cushion limit
+    private stableBlocksCount = 0; // Stable blocks counter without underflows
 
     playBuffer: Float32Array[] = [];
     /**
@@ -49,14 +52,26 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
     }
 
     trancateBuffer = (start: number, end?: number) => {
-        // console.log(`[worklet] Play buffer size ${this.playBuffer.length}. Truncating with offset ${start}`);
-        this.playBuffer = this.playBuffer.slice(start, end)
+        // Apply cross-fade at the truncation boundary to prevent clicks and pitch jumps
+        const discardCount = start;
+        if (discardCount > 0 && discardCount < this.playBuffer.length) {
+            const discardBlock = this.playBuffer[discardCount - 1];
+            const keepBlock = this.playBuffer[discardCount];
+            if (discardBlock && keepBlock) {
+                for (let i = 0; i < this.BLOCK_SIZE; i++) {
+                    const ratio = i / this.BLOCK_SIZE;
+                    keepBlock[i] = keepBlock[i] * ratio + discardBlock[i] * (1.0 - ratio);
+                }
+            }
+        }
+        this.playBuffer = this.playBuffer.slice(start, end);
     };
     handleMessage(event: any) {
         const request = event.data as VoiceChangerWorkletProcessorRequest;
         if (request.requestType === "config") {
             if (request.cushion !== undefined) {
                 this.cushion = request.cushion;
+                this.adaptiveCushion = Math.max(this.cushion, this.adaptiveCushion);
             }
             return;
         } else if (request.requestType === "start") {
@@ -94,11 +109,11 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
 
         const chunkSize = Math.floor(concatedF32Data.length / this.BLOCK_SIZE);
         this.chunkSize = chunkSize;
-        // Allow a dynamic jitter buffer headroom based on the configured cushion
+        // Allow a dynamic jitter buffer headroom based on the adaptive cushion
         // to prevent packet arrival jitter from causing constant sample drops.
-        const maxBufferBlocks = this.chunkSize * (this.cushion + 2) + 16;
+        const maxBufferBlocks = this.chunkSize * (this.adaptiveCushion + 2) + 16;
         if (this.playBuffer.length > maxBufferBlocks) {
-            this.trancateBuffer(this.playBuffer.length - (this.chunkSize * this.cushion)); 
+            this.trancateBuffer(this.playBuffer.length - (this.chunkSize * Math.ceil(this.adaptiveCushion))); 
         }
 
         for (let i = 0; i < chunkSize; i++) {
@@ -132,7 +147,7 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
         // Silence-Aware Catch-up:
         // If our playBuffer length exceeds our target cushion + 4 blocks,
         // and we are actively playing, scan and skip silent blocks from the front.
-        const targetBlocks = this.chunkSize * this.cushion;
+        const targetBlocks = this.chunkSize * this.adaptiveCushion;
         const catchUpThreshold = targetBlocks + 4;
         if (this.wasPlaying && this.playBuffer.length > catchUpThreshold) {
             const frontBlock = this.playBuffer[0];
@@ -181,6 +196,17 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
             this.lastPlaySample = lastSample;
             this.wasPlaying = true;
 
+            // Decay the adaptive cushion slowly if we are playing stably
+            if (this.adaptiveCushion > this.cushion) {
+                this.stableBlocksCount++;
+                if (this.stableBlocksCount >= 300) {
+                    this.adaptiveCushion = Math.max(this.cushion, this.adaptiveCushion - 0.2);
+                    this.stableBlocksCount = 0;
+                }
+            } else {
+                this.stableBlocksCount = 0;
+            }
+
             if (clickCount > 0) {
                 this.port.postMessage({ responseType: "pop_detected", type: "click", count: clickCount });
             }
@@ -191,6 +217,12 @@ class VoiceChangerWorkletProcessor extends AudioWorkletProcessor {
             if (this.wasPlaying) {
                 this.wasPlaying = false;
                 this.port.postMessage({ responseType: "pop_detected", type: "underflow" });
+                
+                // Increase safety cushion to absorb future spikes
+                if (this.adaptiveCushion < this.maxCushion) {
+                    this.adaptiveCushion = Math.min(this.maxCushion, this.adaptiveCushion + 1.0);
+                }
+                this.stableBlocksCount = 0;
             }
         }
 

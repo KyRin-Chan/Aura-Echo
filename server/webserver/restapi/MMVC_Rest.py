@@ -198,7 +198,7 @@ class MMVC_Rest:
 
                             out_audio, vol, perf, err = await asyncio.to_thread(voiceChangerManager.change_voice, input_audio)
                             if err is None:
-                                plc.update(out_audio)
+                                out_audio = plc.process_normal(out_audio)
                         if err is not None:
                             error_code, error_message = err
                             logger.error(f"[WS] change_voice error: {error_code}: {error_message}")
