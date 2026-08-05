@@ -40,7 +40,7 @@
         "npm-run-all": "^4.1.5",
         "prettier": "^3.1.0",
         "raw-loader": "^4.0.2",
-        "rimraf": "^5.0.5",
+        "rimraf": "^5.0.10",
         "ts-loader": "^9.5.1",
         "typescript": "^5.3.2",
         "webpack": "^5.89.0",
@@ -58,7 +58,6 @@
         "socket.io-client": "^4.7.2"
     },
     "overrides": {
-        "rimraf": "^5.0.10",
         "glob": "^10.4.5",
         "@aws-sdk/util-hex-encoding": "npm:@smithy/util-hex-encoding@^2.0.0",
         "jsdom": "^24.0.0"

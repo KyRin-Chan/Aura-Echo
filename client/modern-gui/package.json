@@ -72,7 +72,6 @@
     "webpack-merge": "^5.10.0"
   },
   "overrides": {
-    "rimraf": "^5.0.10",
     "glob": "^10.4.5",
     "@aws-sdk/util-hex-encoding": "npm:@smithy/util-hex-encoding@^2.0.0",
     "jsdom": "^24.0.0"
