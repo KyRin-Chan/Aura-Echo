@@ -69,13 +69,13 @@ jobs:
     - name: Install and Build Client Library
       working-directory: ./client/lib
       run: |
-        npm ci --legacy-peer-deps
+        npm install --legacy-peer-deps
         npm run build:prod
 
     - name: Install and Build Modern GUI
       working-directory: ./client/modern-gui
       run: |
-        npm ci --legacy-peer-deps
+        npm install --legacy-peer-deps
         xcopy "..\lib\dist\*" "node_modules\@dannadori\voice-changer-client-js\dist\" /S /E /Y /I
         npm run build:prod
 
