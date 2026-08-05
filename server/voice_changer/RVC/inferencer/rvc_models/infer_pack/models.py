@@ -759,7 +759,16 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
         z = z[:, :, dec_head : dec_head + return_length]
         x_mask = x_mask[:, :, dec_head : dec_head + return_length]
         nsff0 = nsff0[:, skip_head : skip_head + return_length]
-        o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
+        try:
+            from voice_changer.vocoder.VocoderManager import VocoderManager
+            active_vocoder = VocoderManager.get_instance().get_active_vocoder()
+        except Exception:
+            active_vocoder = None
+
+        if active_vocoder is not None:
+            o = active_vocoder.infer(z * x_mask, nsff0, g=g)
+        else:
+            o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
         return o, x_mask, (z, z_p, m_p, logs_p)
 
 

@@ -173,6 +173,8 @@ export const ServerSettingKey = {
     
     embedders: "embedders",
     pitchExtractors: "pitchExtractors",
+    vocoders: "vocoders",
+    vocoderType: "vocoderType",
 } as const;
 export type ServerSettingKey = (typeof ServerSettingKey)[keyof typeof ServerSettingKey];
 
@@ -254,6 +256,8 @@ export type VoiceChangerServerSetting = {
 
     embedders: ModelInfoDict;
     pitchExtractors: ModelInfoDict;
+    vocoders: ModelInfoDict;
+    vocoderType: string;
 };
 
 export interface ModelInfo {
@@ -268,6 +272,7 @@ export type ModelInfoDict = { [key: string]: ModelInfo };
 
 export const embedders: ModelInfoDict = {};
 export const pitchExtractors: ModelInfoDict = {};
+export const vocoders: ModelInfoDict = {};
 
 type ModelSlot = {
     slotIndex: number;
@@ -408,6 +413,8 @@ export const DefaultServerSetting: ServerInfo = {
     },
     embedders: {},
     pitchExtractors: {},
+    vocoders: {},
+    vocoderType: "embedded",
 };
 
 ///////////////////////

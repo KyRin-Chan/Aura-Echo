@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import Dict, Any, Optional, TypedDict, Union, TYPE_CHECKING
-from .PretrainList import pitch_extractors, embedders
+from .PretrainList import pitch_extractors, embedders, vocoders
 
 if TYPE_CHECKING:
     from voice_changer.VoiceChangerSettings import VoiceChangerSettings
@@ -35,7 +35,7 @@ class ModelManager:
         Returns:
             Dictionary with model IDs as keys and model info as values.
         """
-        all_models = {**pitch_extractors, **embedders}
+        all_models = {**pitch_extractors, **embedders, **vocoders}
         return ModelManager._add_download_status(all_models)
     
     @staticmethod
@@ -55,6 +55,16 @@ class ModelManager:
             Dictionary with embedder model IDs as keys and model info as values.
         """
         return ModelManager._add_download_status(dict(embedders))
+
+    @staticmethod
+    def get_vocoders() -> Dict[str, Dict[str, Any]]:
+        """Get vocoder models with their information and download status.
+        
+        Returns:
+            Dictionary with vocoder model IDs as keys and model info as values.
+        """
+        return ModelManager._add_download_status(dict(vocoders))
+
     
     @staticmethod
     def _add_download_status(models: Dict[str, Dict[str, Any]]) -> Dict[str, 'ModelInfo']:
@@ -154,6 +164,10 @@ class ModelManager:
         if model_key in embedders:
             return embedders[model_key], 'embedder'
             
+        # Then try to find in vocoders
+        if model_key in vocoders:
+            return vocoders[model_key], 'vocoder'
+
         return None, None
         
     @staticmethod

@@ -21,12 +21,14 @@ const DownloaderView = (props: DownloaderViewProps) => {
   const [pitchExtractors, setPitchExtractors] = useState<ModelInfoDict>(
     appState.serverSetting.serverSetting.pitchExtractors || {}
   );
+  const [vocoders, setVocoders] = useState<ModelInfoDict>(appState.serverSetting.serverSetting.vocoders || {});
 
   // Update local state when server settings change
   useEffect(() => {
     const serverSetting = appState.serverSetting.serverSetting;
     setEmbedders(serverSetting.embedders || {});
     setPitchExtractors(serverSetting.pitchExtractors || {});
+    setVocoders(serverSetting.vocoders || {});
   }, [appState.serverSetting.serverSetting]);
 
   // Track download state changes and notify parent
@@ -41,19 +43,20 @@ const DownloaderView = (props: DownloaderViewProps) => {
   }, []);
 
   const handleModelAction = async (
-    type: 'embedder' | 'pitchExtractor',
+    type: 'embedder' | 'pitchExtractor' | 'vocoder',
     action: 'download' | 'delete',
     id: string,
     info: ModelInfoDict[string]
   ) => {
     // Only prevent new downloads if another download is in progress
     if (action === 'download' && isAnyDownloading && loadingItems[id] !== 'download') return;
-    // Prevent deletion of mandatory or in-use items (should be handled by UI, but keeping as a safeguard)
+    // Prevent deletion of mandatory or in-use items
     if (
       action === 'delete' &&
       (info.mandatory ||
         (type === 'embedder' && isEmbedderInUse(id)) ||
-        (type === 'pitchExtractor' && isPitchExtractorInUse(id)))
+        (type === 'pitchExtractor' && isPitchExtractorInUse(id)) ||
+        (type === 'vocoder' && isVocoderInUse(id)))
     ) {
       return;
     }
@@ -76,7 +79,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
 
       // Show success message with model name
       const actionText = action === 'download' ? t('downloadedLabel') : t('deletedLabel');
-      const modelType = type === 'embedder' ? t('embedderLabel') : t('pitchExtractorLabel');
+      const modelType = type === 'embedder' ? t('embedderLabel') : type === 'vocoder' ? t('vocoderLabel') : t('pitchExtractorLabel');
       const successMsg = t('modelActionSuccess')
         .replace('{type}', modelType)
         .replace('{name}', info.name || id)
@@ -84,7 +87,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
       uiState.showError(successMsg, t('confirmTitle'));
     } catch (error) {
       console.error(`Error ${action}ing ${type}:`, error);
-      const modelType = type === 'embedder' ? t('embedderLabel') : t('pitchExtractorLabel');
+      const modelType = type === 'embedder' ? t('embedderLabel') : type === 'vocoder' ? t('vocoderLabel') : t('pitchExtractorLabel');
       const errorMsg = t('modelActionFailed')
         .replace('{action}', action)
         .replace('{type}', modelType)
@@ -103,6 +106,16 @@ const DownloaderView = (props: DownloaderViewProps) => {
         }
         return newState;
       });
+    }
+  };
+
+  // Check if a vocoder is in use
+  const isVocoderInUse = (vocoderId: string): boolean => {
+    try {
+      const vocoderType = (appState.serverSetting.serverSetting as any).vocoderType;
+      return vocoderType === vocoderId;
+    } catch (e) {
+      return false;
     }
   };
 
@@ -130,7 +143,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
     }
   };
 
-  const renderItem = (id: string, info: ModelInfoDict[string], type: 'embedder' | 'pitchExtractor') => {
+  const renderItem = (id: string, info: ModelInfoDict[string], type: 'embedder' | 'pitchExtractor' | 'vocoder') => {
     if (!info) return null;
 
     const isLoading = loadingItems[id];
@@ -139,7 +152,8 @@ const DownloaderView = (props: DownloaderViewProps) => {
     const name = info.name || id;
     const isInUse =
       (type === 'embedder' && !info.mandatory && isEmbedderInUse(id)) ||
-      (type === 'pitchExtractor' && !info.mandatory && isPitchExtractorInUse(id));
+      (type === 'pitchExtractor' && !info.mandatory && isPitchExtractorInUse(id)) ||
+      (type === 'vocoder' && !info.mandatory && isVocoderInUse(id));
 
     return (
       <div
@@ -223,6 +237,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
 
   const sortedEmbedders = sortItems(embedders);
   const sortedPitchExtractors = sortItems(pitchExtractors);
+  const sortedVocoders = sortItems(vocoders);
 
   return (
     <div className="space-y-6 max-h-[500px] overflow-y-auto pr-1.5">
@@ -253,6 +268,33 @@ const DownloaderView = (props: DownloaderViewProps) => {
           ) : (
             <div className="text-center py-8 text-on-surface-variant/60 italic bg-surface-container-low rounded-lg border border-outline-variant text-sm">
               {t('noPitchExtractorsAvailable')}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-3 pl-1">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-primary">
+            {t('vocodersTitle')}
+          </h3>
+          <a
+            href="https://huggingface.co/IAHispano/Applio/resolve/main/Resources/refinegan/f0G32k.pth"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-secondary hover:underline"
+          >
+            HuggingFace Direct Link (f0G32k.pth)
+          </a>
+        </div>
+        <div className="space-y-3">
+          {sortedVocoders.length > 0 ? (
+            <div className="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden">
+              {sortedVocoders.map(([id, info]) => renderItem(id, info, 'vocoder'))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-on-surface-variant/60 italic bg-surface-container-low rounded-lg border border-outline-variant text-sm">
+              {t('noVocodersAvailable')}
             </div>
           )}
         </div>

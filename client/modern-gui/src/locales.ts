@@ -80,6 +80,9 @@ export const locales = {
         pitchLabel: "Pitch:",
         f0DetectorLabel: "Pitch Extraction Algorithm",
         noPitchExtractors: "No downloaded pitch extractors available",
+        vocoderLabel: "Vocoder Algorithm",
+        defaultEmbeddedVocoder: "Default (NSF-HiFiGAN)",
+        changingVocoder: "Changing vocoder to ",
 
         // New Voice Analyzer & General Translations
         selectModelFirst: "Select a voice model first.",
@@ -340,8 +343,10 @@ export const locales = {
         requiredLabel: "Required",
         installedLabel: "Installed",
         embeddersTitle: "Embedders",
+        vocodersTitle: "Vocoders",
         noEmbeddersAvailable: "No embedders available",
         noPitchExtractorsAvailable: "No pitch extraction algorithms available",
+        noVocodersAvailable: "No standalone vocoders available",
         changeSeedColorTooltip: "Change Seed Color",
         themeColorsLabel: "Theme Colors",
         switchToDarkMode: "Switch to dark mode",
@@ -417,6 +422,9 @@ export const locales = {
         pitchLabel: "音高变调 (Pitch)：",
         f0DetectorLabel: "音高提取算法",
         noPitchExtractors: "无已下载的音高提取算法可用",
+        vocoderLabel: "推理声码器 (Vocoder)",
+        defaultEmbeddedVocoder: "默认 (NSF-HiFiGAN)",
+        changingVocoder: "正在切换声码器至 ",
 
         // New Voice Analyzer & General Translations
         selectModelFirst: "请先选择一个声线模型。",
@@ -677,8 +685,10 @@ export const locales = {
         requiredLabel: "必选",
         installedLabel: "已安装",
         embeddersTitle: "特征提取器 (Embedders)",
+        vocodersTitle: "推理声码器 (Vocoders)",
         noEmbeddersAvailable: "没有可用的特征提取器",
         noPitchExtractorsAvailable: "没有可用的音高提取算法",
+        noVocodersAvailable: "没有可用的独立声码器",
         changeSeedColorTooltip: "更改主题种子颜色",
         themeColorsLabel: "主题颜色",
         switchToDarkMode: "切换到暗黑模式",
@@ -754,6 +764,9 @@ export const locales = {
         pitchLabel: "ピッチ:",
         f0DetectorLabel: "ピッチ抽出アルゴリズム",
         noPitchExtractors: "ダウンロード済みのピッチ抽出アルゴリズムがありません",
+        vocoderLabel: "ボコーダーアルゴリズム",
+        defaultEmbeddedVocoder: "デフォルト (NSF-HiFiGAN)",
+        changingVocoder: "ボコーダーを変更中: ",
 
         // New Voice Analyzer & General Translations
         selectModelFirst: "最初にボイスモデルを選択してください。",
@@ -1011,8 +1024,10 @@ export const locales = {
         requiredLabel: "必須",
         installedLabel: "インストール済み",
         embeddersTitle: "埋め込み器",
+        vocodersTitle: "ボコーダー",
         noEmbeddersAvailable: "利用可能な埋め込み器がありません",
         noPitchExtractorsAvailable: "利用可能なピッチ抽出アルゴリズムがありません",
+        noVocodersAvailable: "利用可能なボコーダーがありません",
         changeSeedColorTooltip: "テーマシードカラーを変更",
         themeColorsLabel: "テーマカラー",
         switchToDarkMode: "ダークモードに切り替え",
