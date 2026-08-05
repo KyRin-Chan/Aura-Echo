@@ -98,10 +98,10 @@ embedders = {
 
 vocoders = {
     "refinegan": {
-        "name": "RefineGAN (32k High Quality)",
+        "name": "RefineGAN",
         "url": "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/refinegan/f0G32k.pth",
         "saveTo": "pretrain/vocoder/f0G32k.pth",
-        "hash": "",
+        "hash": "33224708779ed10f60be40942d97363d",
         "type": "pytorch",
         "mandatory": False,
     },

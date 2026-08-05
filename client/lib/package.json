@@ -45,7 +45,7 @@
         "typescript": "^5.3.2",
         "webpack": "^5.89.0",
         "webpack-cli": "^5.1.4",
-        "webpack-dev-server": "^4.15.1"
+        "webpack-dev-server": "^5.2.0"
     },
     "dependencies": {
         "amazon-chime-sdk-js": "^3.18.2",
@@ -56,5 +56,11 @@
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
         "socket.io-client": "^4.7.2"
+    },
+    "overrides": {
+        "rimraf": "^5.0.10",
+        "glob": "^10.4.5",
+        "@aws-sdk/util-hex-encoding": "npm:@smithy/util-hex-encoding@^2.0.0",
+        "jsdom": "^24.0.0"
     }
 }

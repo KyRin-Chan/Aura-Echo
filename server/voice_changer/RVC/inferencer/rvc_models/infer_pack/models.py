@@ -762,13 +762,20 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
         try:
             from voice_changer.vocoder.VocoderManager import VocoderManager
             active_vocoder = VocoderManager.get_instance().get_active_vocoder()
-        except Exception:
-            active_vocoder = None
-
-        if active_vocoder is not None:
-            o = active_vocoder.infer(z * x_mask, nsff0, g=g)
-        else:
+            if active_vocoder is not None and getattr(active_vocoder, "is_loaded", False):
+                o = active_vocoder.infer(z * x_mask, nsff0, g=g)
+                upp = getattr(self.dec, "upp", 400)
+                expected_len = (z * x_mask).shape[-1] * upp
+                if o is None or o.shape[-1] == 0:
+                    o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
+                elif o.shape[-1] != expected_len:
+                    o = F.interpolate(o, size=expected_len, mode='linear', align_corners=False)
+            else:
+                o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
+        except Exception as e:
+            logger.warning(f"Error during active vocoder inference: {e}. Falling back to default decoder.")
             o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
+
         return o, x_mask, (z, z_p, m_p, logs_p)
 
 

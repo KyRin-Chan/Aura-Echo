@@ -95,16 +95,27 @@ class RefineGANVocoder(Vocoder):
         if os.path.exists(model_path):
             try:
                 cpt = torch.load(model_path, map_location=self.device)
-                if isinstance(cpt, dict) and "weight" in cpt:
-                    self.model.load_state_dict(cpt["weight"], strict=False)
-                elif isinstance(cpt, dict) and "model" in cpt:
-                    self.model.load_state_dict(cpt["model"], strict=False)
-                elif isinstance(cpt, dict):
-                    self.model.load_state_dict(cpt, strict=False)
-                self.is_loaded = True
-                logger.info(f"Successfully loaded RefineGAN vocoder weights from {model_path}")
+                state_dict = None
+                if isinstance(cpt, dict):
+                    for key in ["model", "generator", "g", "weight", "state_dict"]:
+                        if key in cpt and isinstance(cpt[key], dict):
+                            state_dict = cpt[key]
+                            break
+                    if state_dict is None:
+                        state_dict = cpt
+                else:
+                    state_dict = cpt
+
+                if state_dict:
+                    new_state_dict = {}
+                    for k, v in state_dict.items():
+                        new_k = k.replace("generator.", "").replace("module.", "").replace("model.", "")
+                        new_state_dict[new_k] = v
+                    self.model.load_state_dict(new_state_dict, strict=False)
+                    self.is_loaded = True
+                    logger.info(f"Successfully loaded RefineGAN vocoder weights from {model_path}")
             except Exception as e:
-                logger.warning(f"Failed to load RefineGAN weight file {model_path}: {e}. Running in initialization mode.")
+                logger.warning(f"Failed to load RefineGAN weight file {model_path}: {e}")
         else:
             logger.warning(f"RefineGAN weight file not found at {model_path}. Please download it in the Downloader panel.")
 

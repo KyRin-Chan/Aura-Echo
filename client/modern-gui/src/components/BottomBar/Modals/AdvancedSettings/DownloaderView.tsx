@@ -274,19 +274,9 @@ const DownloaderView = (props: DownloaderViewProps) => {
       </div>
 
       <div>
-        <div className="flex items-center justify-between mb-3 pl-1">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-primary">
-            {t('vocodersTitle')}
-          </h3>
-          <a
-            href="https://huggingface.co/IAHispano/Applio/resolve/main/Resources/refinegan/f0G32k.pth"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-secondary hover:underline"
-          >
-            HuggingFace Direct Link (f0G32k.pth)
-          </a>
-        </div>
+        <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 pl-1">
+          {t('vocodersTitle')}
+        </h3>
         <div className="space-y-3">
           {sortedVocoders.length > 0 ? (
             <div className="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden">
