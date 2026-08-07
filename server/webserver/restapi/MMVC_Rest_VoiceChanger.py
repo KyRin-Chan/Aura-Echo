@@ -141,7 +141,7 @@ class MMVC_Rest_VoiceChanger:
                 
             # Load target audio using librosa
             y_tgt, sr_tgt = librosa.load(target_path, sr=None)
-            f0_tgt, cent_tgt, env_tgt = self._analyze_audio(y_tgt, sr_tgt)
+            f0_tgt, cent_tgt, env_tgt, vowel_envs_tgt = self._analyze_audio(y_tgt, sr_tgt)
             
             if input_file is not None:
                 input_ext = os.path.splitext(input_file.filename)[1] or ".wav"
@@ -149,7 +149,7 @@ class MMVC_Rest_VoiceChanger:
                 with open(input_path, "wb") as f:
                     f.write(await input_file.read())
                 y_in, sr_in = librosa.load(input_path, sr=None)
-                f0_in, cent_in, env_in = self._analyze_audio(y_in, sr_in)
+                f0_in, cent_in, env_in, vowel_envs_in = self._analyze_audio(y_in, sr_in)
                 
                 recommended_pitch = 0.0
                 if f0_tgt > 0 and f0_in > 0:
@@ -171,8 +171,10 @@ class MMVC_Rest_VoiceChanger:
                     "recommended_pitch": recommended_pitch,
                     "recommended_formant_shift": recommended_formant,
                     "target_envelope": env_tgt.tolist(),
+                    "target_envelopes": vowel_envs_tgt,
                     "target_sr": int(sr_tgt),
                     "input_envelope": env_in.tolist(),
+                    "input_envelopes": vowel_envs_in,
                     "input_sr": int(sr_in)
                 })
             else:
@@ -181,6 +183,7 @@ class MMVC_Rest_VoiceChanger:
                     "target_f0": round(float(f0_tgt), 1),
                     "target_centroid": round(float(cent_tgt), 1),
                     "target_envelope": env_tgt.tolist(),
+                    "target_envelopes": vowel_envs_tgt,
                     "target_sr": int(sr_tgt)
                 })
             
@@ -260,8 +263,40 @@ class MMVC_Rest_VoiceChanger:
         # Compute mean log envelope across voiced frames
         voiced_log_envelope = log_envelope[:, voiced_frames] if np.any(voiced_frames) else log_envelope
         mean_log_envelope = np.mean(voiced_log_envelope, axis=1)
-        
-        return f0_median, cent_median, mean_log_envelope
+
+        # Automatic Vowel Envelope Clustering (K-Means on cepstral features)
+        vowel_envelopes = {}
+        if voiced_log_envelope.shape[1] >= 6:
+            try:
+                from sklearn.cluster import KMeans
+                cep_feat = cepstrum[:5, voiced_frames].T if np.any(voiced_frames) else cepstrum[:5, :].T
+                kmeans = KMeans(n_clusters=3, random_state=42, n_init=5).fit(cep_feat)
+                labels = kmeans.labels_
+                
+                c_envs = []
+                for k in range(3):
+                    k_mask = (labels == k)
+                    if np.any(k_mask):
+                        c_envs.append(np.mean(voiced_log_envelope[:, k_mask], axis=1))
+                    else:
+                        c_envs.append(mean_log_envelope)
+                
+                # Sort cluster centroids by low-frequency energy / F1 proxy
+                c_envs.sort(key=lambda env: np.mean(env[: len(env) // 4]))
+                vowel_envelopes = {
+                    "close": np.exp(c_envs[0]).tolist(),
+                    "open": np.exp(c_envs[1]).tolist(),
+                    "front": np.exp(c_envs[2]).tolist()
+                }
+            except Exception as ex:
+                logger.warning(f"Failed to cluster vowel envelopes: {ex}")
+                exp_env = np.exp(mean_log_envelope).tolist()
+                vowel_envelopes = {"close": exp_env, "open": exp_env, "front": exp_env}
+        else:
+            exp_env = np.exp(mean_log_envelope).tolist()
+            vowel_envelopes = {"close": exp_env, "open": exp_env, "front": exp_env}
+
+        return f0_median, cent_median, mean_log_envelope, vowel_envelopes
 
     # Formant Profile & Binding API handlers
     async def get_formant_profiles(self):

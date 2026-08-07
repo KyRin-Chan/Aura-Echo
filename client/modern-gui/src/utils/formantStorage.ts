@@ -3,6 +3,11 @@ export interface FormantProfile {
   name: string;
   type: 'input' | 'target';
   envelope: number[];
+  envelopes?: {
+    open: number[];
+    front: number[];
+    close: number[];
+  };
   sr: number;
   f0?: number;
   centroid?: number;

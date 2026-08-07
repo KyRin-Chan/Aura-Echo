@@ -30,6 +30,37 @@ from voice_changer.audio_effects.AudioEffectsConfig import AudioEffectsConfig
 logger = logging.getLogger(__name__)
 
 
+def _compute_minimum_phase_filter(log_H_normalized: np.ndarray, gain_scale: float, device: torch.device) -> torch.Tensor:
+    """
+    Computes a complex 1D PyTorch tensor representing the minimum-phase frequency response
+    from a normalized log-magnitude spectrum. Fully GPU hardware-accelerated via PyTorch FFT.
+    """
+    log_H = gain_scale * log_H_normalized
+    log_H_tensor = torch.tensor(log_H, dtype=torch.float32, device=device)
+    
+    # Construct symmetric full-spectrum log-magnitude
+    log_H_full = torch.cat([log_H_tensor, torch.flip(log_H_tensor[1:-1], dims=[0])])
+    n_fft = log_H_full.shape[0]
+    
+    # Real IFFT to obtain cepstrum
+    cepstrum = torch.fft.ifft(log_H_full).real
+    
+    # Create causal mask (t=0 & t=Nyquist -> 1, 0 < t < Nyquist -> 2, t > Nyquist -> 0)
+    causal_mask = torch.zeros(n_fft, device=device, dtype=torch.float32)
+    causal_mask[0] = 1.0
+    causal_mask[n_fft // 2] = 1.0
+    causal_mask[1 : n_fft // 2] = 2.0
+    
+    causal_cepstrum = cepstrum * causal_mask
+    
+    # Forward FFT to obtain complex minimum-phase log spectrum
+    complex_log_spectrum = torch.fft.fft(causal_cepstrum)
+    
+    # Exponentiate to get complex minimum-phase frequency response H_min_phase
+    H_min_phase = torch.exp(complex_log_spectrum[: log_H_tensor.shape[0]])
+    return H_min_phase
+
+
 class Pipeline:
     embedder: Embedder
     inferencer: Inferencer
@@ -282,56 +313,50 @@ class Pipeline:
                         try:
                             import json
                             import numpy as np
-                            tgt_env = np.array(json.loads(target_env), dtype=np.float32)
-                            in_env = np.array(json.loads(input_env), dtype=np.float32)
+                            parsed_tgt = json.loads(target_env)
+                            parsed_in = json.loads(input_env)
                             
-                            if len(tgt_env) > 0 and len(in_env) > 0:
-                                n_fft_out = 2048
-                                f_out = np.linspace(0, model_sr / 2, n_fft_out // 2 + 1)
-                                
-                                # 1. Post-filter (target envelope coloring)
-                                f_tgt = np.linspace(0, target_sr / 2, len(tgt_env))
-                                log_env_tgt_out = np.interp(f_out, f_tgt, tgt_env)
-                                
-                                # Zero-mean & Tilt detrending to prevent volume attenuation and muddiness
-                                x_post = np.arange(len(log_env_tgt_out))
-                                slope_post, intercept_post = np.polyfit(x_post, log_env_tgt_out, 1)
-                                log_env_tgt_out_normalized = log_env_tgt_out - (slope_post * x_post + intercept_post)
-                                
-                                log_H_post = strength * log_env_tgt_out_normalized
-                                H_post = np.exp(log_H_post)
-                                self._formant_filter_post_tensor = torch.tensor(H_post, dtype=torch.float32, device=device)
-                                
-                                # 2. Pre-filter (input envelope inverse filtering / whitening)
-                                input_audio_sr = 16000
-                                f_in_out = np.linspace(0, input_audio_sr / 2, n_fft_out // 2 + 1)
-                                f_in = np.linspace(0, input_sr / 2, len(in_env))
-                                log_env_in_out = np.interp(f_in_out, f_in, in_env)
-                                
-                                # Zero-mean & Tilt detrending to prevent volume boosting and phonetic distortions
-                                x_pre = np.arange(len(log_env_in_out))
-                                slope_pre, intercept_pre = np.polyfit(x_pre, log_env_in_out, 1)
-                                log_env_in_out_normalized = log_env_in_out - (slope_pre * x_pre + intercept_pre)
-                                
-                                # Use "Soft-whitening" with beta = 0.5 * strength (typically 0.17 to 0.35)
-                                # to avoid over-flattening the spectrum and protect Hubert's phonetic comprehension.
-                                beta = 0.5 * strength
-                                log_H_pre = -beta * log_env_in_out_normalized
-                                log_H_pre = np.clip(log_H_pre, -1.5, 1.5)
-                                H_pre = np.exp(log_H_pre)
-                                self._formant_filter_pre_tensor = torch.tensor(H_pre, dtype=torch.float32, device=device)
-                                
-                                logger.info(f"Formant profile pre- and post-filters precomputed successfully")
+                            n_fft_out = 2048
+                            f_out = np.linspace(0, model_sr / 2, n_fft_out // 2 + 1)
+
+                            def build_mp_tensor(env_raw, sr_val, is_inverse=False):
+                                env_arr = np.array(env_raw, dtype=np.float32)
+                                if len(env_arr) == 0:
+                                    return None
+                                f_src = np.linspace(0, sr_val / 2, len(env_arr))
+                                log_env = np.interp(f_out, f_src, np.log(env_arr + 1e-8))
+                                x_p = np.arange(len(log_env))
+                                s_p, i_p = np.polyfit(x_p, log_env, 1)
+                                log_norm = log_env - (s_p * x_p + i_p)
+                                log_norm = np.clip(log_norm, -3.0, 3.0)
+                                scale = -0.5 * strength if is_inverse else strength
+                                return _compute_minimum_phase_filter(log_norm, scale, device)
+
+                            # 1. Post-filter (target envelope coloring)
+                            if isinstance(parsed_tgt, dict) and "open" in parsed_tgt:
+                                self._formant_is_vowel_aware = True
+                                self._formant_filter_post_tensor_open = build_mp_tensor(parsed_tgt["open"], target_sr)
+                                self._formant_filter_post_tensor_front = build_mp_tensor(parsed_tgt["front"], target_sr)
+                                self._formant_filter_post_tensor_close = build_mp_tensor(parsed_tgt["close"], target_sr)
+                                self._formant_filter_post_tensor = self._formant_filter_post_tensor_open
                             else:
-                                self._formant_filter_pre_tensor = None
-                                self._formant_filter_post_tensor = None
+                                self._formant_is_vowel_aware = False
+                                self._formant_filter_post_tensor = build_mp_tensor(parsed_tgt, target_sr)
+                            
+                            # 2. Pre-filter (input envelope inverse filtering / whitening)
+                            if isinstance(parsed_in, dict) and "open" in parsed_in:
+                                self._formant_filter_pre_tensor = build_mp_tensor(parsed_in["open"], input_sr, is_inverse=True)
+                            else:
+                                self._formant_filter_pre_tensor = build_mp_tensor(parsed_in, input_sr, is_inverse=True)
+                                
+                            logger.info(f"Dynamic vowel-aware minimum-phase formant filters precomputed successfully on GPU (vowel-aware: {self._formant_is_vowel_aware})")
                         except Exception as ex:
-                            logger.error(f"Error precomputing formant filters: {ex}")
+                            logger.error(f"Error precomputing minimum-phase formant filters: {ex}")
                             self._formant_filter_pre_tensor = None
                             self._formant_filter_post_tensor = None
                     else:
-                          self._formant_filter_pre_tensor = None
-                          self._formant_filter_post_tensor = None
+                        self._formant_filter_pre_tensor = None
+                        self._formant_filter_post_tensor = None
 
             # Apply pre-whitening filter to input audio if active
             if self._formant_filter_pre_tensor is not None:
@@ -494,8 +519,27 @@ class Pipeline:
                             return_complex=True
                         )
                         
-                        # Pointwise scaling of magnitude spectrum
-                        S_filtered = S * self._formant_filter_post_tensor.unsqueeze(-1)
+                        # Pointwise scaling of magnitude spectrum (dynamic vowel-aware or static minimum-phase)
+                        if getattr(self, "_formant_is_vowel_aware", False) and getattr(self, "_formant_filter_post_tensor_open", None) is not None:
+                            n_freq = S.shape[0]
+                            mag = torch.abs(S)
+                            low_e = torch.sum(mag[: n_freq // 4, :], dim=0) + 1e-8
+                            mid_e = torch.sum(mag[n_freq // 4 : n_freq // 2, :], dim=0) + 1e-8
+                            high_e = torch.sum(mag[n_freq // 2 :, :], dim=0) + 1e-8
+                            tot_e = low_e + mid_e + high_e
+
+                            w_close = (low_e / tot_e).unsqueeze(0)
+                            w_open = (mid_e / tot_e).unsqueeze(0)
+                            w_front = (high_e / tot_e).unsqueeze(0)
+
+                            H_dynamic = (
+                                w_close * self._formant_filter_post_tensor_close.unsqueeze(-1) +
+                                w_open * self._formant_filter_post_tensor_open.unsqueeze(-1) +
+                                w_front * self._formant_filter_post_tensor_front.unsqueeze(-1)
+                            )
+                            S_filtered = S * H_dynamic
+                        else:
+                            S_filtered = S * self._formant_filter_post_tensor.unsqueeze(-1)
                         
                         # Reconstruct via ISTFT
                         out_audio_filtered = torch.istft(
