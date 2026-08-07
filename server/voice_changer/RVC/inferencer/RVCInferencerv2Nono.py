@@ -7,6 +7,7 @@ from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.RVC.inferencer.Inferencer import Inferencer
 from .rvc_models.infer_pack.models import SynthesizerTrnMs768NSFsid_nono
 from voice_changer.common.SafetensorsUtils import load_model
+from voice_changer.RVC.inferencer.RVCInferencerv2 import _load_state_dict_compat
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +28,12 @@ class RVCInferencerv2Nono(Inferencer):
         else:
             cpt = torch.load(file, map_location=dev if dev.type == 'cuda' else 'cpu')
             model = SynthesizerTrnMs768NSFsid_nono(*cpt["config"], is_half=is_half).to(dev)
-            model.load_state_dict(cpt["weight"], strict=False)
-        model = model.eval()
-
-        model.remove_weight_norm()
+        # Strip parametrizations (weight_norm) exactly like Applio Realtime Voice Converter
+        try:
+            from torch.nn.utils.parametrize import strip_parametrizations
+            strip_parametrizations(model)
+        except Exception:
+            model.remove_weight_norm()
 
         if is_half:
             model = model.half()
