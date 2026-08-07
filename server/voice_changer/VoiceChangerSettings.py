@@ -502,4 +502,22 @@ class VoiceChangerSettings:
 
     @formantProfileStrength.setter
     def formantProfileStrength(self, val: Any):
-        self._formantProfileStrength = float(val)
+        try:
+            self._formantProfileStrength = float(val)
+        except (ValueError, TypeError):
+            pass
+
+    _agcEnabled: bool = False
+
+    @property
+    def agcEnabled(self) -> bool:
+        return self._agcEnabled
+
+    @agcEnabled.setter
+    def agcEnabled(self, val: Any):
+        if isinstance(val, bool):
+            self._agcEnabled = val
+        elif isinstance(val, int):
+            self._agcEnabled = bool(val)
+        else:
+            self._agcEnabled = str(val).lower() in ("true", "1", "yes")

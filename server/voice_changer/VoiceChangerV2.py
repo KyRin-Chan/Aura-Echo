@@ -188,8 +188,13 @@ class VoiceChangerV2:
                 if isinstance(bg, torch.Tensor):
                     mixed = mixed + bg.to(mixed.device, dtype=mixed.dtype)
             except Exception:
-                # If mixer fails, ignore and proceed with VC audio
                 pass
+
+        # Apply Auto Gain Control (Limiter / Dynamic Peak Compressor) if enabled
+        if getattr(self.settings, "agcEnabled", False):
+            peak = torch.max(torch.abs(mixed))
+            if peak > 0.95:
+                mixed = torch.tanh(mixed / (peak + 1e-6)) * 0.95
 
         return mixed.detach().cpu().numpy(), vol
 
