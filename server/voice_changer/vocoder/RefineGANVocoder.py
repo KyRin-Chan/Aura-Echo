@@ -53,6 +53,25 @@ logger = logging.getLogger(__name__)
 # Helpers (inlined to avoid dependency on Applio's commons module)
 # ---------------------------------------------------------------------------
 
+def _safe_remove_weight_norm(m: nn.Module) -> None:
+    """Safely remove weight norm or parametrization hook from a module."""
+    if not isinstance(m, nn.Module):
+        return
+    # PyTorch 2.0+ parametrizations
+    try:
+        from torch.nn.utils.parametrize import remove_parametrizations
+        if hasattr(m, "parametrizations") and "weight" in m.parametrizations:
+            remove_parametrizations(m, "weight")
+            return
+    except Exception:
+        pass
+    # Legacy PyTorch weight_norm hook
+    try:
+        remove_weight_norm(m)
+    except Exception:
+        pass
+
+
 def _get_padding(kernel_size: int, dilation: int = 1) -> int:
     """Same-length padding for a causal-free dilated Conv1d."""
     return (kernel_size * dilation - dilation) // 2
@@ -230,7 +249,7 @@ class _ResBlock(nn.Module):
 
     def remove_weight_norm(self):
         for c in list(self.convs1) + list(self.convs2):
-            remove_weight_norm(c)
+            _safe_remove_weight_norm(c)
 
 
 class _ParallelResBlock(nn.Module):
@@ -274,9 +293,10 @@ class _ParallelResBlock(nn.Module):
         return torch.stack([blk(x) for blk in self.blocks], dim=0).mean(dim=0)
 
     def remove_weight_norm(self):
-        remove_weight_norm(self.input_conv)
+        _safe_remove_weight_norm(self.input_conv)
         for blk in self.blocks:
-            blk[1].remove_weight_norm()
+            if hasattr(blk, "__getitem__") and len(blk) > 1 and hasattr(blk[1], "remove_weight_norm"):
+                blk[1].remove_weight_norm()
 
 
 class _RefineGANGenerator(nn.Module):
@@ -430,13 +450,14 @@ class _RefineGANGenerator(nn.Module):
         return torch.tanh(x)
 
     def remove_weight_norm(self):
-        remove_weight_norm(self.pre_conv)
-        remove_weight_norm(self.mel_conv)
-        remove_weight_norm(self.conv_post)
+        _safe_remove_weight_norm(self.pre_conv)
+        _safe_remove_weight_norm(self.mel_conv)
+        _safe_remove_weight_norm(self.conv_post)
         for blk in self.downsample_blocks:
-            remove_weight_norm(blk)
+            _safe_remove_weight_norm(blk)
         for blk in self.upsample_conv_blocks:
-            blk.remove_weight_norm()
+            if hasattr(blk, "remove_weight_norm"):
+                blk.remove_weight_norm()
 
 
 # ---------------------------------------------------------------------------
