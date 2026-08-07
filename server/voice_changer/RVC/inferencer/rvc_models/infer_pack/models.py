@@ -769,7 +769,18 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
                 if o is None or o.shape[-1] == 0:
                     o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
                 elif o.shape[-1] != expected_len:
-                    o = F.interpolate(o, size=expected_len, mode='linear', align_corners=False)
+                    # Safety-net: pitch-preserving sinc resample to align length.
+                    # When RefineGAN has correct upsample_rates=(10,8,2,2) and
+                    # target_sr matches model_sr, output length == expected_len
+                    # and this branch is never reached.
+                    import torchaudio.functional as _taf
+                    from math import gcd as _gcd
+                    _g = _gcd(o.shape[-1], expected_len)
+                    o = _taf.resample(
+                        o.squeeze(1),
+                        orig_freq=o.shape[-1] // _g,
+                        new_freq=expected_len // _g,
+                    ).unsqueeze(1)
             else:
                 o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
         except Exception as e:

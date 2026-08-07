@@ -117,6 +117,14 @@ class RVCr2(VoiceChangerModel):
                 dtype=torch.float32
             ).to(self.device_manager.device)
 
+        # Notify the vocoder manager of the model's native sample rate so that
+        # any active external vocoder (e.g. RefineGAN) can update its resampler.
+        try:
+            from voice_changer.vocoder.VocoderManager import VocoderManager
+            VocoderManager.get_instance().update_target_sr(self.slotInfo.samplingRate)
+        except Exception as _e:
+            logger.warning(f"Could not update VocoderManager target_sr: {_e}")
+
         logger.info("Initialized.")
 
     def set_sampling_rate(self, input_sample_rate: int, output_sample_rate: int):
