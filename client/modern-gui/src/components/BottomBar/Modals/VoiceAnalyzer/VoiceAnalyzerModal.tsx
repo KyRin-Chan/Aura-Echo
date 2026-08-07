@@ -164,14 +164,14 @@ const VoiceAnalyzerModal = ({
         setCompareResult(null);
       };
 
-      setMediaRecorder(recorder);
+      mediaRecorderRef.current = recorder;
       recorder.start();
       setIsRecording(true);
-      setRecordingDuration(0);
+      setRecordingSeconds(0);
 
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = setInterval(() => {
-        setRecordingDuration((prev) => prev + 1);
+        setRecordingSeconds((prev) => prev + 1);
       }, 1000);
     } catch (err) {
       console.error('Failed to start recording:', err);
@@ -180,9 +180,10 @@ const VoiceAnalyzerModal = ({
   };
 
   const stopRecording = () => {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-      mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state !== 'inactive') {
+      rec.stop();
+      rec.stream.getTracks().forEach((track) => track.stop());
     }
     setIsRecording(false);
     if (recordingTimerRef.current) {
@@ -212,14 +213,14 @@ const VoiceAnalyzerModal = ({
         setGenPreviewUrl(previewUrl);
       };
 
-      setGenMediaRecorder(recorder);
+      genMediaRecorderRef.current = recorder;
       recorder.start();
       setIsGenRecording(true);
-      setGenRecordingDuration(0);
+      setGenRecordingSeconds(0);
 
       if (genRecordingTimerRef.current) clearInterval(genRecordingTimerRef.current);
       genRecordingTimerRef.current = setInterval(() => {
-        setGenRecordingDuration((prev) => prev + 1);
+        setGenRecordingSeconds((prev) => prev + 1);
       }, 1000);
     } catch (err) {
       console.error('Failed to start recording:', err);
@@ -228,9 +229,10 @@ const VoiceAnalyzerModal = ({
   };
 
   const stopGenRecording = () => {
-    if (genMediaRecorder && genMediaRecorder.state !== 'inactive') {
-      genMediaRecorder.stop();
-      genMediaRecorder.stream.getTracks().forEach((track) => track.stop());
+    const rec = genMediaRecorderRef.current;
+    if (rec && rec.state !== 'inactive') {
+      rec.stop();
+      rec.stream.getTracks().forEach((track) => track.stop());
     }
     setIsGenRecording(false);
     if (genRecordingTimerRef.current) {
