@@ -8,7 +8,6 @@ import { CSS_CLASSES } from '../../styles/constants';
 import { useAppRoot } from '../../context/AppRootProvider';
 import { t } from '../../locales';
 import NoiseReduction from './NoiseReduction';
-import VocoderSelection from './VocoderSelection';
 import F0Extraction from './F0Extraction';
 import ChunkConfig from './ChunkConfig';
 import SilentThreshold from './SilentThreshold';
@@ -70,12 +69,6 @@ function AiSettingsCard({ dndAttributes, dndListeners }: AiSettingsCardProps): J
                 appState={appState}
                 uiState={uiState}
                 appGuiSettingState={appGuiSettingState}
-              />
-            </div>
-            <div>
-              <VocoderSelection
-                appState={appState}
-                uiState={uiState}
               />
             </div>
           </div>

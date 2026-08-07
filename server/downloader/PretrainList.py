@@ -92,17 +92,5 @@ embedders = {
         "saveTo": "pretrain/embedder/spin_v2.onnx",
         "hash": "4983330cc048f7fc08646c33f8e4607c",
         "type": "onnx",
-        "mandatory": False,
-    },
-}
-
-vocoders = {
-    "refinegan": {
-        "name": "RefineGAN",
-        "url": "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/refinegan/f0G32k.pth",
-        "saveTo": "pretrain/vocoder/f0G32k.pth",
-        "hash": "33224708779ed10f60be40942d97363d",
-        "type": "pytorch",
-        "mandatory": False,
     },
 }

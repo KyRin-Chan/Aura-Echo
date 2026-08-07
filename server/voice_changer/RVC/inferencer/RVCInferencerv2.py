@@ -21,12 +21,15 @@ class RVCInferencerv2(Inferencer):
         # Keep torch.load for backward compatibility, but discourage the use of this loading method
         if file.endswith('.safetensors'):
             with safe_open(file, 'pt', device=str(dev) if dev.type == 'cuda' else 'cpu') as cpt:
-                config = json.loads(cpt.metadata()['config'])
-                model = SynthesizerTrnMs768NSFsid(*config, is_half=is_half).to(dev)
+                metadata = cpt.metadata() or {}
+                config = json.loads(metadata['config'])
+                vocoder = metadata.get('vocoder', 'embedded')
+                model = SynthesizerTrnMs768NSFsid(*config, is_half=is_half, vocoder=vocoder).to(dev)
                 load_model(model, cpt, strict=False)
         else:
             cpt = torch.load(file, map_location=dev if dev.type == 'cuda' else 'cpu')
-            model = SynthesizerTrnMs768NSFsid(*cpt["config"], is_half=is_half).to(dev)
+            vocoder = cpt.get('vocoder', 'embedded') if isinstance(cpt, dict) else 'embedded'
+            model = SynthesizerTrnMs768NSFsid(*cpt["config"], is_half=is_half, vocoder=vocoder).to(dev)
             model.load_state_dict(cpt["weight"], strict=False)
         model = model.eval()
 

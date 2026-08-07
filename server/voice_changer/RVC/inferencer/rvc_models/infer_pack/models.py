@@ -12,6 +12,7 @@ from torch.nn.utils import remove_weight_norm, spectral_norm, weight_norm
 
 from voice_changer.RVC.inferencer.rvc_models.infer_pack import attentions, commons, modules
 from voice_changer.RVC.inferencer.rvc_models.infer_pack.commons import get_padding, init_weights
+from voice_changer.vocoder.RefineGANVocoder import _RefineGANGenerator
 
 has_xpu = bool(hasattr(torch, "xpu") and torch.xpu.is_available())
 
@@ -649,18 +650,30 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
             kernel_size,
             float(p_dropout),
         )
-        self.dec = GeneratorNSF(
-            inter_channels,
-            resblock,
-            resblock_kernel_sizes,
-            resblock_dilation_sizes,
-            upsample_rates,
-            upsample_initial_channel,
-            upsample_kernel_sizes,
-            gin_channels=gin_channels,
-            sr=sr,
-            is_half=kwargs["is_half"],
-        )
+        vocoder_type = kwargs.get("vocoder", "embedded")
+        self.is_refinegan = isinstance(vocoder_type, str) and vocoder_type.lower().replace("-", "") in ("refinegan", "refinegan")
+
+        if self.is_refinegan:
+            self.dec = _RefineGANGenerator(
+                sample_rate=sr,
+                upsample_rates=upsample_rates,
+                num_mels=inter_channels,
+                gin_channels=gin_channels,
+            )
+            logger.info(f"Synthesizer initialized with native RefineGAN decoder (sr={sr}Hz, upp={self.dec.upp})")
+        else:
+            self.dec = GeneratorNSF(
+                inter_channels,
+                resblock,
+                resblock_kernel_sizes,
+                resblock_dilation_sizes,
+                upsample_rates,
+                upsample_initial_channel,
+                upsample_kernel_sizes,
+                gin_channels=gin_channels,
+                sr=sr,
+                is_half=kwargs.get("is_half", False),
+            )
         self.enc_q = PosteriorEncoder(
             spec_channels,
             inter_channels,
@@ -759,33 +772,21 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
         z = z[:, :, dec_head : dec_head + return_length]
         x_mask = x_mask[:, :, dec_head : dec_head + return_length]
         nsff0 = nsff0[:, skip_head : skip_head + return_length]
-        try:
-            from voice_changer.vocoder.VocoderManager import VocoderManager
-            active_vocoder = VocoderManager.get_instance().get_active_vocoder()
-            if active_vocoder is not None and getattr(active_vocoder, "is_loaded", False):
-                o = active_vocoder.infer(z * x_mask, nsff0, g=g)
-                upp = getattr(self.dec, "upp", 400)
-                expected_len = (z * x_mask).shape[-1] * upp
-                if o is None or o.shape[-1] == 0:
+        if getattr(self, "is_refinegan", False):
+            o = self.dec(z * x_mask, nsff0, g=g)
+        else:
+            try:
+                from voice_changer.vocoder.VocoderManager import VocoderManager
+                active_vocoder = VocoderManager.get_instance().get_active_vocoder()
+                if active_vocoder is not None and getattr(active_vocoder, "is_loaded", False):
+                    o = active_vocoder.infer(z * x_mask, nsff0, g=g)
+                    if o is None or o.shape[-1] == 0:
+                        o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
+                else:
                     o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
-                elif o.shape[-1] != expected_len:
-                    # Safety-net: pitch-preserving sinc resample to align length.
-                    # When RefineGAN has correct upsample_rates=(10,8,2,2) and
-                    # target_sr matches model_sr, output length == expected_len
-                    # and this branch is never reached.
-                    import torchaudio.functional as _taf
-                    from math import gcd as _gcd
-                    _g = _gcd(o.shape[-1], expected_len)
-                    o = _taf.resample(
-                        o.squeeze(1),
-                        orig_freq=o.shape[-1] // _g,
-                        new_freq=expected_len // _g,
-                    ).unsqueeze(1)
-            else:
+            except Exception as e:
+                logger.warning(f"Error during active vocoder inference: {e}. Falling back to default decoder.")
                 o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
-        except Exception as e:
-            logger.warning(f"Error during active vocoder inference: {e}. Falling back to default decoder.")
-            o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
 
         return o, x_mask, (z, z_p, m_p, logs_p)
 

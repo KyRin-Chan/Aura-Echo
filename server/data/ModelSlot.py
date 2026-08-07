@@ -44,6 +44,7 @@ class RVCModelSlot(ModelSlot):
     embedder: EmbedderType = "hubert_base"
     speakers: dict = field(default_factory=lambda: {0: "target"})
     version: str = "v2"
+    vocoder: str = "embedded"
 
 ModelSlots: TypeAlias = Union[
     ModelSlot,

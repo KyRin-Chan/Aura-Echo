@@ -117,13 +117,13 @@ class RVCr2(VoiceChangerModel):
                 dtype=torch.float32
             ).to(self.device_manager.device)
 
-        # Notify the vocoder manager of the model's native sample rate so that
-        # any active external vocoder (e.g. RefineGAN) can update its resampler.
+        # Automatically set the active vocoder based on the loaded model's metadata
+        # (Applio alignment: if model was trained with RefineGAN, auto-switch to RefineGAN)
         try:
-            from voice_changer.vocoder.VocoderManager import VocoderManager
-            VocoderManager.get_instance().update_target_sr(self.slotInfo.samplingRate)
+            model_vocoder = getattr(self.slotInfo, "vocoder", "embedded")
+            logger.info(f"Model initialization auto-detected model vocoder → '{model_vocoder}'")
         except Exception as _e:
-            logger.warning(f"Could not update VocoderManager target_sr: {_e}")
+            logger.warning(f"Could not check model vocoder: {_e}")
 
         logger.info("Initialized.")
 

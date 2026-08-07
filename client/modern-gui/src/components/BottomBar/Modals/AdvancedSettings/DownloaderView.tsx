@@ -272,23 +272,6 @@ const DownloaderView = (props: DownloaderViewProps) => {
           )}
         </div>
       </div>
-
-      <div>
-        <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 pl-1">
-          {t('vocodersTitle')}
-        </h3>
-        <div className="space-y-3">
-          {sortedVocoders.length > 0 ? (
-            <div className="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden">
-              {sortedVocoders.map(([id, info]) => renderItem(id, info, 'vocoder'))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-on-surface-variant/60 italic bg-surface-container-low rounded-lg border border-outline-variant text-sm">
-              {t('noVocodersAvailable')}
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 };

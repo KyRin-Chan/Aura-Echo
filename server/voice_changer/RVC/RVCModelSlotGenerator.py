@@ -190,6 +190,14 @@ class RVCModelSlotGenerator(ModelSlotGenerator):
         config_len = len(cpt["config"])
         version = cpt.get("version", "v1")
 
+        # Extract and normalize vocoder metadata (Applio alignment)
+        raw_vocoder = cpt.get("vocoder", "embedded") if isinstance(cpt, dict) else "embedded"
+        if isinstance(raw_vocoder, str) and raw_vocoder.lower().replace("-", "") in ("refinegan", "refinegan"):
+            slot.vocoder = "refinegan"
+        else:
+            slot.vocoder = "embedded"
+        logger.info(f"Model checkpoint vocoder detected: '{raw_vocoder}' -> set slot.vocoder to '{slot.vocoder}'")
+
         slot = RVCModelSlot(**asdict(slot))
         slot.f0 = True if cpt["f0"] == 1 else False
 

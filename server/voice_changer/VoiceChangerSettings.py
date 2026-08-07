@@ -443,32 +443,6 @@ class VoiceChangerSettings:
         # This is a no-op setter to prevent errors when client tries to set this read-only property
         pass
 
-    @property
-    def vocoders(self) -> Dict[str, Dict[str, Any]]:
-        """Return vocoders with their information and download status."""
-        from downloader.ModelManager import ModelManager
-        return ModelManager.get_vocoders()
-
-    @vocoders.setter
-    def vocoders(self, value):
-        pass
-
-    _vocoderType: str = "embedded"
-
-    @property
-    def vocoderType(self) -> str:
-        return self._vocoderType
-
-    @vocoderType.setter
-    def vocoderType(self, value: str):
-        self._vocoderType = value
-        try:
-            from voice_changer.vocoder.VocoderManager import VocoderManager
-            VocoderManager.get_instance().set_vocoder_type(value)
-        except Exception as e:
-            logger.error(f"Failed to update active vocoder in VocoderManager: {e}")
-
-
     # Formant Profile Settings
     _formantProfileActive: bool = False
     _formantProfileTargetEnvelope: str = "[]"
