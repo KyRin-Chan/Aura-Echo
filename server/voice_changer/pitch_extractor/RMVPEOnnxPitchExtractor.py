@@ -43,7 +43,7 @@ class RMVPEOnnxPitchExtractor(PitchExtractor):
         sr: int,
         window: int,
     ) -> torch.Tensor:
-        mel = self.mel_extractor(audio.unsqueeze(0).float(), center=True)
+        mel = self.mel_extractor(audio.unsqueeze(0).float())
         n_frames = mel.shape[-1]
 
         # UNet 5-level downsampling requires T dimension to be a multiple of 32 (2^5).
