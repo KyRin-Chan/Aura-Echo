@@ -6,6 +6,17 @@ import { UIContextType } from '../../../../context/UIContext';
 import { t } from '../../../../locales';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSync, faMicrophone, faCheck, faMusic, faStop, faTrash, faEdit, faSave, faTimes } from '@fortawesome/free-solid-svg-icons';
+import {
+  FormantProfile,
+  ModelFormantBinding,
+  getAllFormantProfiles,
+  getAllFormantBindings,
+  saveFormantProfile,
+  deleteFormantProfile,
+  deleteFormantBinding,
+  syncProfilesFromServer,
+  syncBindingsFromServer
+} from '../../../../utils/formantStorage';
 
 interface VoiceAnalyzerModalProps {
   appState: ClientState;
@@ -23,63 +34,64 @@ interface AnalysisResult {
   recommended_pitch: number;
   recommended_formant_shift: number;
   target_envelope: number[];
-  target_sr: number;
   input_envelope: number[];
-  input_sr: number;
 }
 
-function VoiceAnalyzerModal({
+const VoiceAnalyzerModal = ({
   appState,
   guiState,
   showVoiceAnalyzer,
   setShowVoiceAnalyzer
-}: VoiceAnalyzerModalProps): JSX.Element {
-  // ---------------- States ----------------
-  const [activeModalTab, setActiveModalTab] = useState<'pitch' | 'formant'>('pitch');
-
-  // Pitch comparison states
+}: VoiceAnalyzerModalProps): JSX.Element | null => {
+  // ---------------- State ----------------
+  const [activeModalTab, setActiveModalTab] = useState<'pitch' | 'manager'>('pitch');
+  const [inputTab, setInputTab] = useState<'upload' | 'record'>('upload');
   const [targetFile, setTargetFile] = useState<File | null>(null);
   const [inputFile, setInputFile] = useState<File | null>(null);
-  const [targetPreviewUrl, setTargetPreviewUrl] = useState<string>('');
-  const [inputPreviewUrl, setInputPreviewUrl] = useState<string>('');
-  const [inputTab, setInputTab] = useState<'upload' | 'record'>('upload');
-  const [isRecording, setIsRecording] = useState<boolean>(false);
-  const [recordingDuration, setRecordingDuration] = useState<number>(0);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
-
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [compareResult, setCompareResult] = useState<AnalysisResult | null>(null);
 
-  // Formant manager states
-  const [profiles, setProfiles] = useState<any[]>([]);
-  const [bindings, setBindings] = useState<Record<number, any>>({});
+  // Live recording state for Voice Compare
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Audio preview URLs for Voice Compare
+  const [targetPreviewUrl, setTargetPreviewUrl] = useState<string>('');
+  const [inputPreviewUrl, setInputPreviewUrl] = useState<string>('');
+
+  // Profile manager state
+  const [profiles, setProfiles] = useState<FormantProfile[]>([]);
+  const [bindings, setBindings] = useState<Record<number, ModelFormantBinding>>({});
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string>('');
 
-  // Formant generation states
+  // Create Profile (Generative) State
   const [newProfileName, setNewProfileName] = useState<string>('');
   const [newProfileType, setNewProfileType] = useState<'input' | 'target'>('input');
   const [genAudioTab, setGenAudioTab] = useState<'upload' | 'record'>('upload');
   const [genFile, setGenFile] = useState<File | null>(null);
   const [genPreviewUrl, setGenPreviewUrl] = useState<string>('');
-  
   const [isGenRecording, setIsGenRecording] = useState<boolean>(false);
-  const [genRecordingDuration, setGenRecordingDuration] = useState<number>(0);
-  const [genMediaRecorder, setGenMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [genRecordingSeconds, setGenRecordingSeconds] = useState<number>(0);
+  const genMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const genAudioChunksRef = useRef<Blob[]>([]);
   const genRecordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
-  // Load profiles and bindings from localStorage
-  const loadProfilesAndBindings = () => {
+  // Load profiles and bindings from storage & server
+  const loadProfilesAndBindings = async () => {
     try {
-      const storedProfilesStr = localStorage.getItem('formant_profiles') || '[]';
-      const storedProfiles = JSON.parse(storedProfilesStr);
-      setProfiles(storedProfiles);
-
-      const storedBindingsStr = localStorage.getItem('model_formant_bindings') || '{}';
-      const storedBindings = JSON.parse(storedBindingsStr);
-      setBindings(storedBindings);
+      setProfiles(getAllFormantProfiles());
+      setBindings(getAllFormantBindings());
+      const [latestProfiles, latestBindings] = await Promise.all([
+        syncProfilesFromServer(),
+        syncBindingsFromServer()
+      ]);
+      setProfiles(latestProfiles);
+      setBindings(latestBindings);
     } catch (e) {
       console.error('Error loading profiles or bindings:', e);
     }
@@ -320,14 +332,11 @@ function VoiceAnalyzerModal({
   const handleRenameProfileSave = () => {
     if (!editingProfileId || !editingName.trim()) return;
     try {
-      const updatedProfiles = profiles.map((p) => {
-        if (p.id === editingProfileId) {
-          return { ...p, name: editingName.trim() };
-        }
-        return p;
-      });
-      localStorage.setItem('formant_profiles', JSON.stringify(updatedProfiles));
-      setProfiles(updatedProfiles);
+      const target = profiles.find((p) => p.id === editingProfileId);
+      if (target) {
+        saveFormantProfile({ ...target, name: editingName.trim() });
+        setProfiles(getAllFormantProfiles());
+      }
       setEditingProfileId(null);
       setEditingName('');
     } catch (e) {
@@ -342,18 +351,12 @@ function VoiceAnalyzerModal({
 
   const handleDeleteProfile = (profileId: string) => {
     try {
-      const updatedProfiles = profiles.filter((p) => p.id !== profileId);
-      localStorage.setItem('formant_profiles', JSON.stringify(updatedProfiles));
-      setProfiles(updatedProfiles);
-
-      let bindingsChanged = false;
-      const updatedBindings = { ...bindings };
-      Object.keys(updatedBindings).forEach((key) => {
-        const slotIndex = Number(key);
-        const bind = updatedBindings[slotIndex];
+      deleteFormantProfile(profileId);
+      const allBindings = getAllFormantBindings();
+      Object.entries(allBindings).forEach(([slotStr, bind]) => {
+        const slotIndex = Number(slotStr);
         if (bind && (bind.targetProfileId === profileId || bind.inputProfileId === profileId)) {
-          delete updatedBindings[slotIndex];
-          bindingsChanged = true;
+          deleteFormantBinding(slotIndex);
 
           if (slotIndex === appState.serverSetting.serverSetting.modelSlotIndex) {
             appState.serverSetting.updateServerSettings({
@@ -364,10 +367,8 @@ function VoiceAnalyzerModal({
         }
       });
 
-      if (bindingsChanged) {
-        localStorage.setItem('model_formant_bindings', JSON.stringify(updatedBindings));
-        setBindings(updatedBindings);
-      }
+      setProfiles(getAllFormantProfiles());
+      setBindings(getAllFormantBindings());
     } catch (e) {
       console.error('Error deleting profile:', e);
     }
@@ -400,7 +401,7 @@ function VoiceAnalyzerModal({
 
       const data = await response.json();
       if (data.success) {
-        const newProfile = {
+        const newProfile: FormantProfile = {
           id: `profile-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           name: newProfileName.trim(),
           type: newProfileType,
@@ -410,17 +411,8 @@ function VoiceAnalyzerModal({
           centroid: data.target_centroid
         };
 
-        const storedProfilesStr = localStorage.getItem('formant_profiles') || '[]';
-        let storedProfiles: any[] = [];
-        try {
-          storedProfiles = JSON.parse(storedProfilesStr);
-        } catch (e) {
-          storedProfiles = [];
-        }
-
-        storedProfiles.push(newProfile);
-        localStorage.setItem('formant_profiles', JSON.stringify(storedProfiles));
-        setProfiles(storedProfiles);
+        saveFormantProfile(newProfile);
+        setProfiles(getAllFormantProfiles());
 
         // Reset fields
         setNewProfileName('');

@@ -5,7 +5,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 IGNORED_KEYS = { 'version' }
-STATEFUL_KEYS = [ 'serverAudioStated', 'passThrough', 'recordIO' ]
+STATEFUL_KEYS = [
+    'serverAudioStated',
+    'passThrough',
+    'recordIO',
+    'formantProfileTargetEnvelope',
+    'formantProfileInputEnvelope'
+]
 
 def _js_bool_to_bool(value: str) -> bool:
     return value == 'true'
@@ -24,7 +30,8 @@ class VoiceChangerSettings:
     def to_dict_stateless(self) -> dict:
         data = self.to_dict()
         for key in STATEFUL_KEYS:
-            del data[key]
+            if key in data:
+                del data[key]
         return data
 
     def get_properties(self) -> dict:

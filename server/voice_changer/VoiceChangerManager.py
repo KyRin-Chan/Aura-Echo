@@ -137,8 +137,8 @@ class VoiceChangerManager(ServerAudioCallbacks):
             logger.warning(f"Failed to initialize audio mixer tracks: {e}")
 
     def store_setting(self):
-        with open(STORED_SETTING_FILE, "w") as f:
-            json.dump(self.settings.to_dict_stateless(), f)
+        with open(STORED_SETTING_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.settings.to_dict_stateless(), f, indent=4, ensure_ascii=False)
 
     @classmethod
     def get_instance(cls):

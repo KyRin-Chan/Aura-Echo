@@ -45,6 +45,10 @@ class RVCModelSlot(ModelSlot):
     speakers: dict = field(default_factory=lambda: {0: "target"})
     version: str = "v2"
     vocoder: str = "embedded"
+    formantInputProfileId: str = ""
+    formantTargetProfileId: str = ""
+    formantProfileActive: bool = False
+    formantProfileStrength: float = 0.35
 
 ModelSlots: TypeAlias = Union[
     ModelSlot,

@@ -7,6 +7,7 @@ import { RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import MainContent from './components/MainContent';
 import { useAppState } from './context/AppContext';
 import { useUIContext } from './context/UIContext';
+import { getFormantBinding, getFormantProfile } from './utils/formantStorage';
 
 function App(): JSX.Element {
   // ---------------- State ----------------
@@ -29,30 +30,33 @@ function App(): JSX.Element {
     if (slotIndex === undefined || slotIndex === -1) return;
 
     try {
-      const storedBindingsStr = localStorage.getItem('model_formant_bindings') || '{}';
-      const storedBindings = JSON.parse(storedBindingsStr);
-      const binding = storedBindings[slotIndex];
+      const binding = getFormantBinding(slotIndex);
 
-      if (binding) {
-        const storedProfilesStr = localStorage.getItem('formant_profiles') || '[]';
-        const storedProfiles = JSON.parse(storedProfilesStr);
-
-        const targetProfile = storedProfiles.find((p: any) => p.id === binding.targetProfileId);
-        const inputProfile = storedProfiles.find((p: any) => p.id === binding.inputProfileId);
+      if (binding && binding.targetProfileId && binding.inputProfileId) {
+        const targetProfile = getFormantProfile(binding.targetProfileId);
+        const inputProfile = getFormantProfile(binding.inputProfileId);
 
         if (targetProfile && inputProfile) {
+          const isActive = binding.active !== undefined ? Boolean(binding.active) : true;
           appState.serverSetting.updateServerSettings({
             ...appState.serverSetting.serverSetting,
             tran: binding.recommendedPitch !== undefined ? binding.recommendedPitch : appState.serverSetting.serverSetting.tran,
             formantShift: binding.recommendedFormantShift !== undefined ? binding.recommendedFormantShift : appState.serverSetting.serverSetting.formantShift,
-            formantProfileActive: true,
+            formantProfileActive: isActive,
             formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelope),
             formantProfileTargetSr: targetProfile.sr,
             formantProfileInputEnvelope: JSON.stringify(inputProfile.envelope),
             formantProfileInputSr: inputProfile.sr,
-            formantProfileStrength: 0.35
+            formantProfileStrength: binding.strength !== undefined ? binding.strength : (appState.serverSetting.serverSetting.formantProfileStrength ?? 0.35)
           });
-          console.log(`Auto-loaded formant profiles for model slot ${slotIndex}`);
+          console.log(`Auto-loaded formant profiles for model slot ${slotIndex}, active: ${isActive}`);
+        } else {
+          if (appState.serverSetting?.serverSetting?.formantProfileActive) {
+            appState.serverSetting.updateServerSettings({
+              ...appState.serverSetting.serverSetting,
+              formantProfileActive: false
+            });
+          }
         }
       } else {
         if (appState.serverSetting?.serverSetting?.formantProfileActive) {

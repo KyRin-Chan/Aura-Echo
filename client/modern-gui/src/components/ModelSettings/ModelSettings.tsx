@@ -6,6 +6,15 @@ import MD3Select from "../Helpers/MD3Select";
 import MD3Switch from "../Helpers/MD3Switch";
 import { useAppState } from "../../context/AppContext";
 import { t } from '../../locales';
+import {
+  FormantProfile,
+  ModelFormantBinding,
+  getAllFormantProfiles,
+  getAllFormantBindings,
+  saveFormantBinding,
+  syncProfilesFromServer,
+  syncBindingsFromServer
+} from "../../utils/formantStorage";
 
 interface ModelSettingsProps {
   model: RVCModelSlot;
@@ -35,17 +44,20 @@ function ModelSettings({
     appState.serverSetting?.serverSetting?.formantProfileStrength ?? 0.35
   );
 
-  const [profiles, setProfiles] = useState<any[]>([]);
-  const [bindings, setBindings] = useState<Record<number, any>>({});
+  const [profiles, setProfiles] = useState<FormantProfile[]>([]);
+  const [bindings, setBindings] = useState<Record<string | number, ModelFormantBinding>>({});
 
   useEffect(() => {
-    const loadProfilesAndBindings = () => {
+    const loadProfilesAndBindings = async () => {
       try {
-        const storedProfilesStr = localStorage.getItem('formant_profiles') || '[]';
-        setProfiles(JSON.parse(storedProfilesStr));
-
-        const storedBindingsStr = localStorage.getItem('model_formant_bindings') || '{}';
-        setBindings(JSON.parse(storedBindingsStr));
+        setProfiles(getAllFormantProfiles());
+        setBindings(getAllFormantBindings());
+        const [latestProfiles, latestBindings] = await Promise.all([
+          syncProfilesFromServer(),
+          syncBindingsFromServer()
+        ]);
+        setProfiles(latestProfiles);
+        setBindings(latestBindings);
       } catch (e) {
         console.error('Error loading profiles or bindings:', e);
       }
@@ -71,18 +83,23 @@ function ModelSettings({
   const handleWarpSwitchChange = (checked: boolean) => {
     const activeSlot = appState.serverSetting?.serverSetting?.modelSlotIndex;
     let extraSettings: any = {};
-    if (checked && activeSlot !== undefined && activeSlot !== -1) {
-      const currentBinding = bindings[activeSlot];
-      if (currentBinding) {
-        const inputProfile = profiles.find((p) => p.id === currentBinding.inputProfileId);
-        const targetProfile = profiles.find((p) => p.id === currentBinding.targetProfileId);
-        if (inputProfile && targetProfile) {
-          extraSettings = {
-            formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelope),
-            formantProfileTargetSr: targetProfile.sr,
-            formantProfileInputEnvelope: JSON.stringify(inputProfile.envelope),
-            formantProfileInputSr: inputProfile.sr
-          };
+    if (activeSlot !== undefined && activeSlot !== -1) {
+      saveFormantBinding(activeSlot, { active: checked });
+      setBindings(getAllFormantBindings());
+
+      if (checked) {
+        const currentBinding = bindings[activeSlot];
+        if (currentBinding) {
+          const inputProfile = profiles.find((p) => p.id === currentBinding.inputProfileId);
+          const targetProfile = profiles.find((p) => p.id === currentBinding.targetProfileId);
+          if (inputProfile && targetProfile) {
+            extraSettings = {
+              formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelope),
+              formantProfileTargetSr: targetProfile.sr,
+              formantProfileInputEnvelope: JSON.stringify(inputProfile.envelope),
+              formantProfileInputSr: inputProfile.sr
+            };
+          }
         }
       }
     }
@@ -100,13 +117,11 @@ function ModelSettings({
     if (activeSlot === undefined || activeSlot === -1) return;
 
     const currentBinding = bindings[activeSlot] || {};
-    const newBinding = {
-      ...currentBinding,
-      inputProfileId
-    };
-    const updatedBindings = { ...bindings, [activeSlot]: newBinding };
-    localStorage.setItem('model_formant_bindings', JSON.stringify(updatedBindings));
-    setBindings(updatedBindings);
+    saveFormantBinding(activeSlot, {
+      inputProfileId,
+      active: currentBinding.active !== undefined ? currentBinding.active : true
+    });
+    setBindings(getAllFormantBindings());
 
     if (inputProfileId === "") {
       appState.serverSetting.updateServerSettings({
@@ -132,13 +147,11 @@ function ModelSettings({
     if (activeSlot === undefined || activeSlot === -1) return;
 
     const currentBinding = bindings[activeSlot] || {};
-    const newBinding = {
-      ...currentBinding,
-      targetProfileId
-    };
-    const updatedBindings = { ...bindings, [activeSlot]: newBinding };
-    localStorage.setItem('model_formant_bindings', JSON.stringify(updatedBindings));
-    setBindings(updatedBindings);
+    saveFormantBinding(activeSlot, {
+      targetProfileId,
+      active: currentBinding.active !== undefined ? currentBinding.active : true
+    });
+    setBindings(getAllFormantBindings());
 
     if (targetProfileId === "") {
       appState.serverSetting.updateServerSettings({
@@ -159,6 +172,12 @@ function ModelSettings({
   };
 
   const handleWarpFilterStrengthChange = (val: number) => {
+    const activeSlot = appState.serverSetting?.serverSetting?.modelSlotIndex;
+    if (activeSlot !== undefined && activeSlot !== -1) {
+      saveFormantBinding(activeSlot, { strength: val });
+      setBindings(getAllFormantBindings());
+    }
+
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       formantProfileStrength: val

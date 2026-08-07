@@ -27,6 +27,7 @@ SSL_KEY_DIR = os.path.join(tmpdir.name, "keys") if hasattr(sys, "_MEIPASS") else
 UPLOAD_DIR = os.path.join(tmpdir.name, "upload_dir") if hasattr(sys, "_MEIPASS") else "upload_dir"
 TMP_DIR = os.path.join(tmpdir.name, "tmp_dir") if hasattr(sys, "_MEIPASS") else "tmp_dir"
 FRONTEND_DIR = os.path.join(sys._MEIPASS, "dist") if hasattr(sys, "_MEIPASS") else "../client/modern-gui/dist"
+FORMANT_PROFILES_DIR = os.path.join(ROOT_PATH, "formant_profiles")
 
 # Voice Changer
 EmbedderType: TypeAlias = Literal["hubert_base", "contentvec", "spin_base"]

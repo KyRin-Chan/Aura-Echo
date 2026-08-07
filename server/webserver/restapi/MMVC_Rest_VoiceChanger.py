@@ -9,6 +9,7 @@ from fastapi.responses import Response, PlainTextResponse, JSONResponse
 from fastapi.encoders import jsonable_encoder
 from const import get_edition, get_version
 from voice_changer.VoiceChangerManager import VoiceChangerManager
+from voice_changer.FormantProfileManager import FormantProfileManager
 from webserver.restapi.mods.FileUploader import upload_file
 
 from const import UPLOAD_DIR
@@ -28,6 +29,14 @@ class MMVC_Rest_VoiceChanger:
         self.router.add_api_route("/update_settings", self.post_update_settings, methods=["POST"])
         self.router.add_api_route("/upload_file", self.post_upload_file, methods=["POST"])
         self.router.add_api_route("/analyze_voice", self.post_analyze_voice, methods=["POST"])
+
+        # Formant Profile & Binding API routes
+        self.router.add_api_route("/formant_profiles", self.get_formant_profiles, methods=["GET"])
+        self.router.add_api_route("/formant_profiles", self.post_formant_profile, methods=["POST"])
+        self.router.add_api_route("/formant_profiles/{profile_id}", self.delete_formant_profile, methods=["DELETE"])
+        self.router.add_api_route("/formant_bindings", self.get_formant_bindings, methods=["GET"])
+        self.router.add_api_route("/formant_bindings", self.post_formant_binding, methods=["POST"])
+        self.router.add_api_route("/formant_bindings/{slot_index}", self.delete_formant_binding, methods=["DELETE"])
 
     def edition(self):
         return PlainTextResponse(get_edition())
@@ -253,3 +262,39 @@ class MMVC_Rest_VoiceChanger:
         mean_log_envelope = np.mean(voiced_log_envelope, axis=1)
         
         return f0_median, cent_median, mean_log_envelope
+
+    # Formant Profile & Binding API handlers
+    async def get_formant_profiles(self):
+        profiles = FormantProfileManager.get_instance().get_all_profiles()
+        return JSONResponse(profiles)
+
+    async def post_formant_profile(self, req: Request):
+        try:
+            data = await req.json()
+            saved = FormantProfileManager.get_instance().save_profile(data)
+            return JSONResponse(saved)
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    async def delete_formant_profile(self, profile_id: str):
+        success = FormantProfileManager.get_instance().delete_profile(profile_id)
+        return JSONResponse({"success": success})
+
+    async def get_formant_bindings(self):
+        bindings = FormantProfileManager.get_instance().get_all_bindings()
+        return JSONResponse(bindings)
+
+    async def post_formant_binding(self, req: Request):
+        try:
+            data = await req.json()
+            slot_index = data.get("slotIndex")
+            if slot_index is None:
+                return JSONResponse({"error": "slotIndex required"}, status_code=400)
+            saved = FormantProfileManager.get_instance().save_binding(slot_index, data)
+            return JSONResponse(saved)
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    async def delete_formant_binding(self, slot_index: str):
+        success = FormantProfileManager.get_instance().delete_binding(slot_index)
+        return JSONResponse({"success": success})
