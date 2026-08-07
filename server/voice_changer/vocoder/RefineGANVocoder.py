@@ -398,6 +398,37 @@ class _RefineGANGenerator(nn.Module):
         )
         self.conv_post.apply(_init_weights)
 
+    # ------------------------------------------------------------------
+    # Keep the entire RefineGAN decoder permanently in float32.
+    # torchaudio.functional.resample (sinc_interp_kaiser) does not support
+    # float16/bfloat16, so we must stay in float32 regardless of the parent
+    # Synthesizer’s precision mode.  We override .half() and .to() so that
+    # external calls like `net_g.half()` or `net_g.to(dtype=torch.float16)`
+    # cannot silently break this module.
+    # ------------------------------------------------------------------
+    def half(self):
+        """No-op: RefineGAN must stay in float32."""
+        return self
+
+    def to(self, *args, **kwargs):
+        """Allow device transfers but block dtype downcasting to fp16/bf16."""
+        # If the caller is only moving to a device (e.g. .to('cuda')),
+        # honour the call normally.  If it is trying to change the dtype
+        # to a non-float32 type, silently ignore the dtype part.
+        new_dtype = None
+        if args:
+            first = args[0]
+            if isinstance(first, torch.dtype):
+                new_dtype = first
+            elif isinstance(first, str) and first in ('half', 'float16', 'bfloat16'):
+                new_dtype = torch.float16
+        if 'dtype' in kwargs:
+            new_dtype = kwargs.pop('dtype')
+        if new_dtype is not None and new_dtype != torch.float32:
+            # Keep dtype as float32; still allow device/other args
+            kwargs['dtype'] = torch.float32
+        return super().to(*args, **kwargs)
+
     def forward(
         self,
         mel: torch.Tensor,
@@ -426,7 +457,7 @@ class _RefineGANGenerator(nn.Module):
         har = self.m_source(f0_up.transpose(1, 2)).transpose(1, 2)   # (B, 1, T*upp)
 
         # pre_conv: 1 ch → start_channels
-        x = self.pre_conv(har.float())
+        x = self.pre_conv(har)
 
         # Build F0 down-branches with sinc-Kaiser anti-aliasing resampling
         downs = []
