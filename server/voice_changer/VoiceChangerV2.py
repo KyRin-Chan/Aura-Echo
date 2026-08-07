@@ -113,21 +113,15 @@ class VoiceChangerV2:
 
 
     def _generate_strength(self):
-        self.fade_in_window: torch.Tensor = (
-            torch.sin(
-                0.5
-                * np.pi
-                * torch.linspace(
-                    0.0,
-                    1.0,
-                    steps=self.crossfade_frame,
-                    device=self.device_manager.device,
-                    dtype=torch.float32,
-                )
-            )
-            ** 2
+        linspace = torch.linspace(
+            0.0,
+            1.0,
+            steps=self.crossfade_frame,
+            device=self.device_manager.device,
+            dtype=torch.float32,
         )
-        self.fade_out_window: torch.Tensor = 1 - self.fade_in_window
+        self.fade_in_window: torch.Tensor = torch.sin(0.5 * np.pi * linspace)
+        self.fade_out_window: torch.Tensor = torch.cos(0.5 * np.pi * linspace)
 
         # ひとつ前の結果とサイズが変わるため、記録は消去する。
         self.sola_buffer = torch.zeros(self.crossfade_frame, device=self.device_manager.device, dtype=torch.float32)
@@ -157,19 +151,23 @@ class VoiceChangerV2:
                     pass
             return mixed_t.detach().cpu().numpy(), vol
 
-        # SOLA algorithm from https://github.com/yxlllc/DDSP-SVC, https://github.com/liujing04/Retrieval-based-Voice-Conversion-WebUI
-        conv_input = audio[
-            None, None, : self.crossfade_frame + self.sola_search_frame
-        ]
-        cor_nom = F.conv1d(conv_input, self.sola_buffer[None, None, :])
-        cor_den = torch.sqrt(
-            F.conv1d(
-                conv_input ** 2,
-                self.sola_ones,
+        # SOLA algorithm with quiet/silence anti-jitter threshold lock
+        sola_energy = torch.mean(self.sola_buffer ** 2)
+        if sola_energy < 1e-6:
+            sola_offset = 0
+        else:
+            conv_input = audio[
+                None, None, : self.crossfade_frame + self.sola_search_frame
+            ]
+            cor_nom = F.conv1d(conv_input, self.sola_buffer[None, None, :])
+            cor_den = torch.sqrt(
+                F.conv1d(
+                    conv_input ** 2,
+                    self.sola_ones,
+                )
+                + 1e-8
             )
-            + 1e-8
-        )
-        sola_offset = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
+            sola_offset = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
 
         audio = audio[sola_offset:]
         audio[: self.crossfade_frame] *= self.fade_in_window

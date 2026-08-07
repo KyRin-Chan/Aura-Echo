@@ -79,6 +79,7 @@ class Pipeline:
 
         self.settings = None
         self.last_f0_smoothed = None
+        self.last_pitchf_tail = None
         self._formant_filter_pre_tensor = None
         self._formant_filter_post_tensor = None
         self._formant_filter_cache_key = None

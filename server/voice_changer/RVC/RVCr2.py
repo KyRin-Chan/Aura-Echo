@@ -56,6 +56,7 @@ class RVCr2(VoiceChangerModel):
 
         self.resampler_in: tat.Resample | None = None
         self.resampler_out: tat.Resample | None = None
+        self.resample_in_history: torch.Tensor | None = None
 
         self.input_sample_rate = self.settings.inputSampleRate
         self.output_sample_rate = self.settings.outputSampleRate
@@ -105,9 +106,6 @@ class RVCr2(VoiceChangerModel):
             self.resampler_in = tat.Resample(
                 orig_freq=self.input_sample_rate,
                 new_freq=HUBERT_SAMPLE_RATE,
-                lowpass_filter_width=16,
-                rolloff=0.94,
-                resampling_method="kaiser_window",
                 dtype=torch.float32
             ).to(self.device_manager.device)
 
@@ -117,9 +115,6 @@ class RVCr2(VoiceChangerModel):
             self.resampler_out = tat.Resample(
                 orig_freq=self.slotInfo.samplingRate,
                 new_freq=self.output_sample_rate,
-                lowpass_filter_width=16,
-                rolloff=0.94,
-                resampling_method="kaiser_window",
                 dtype=torch.float32
             ).to(self.device_manager.device)
 
@@ -142,9 +137,6 @@ class RVCr2(VoiceChangerModel):
                 self.resampler_in = tat.Resample(
                     orig_freq=self.input_sample_rate,
                     new_freq=HUBERT_SAMPLE_RATE,
-                    lowpass_filter_width=16,
-                    rolloff=0.94,
-                    resampling_method="kaiser_window",
                     dtype=torch.float32
                 ).to(self.device_manager.device)
         if self.output_sample_rate != output_sample_rate:
@@ -155,9 +147,6 @@ class RVCr2(VoiceChangerModel):
                 self.resampler_out = tat.Resample(
                     orig_freq=self.slotInfo.samplingRate,
                     new_freq=self.output_sample_rate,
-                    lowpass_filter_width=16,
-                    rolloff=0.94,
-                    resampling_method="kaiser_window",
                     dtype=torch.float32
                 ).to(self.device_manager.device)
 
@@ -210,6 +199,7 @@ class RVCr2(VoiceChangerModel):
         self.skip_head = extra_frame_16k // WINDOW_SIZE
         self.return_length = self.convert_feature_size_16k - self.skip_head
         self.silence_front = max(0, extra_frame_16k - (WINDOW_SIZE * 12)) if self.settings.silenceFront else 0
+        self.resample_in_history = None
 
         # Audio buffer to measure volume between chunks
         audio_buffer_size = block_frame_16k + crossfade_frame_16k
@@ -278,7 +268,20 @@ class RVCr2(VoiceChangerModel):
 
         # Input audio is always float32
         audio_in_t = torch.as_tensor(audio_in, dtype=torch.float32, device=self.device_manager.device)
-        audio_in_16k = self.resampler_in(audio_in_t)
+
+        # Seamless Overlap Resampling across chunks to eliminate Sinc FIR filter edge artifacts
+        if self.input_sample_rate != HUBERT_SAMPLE_RATE:
+            if hasattr(self, 'resample_in_history') and self.resample_in_history is not None and self.resample_in_history.shape[0] > 0:
+                audio_in_extended = torch.cat([self.resample_in_history, audio_in_t])
+                audio_in_16k_ext = self.resampler_in(audio_in_extended)
+                hist_16k = int(self.resample_in_history.shape[0] * HUBERT_SAMPLE_RATE / self.input_sample_rate)
+                audio_in_16k = audio_in_16k_ext[hist_16k:]
+            else:
+                audio_in_16k = self.resampler_in(audio_in_t)
+            self.resample_in_history = audio_in_t[-64:].detach().clone()
+        else:
+            audio_in_16k = audio_in_t
+
         if self.is_half:
             audio_in_16k = audio_in_16k.half()
 
@@ -329,8 +332,21 @@ class RVCr2(VoiceChangerModel):
             self.settings.protect,
         )
 
-        # FIXME: Why the heck does it require another sqrt to amplify the volume?
-        audio_out: torch.Tensor = self.resampler_out(audio_model * torch.sqrt(vol_t))
+        # Adaptive RMS volume normalization to ensure RefineGAN output level matches HiFiGAN
+        model_rms = torch.sqrt(torch.mean(audio_model ** 2) + 1e-8)
+        if model_rms > 1e-4:
+            # Scale audio_model so its RMS matches input RMS (vol_t) smoothly
+            scale = (vol_t / model_rms).clamp(max=3.0)
+            audio_model = audio_model * scale
+        else:
+            audio_model = audio_model * vol_t
+
+        audio_out: torch.Tensor = self.resampler_out(audio_model)
+
+        # Exact length alignment for 32kHz RefineGAN model output when resampling to output_sample_rate
+        expected_len = int(round(self.return_length * (WINDOW_SIZE / HUBERT_SAMPLE_RATE) * self.output_sample_rate))
+        if audio_out.shape[-1] != expected_len and audio_out.dim() == 1:
+            audio_out = F.interpolate(audio_out.view(1, 1, -1), size=expected_len, mode="linear", align_corners=False).view(-1)
 
         return audio_out, vol
 
