@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 import onnxruntime
 from const import PitchExtractorType
 from voice_changer.common.OnnxLoader import load_onnx_model
@@ -42,7 +43,14 @@ class RMVPEOnnxPitchExtractor(PitchExtractor):
         sr: int,
         window: int,
     ) -> torch.Tensor:
-        mel = self.mel_extractor(audio.unsqueeze(0).float())
+        mel = self.mel_extractor(audio.unsqueeze(0).float(), center=True)
+        n_frames = mel.shape[-1]
+
+        # UNet 5-level downsampling requires T dimension to be a multiple of 32 (2^5).
+        # Reflect padding prevents boundary artifacts, duplicate overlaps, and frame dimension mismatches.
+        pad_len = 32 * ((n_frames - 1) // 32 + 1) - n_frames
+        if pad_len > 0:
+            mel = F.pad(mel, (0, pad_len), mode='reflect')
 
         if audio.device.type == 'cuda':
             binding = self.onnx_session.io_binding()
@@ -64,7 +72,8 @@ class RMVPEOnnxPitchExtractor(PitchExtractor):
             else:
                 output_tensor = torch.from_numpy(out_val.numpy()).to(audio.device)
 
-            return output_tensor.to(dtype=self.fp_dtype_t).squeeze()
+            output_tensor = output_tensor.to(dtype=self.fp_dtype_t).squeeze()
+            return output_tensor[..., :n_frames]
         else:
             output: list[np.ndarray] = self.onnx_session.run(
                 ["pitchf"],
@@ -75,4 +84,5 @@ class RMVPEOnnxPitchExtractor(PitchExtractor):
             )
             # self.onnx_session.end_profiling()
 
-            return torch.as_tensor(output[0], dtype=self.fp_dtype_t, device=audio.device).squeeze()
+            output_tensor = torch.as_tensor(output[0], dtype=self.fp_dtype_t, device=audio.device).squeeze()
+            return output_tensor[..., :n_frames]

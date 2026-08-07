@@ -46,6 +46,10 @@ class FcpeOnnxPitchExtractor(PitchExtractor):
         ).to(device_manager.device)
         self.onnx_session = onnxruntime.InferenceSession(model.SerializeToString(), sess_options=so, providers=onnxProviders, provider_options=onnxProviderOptions)
 
+        # Inspect actual input and output node names from the ONNX session
+        self.input_names = {inp.name: inp for inp in self.onnx_session.get_inputs()}
+        self.output_names = [out.name for out in self.onnx_session.get_outputs()]
+
     def extract(
         self,
         audio: torch.Tensor,
@@ -55,14 +59,27 @@ class FcpeOnnxPitchExtractor(PitchExtractor):
         mel = self.mel_extractor(audio.unsqueeze(0).float())
         n_samples = np.array([mel.shape[1]], dtype=np.int64)
 
+        output_node = self.output_names[0] if len(self.output_names) > 0 else "pitchf"
+
         if audio.device.type == 'cuda':
             binding = self.onnx_session.io_binding()
 
-            binding.bind_input('mel', device_type='cuda', device_id=audio.device.index, element_type=self.fp_dtype_np, shape=tuple(mel.shape), buffer_ptr=mel.contiguous().data_ptr())
-            binding.bind_cpu_input('n_samples', n_samples)
-            binding.bind_cpu_input('threshold', self.threshold)
+            # Dynamically bind inputs matching actual ONNX node definitions
+            if 'mel' in self.input_names:
+                binding.bind_input('mel', device_type='cuda', device_id=audio.device.index, element_type=self.fp_dtype_np, shape=tuple(mel.shape), buffer_ptr=mel.contiguous().data_ptr())
+            elif 'audio' in self.input_names:
+                binding.bind_input('audio', device_type='cuda', device_id=audio.device.index, element_type=self.fp_dtype_np, shape=tuple(audio.shape), buffer_ptr=audio.contiguous().data_ptr())
+            elif len(self.input_names) > 0:
+                first_input = list(self.input_names.keys())[0]
+                binding.bind_input(first_input, device_type='cuda', device_id=audio.device.index, element_type=self.fp_dtype_np, shape=tuple(mel.shape), buffer_ptr=mel.contiguous().data_ptr())
 
-            binding.bind_output('pitchf', device_type='cuda', device_id=audio.device.index)
+            if 'n_samples' in self.input_names:
+                binding.bind_cpu_input('n_samples', n_samples)
+
+            if 'threshold' in self.input_names:
+                binding.bind_cpu_input('threshold', self.threshold)
+
+            binding.bind_output(output_node, device_type='cuda', device_id=audio.device.index)
 
             self.onnx_session.run_with_iobinding(binding)
 
@@ -78,14 +95,24 @@ class FcpeOnnxPitchExtractor(PitchExtractor):
 
             return output_tensor.to(dtype=self.fp_dtype_t).squeeze()
         else:
+            inputs_dict = {}
+            if 'mel' in self.input_names:
+                inputs_dict['mel'] = mel.detach().cpu().numpy()
+            elif 'audio' in self.input_names:
+                inputs_dict['audio'] = audio.detach().cpu().numpy()
+            elif len(self.input_names) > 0:
+                first_input = list(self.input_names.keys())[0]
+                inputs_dict[first_input] = mel.detach().cpu().numpy()
+
+            if 'n_samples' in self.input_names:
+                inputs_dict['n_samples'] = n_samples
+
+            if 'threshold' in self.input_names:
+                inputs_dict['threshold'] = self.threshold
+
             output: list[np.ndarray] = self.onnx_session.run(
-                ["pitchf"],
-                {
-                    "mel": mel.detach().cpu().numpy(),
-                    "n_samples": n_samples,
-                    "threshold": self.threshold,
-                },
+                [output_node],
+                inputs_dict,
             )
-            # self.onnx_session.end_profiling()
 
             return torch.as_tensor(output[0], dtype=self.fp_dtype_t, device=audio.device).squeeze()
