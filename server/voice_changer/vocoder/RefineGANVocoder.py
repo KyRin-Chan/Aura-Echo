@@ -83,6 +83,50 @@ def _init_weights(m: nn.Module, mean: float = 0.0, std: float = 0.01) -> None:
         m.weight.data.normal_(mean, std)
 
 
+def _precompute_kaiser_sinc_kernel(
+    orig_ratio: int,
+    new_ratio: int,
+    lowpass_filter_width: int = 64,
+    rolloff: float = 0.9475937167399596,
+    beta: float = 14.769656459379492,
+) -> torch.Tensor:
+    """
+    Precompute a Kaiser-windowed sinc FIR resampling kernel (polyphase form).
+
+    Returns shape (new_ratio, 1, 2*width) for use with F.conv1d(stride=orig_ratio).
+    Functionally identical to torchaudio.functional.resample(sinc_interp_kaiser)
+    but materialised once at __init__ so it can live as an nn.Buffer and be
+    cast to any dtype (including FP16) via the normal .to() / .half() path.
+
+    Algorithm mirrors torchaudio/_resample.py::_get_sinc_resample_kernel.
+    """
+    import math as _math
+    base_freq = min(orig_ratio, new_ratio) * rolloff
+    width = _math.ceil(lowpass_filter_width * orig_ratio / base_freq)
+
+    kernels = []
+    for i in range(new_ratio):
+        t = torch.arange(-width, width, dtype=torch.float64) + i / new_ratio
+        t = t * base_freq / orig_ratio
+        t = t.clamp(-lowpass_filter_width, lowpass_filter_width)
+
+        # Sinc  sinc(πt) = sin(πt)/(πt), with sinc(0)=1
+        kernel = torch.where(
+            t == 0,
+            torch.ones_like(t),
+            torch.sin(_math.pi * t) / (_math.pi * t),
+        )
+        # Kaiser window  I₀(β√(1-(t/M)²)) / I₀(β)
+        arg = beta * torch.sqrt(torch.clamp(1.0 - (t / lowpass_filter_width) ** 2, min=0.0))
+        window = torch.special.i0(arg) / torch.special.i0(torch.tensor(beta, dtype=torch.float64))
+        kernel = kernel * window
+        kernels.append(kernel)
+
+    scale = base_freq / orig_ratio
+    out = torch.stack(kernels).view(new_ratio, 1, -1).float() * scale
+    return out  # (new_ratio, 1, 2*width)
+
+
 # ---------------------------------------------------------------------------
 # RefineGAN building blocks
 # ---------------------------------------------------------------------------
@@ -199,7 +243,7 @@ class _AdaIN(nn.Module):
         self.activation = nn.LeakyReLU(leaky_relu_slope)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        gaussian = (torch.randn_like(x) * self.weight[None, :, None]).to(x.dtype)
+        gaussian = torch.randn_like(x) * self.weight[None, :, None]
         return self.activation(x + gaussian)
 
 
@@ -346,22 +390,55 @@ class _RefineGANGenerator(nn.Module):
             nn.Conv1d(1, start_channels, 7, padding=3)
         )
 
-        # Multi-scale F0 downsampling branches
-        # Each stage halves the time-resolution and doubles the channels,
-        # matching the corresponding decoder upsample level.
+        # Build F0 down-branches with precomputed Kaiser-sinc FIR filter buffers
         channels = start_channels
         size = self.upp
         self.downsample_blocks = nn.ModuleList()
         self.df0: list = []                       # [(old_T_factor, new_T_factor), …]
+        self.down_strides: list = []
+        self.down_paddings: list = []
+
+        # Precompute Kaiser-sinc FIR filter kernels as nn.Buffers for zero-overhead FP16 depthwise conv
         for i, _ in enumerate(upsample_rates):
             new_size = int(size / upsample_rates[-(i + 1)])
+            stride = int(size // new_size)
             self.df0.append((size, new_size))
+            self.down_strides.append(stride)
             size = new_size
             new_ch = channels * 2
             self.downsample_blocks.append(
                 weight_norm(nn.Conv1d(channels, new_ch, 7, padding=3))
             )
             channels = new_ch
+
+            # Generate exact Kaiser-sinc impulse response from torchaudio
+            impulse_len = 512
+            impulse = torch.zeros(1, 1, impulse_len, dtype=torch.float32)
+            impulse[0, 0, impulse_len // 2] = 1.0
+            filtered = torchaudio.functional.resample(
+                impulse,
+                orig_freq=stride,
+                new_freq=1,
+                lowpass_filter_width=64,
+                rolloff=0.9475937167399596,
+                resampling_method="sinc_interp_kaiser",
+                beta=14.769656459379492,
+            )
+            # Trim near-zero edges to keep kernel tight
+            filter_weights = filtered[0, 0]
+            non_zeros = torch.nonzero(torch.abs(filter_weights) > 1e-6)
+            if len(non_zeros) > 0:
+                first, last = non_zeros[0].item(), non_zeros[-1].item()
+                k_weights = filter_weights[first : last + 1]
+            else:
+                k_weights = filter_weights
+            if len(k_weights) % 2 == 0:
+                k_weights = k_weights[:-1]
+
+            kernel_tensor = k_weights.view(1, 1, -1)
+            padding = kernel_tensor.shape[-1] // 2
+            self.down_paddings.append(padding)
+            self.register_buffer(f"resample_kernel_{i}", kernel_tensor)
 
         # --- Mel / latent z projection ---
         ch = upsample_initial_channel
@@ -398,80 +475,45 @@ class _RefineGANGenerator(nn.Module):
         )
         self.conv_post.apply(_init_weights)
 
-    # ------------------------------------------------------------------
-    # Keep the entire RefineGAN decoder permanently in float32.
-    # torchaudio.functional.resample (sinc_interp_kaiser) does not support
-    # float16/bfloat16, so we must stay in float32 regardless of the parent
-    # Synthesizer’s precision mode.  We override .half() and .to() so that
-    # external calls like `net_g.half()` or `net_g.to(dtype=torch.float16)`
-    # cannot silently break this module.
-    # ------------------------------------------------------------------
-    def half(self):
-        """No-op: RefineGAN must stay in float32."""
-        return self
-
-    def to(self, *args, **kwargs):
-        """Allow device transfers but block dtype downcasting to fp16/bf16."""
-        # If the caller is only moving to a device (e.g. .to('cuda')),
-        # honour the call normally.  If it is trying to change the dtype
-        # to a non-float32 type, silently ignore the dtype part.
-        new_dtype = None
-        if args:
-            first = args[0]
-            if isinstance(first, torch.dtype):
-                new_dtype = first
-            elif isinstance(first, str) and first in ('half', 'float16', 'bfloat16'):
-                new_dtype = torch.float16
-        if 'dtype' in kwargs:
-            new_dtype = kwargs.pop('dtype')
-        if new_dtype is not None and new_dtype != torch.float32:
-            # Keep dtype as float32; still allow device/other args
-            kwargs['dtype'] = torch.float32
-        return super().to(*args, **kwargs)
-
     def forward(
         self,
         mel: torch.Tensor,
         f0: torch.Tensor,
         g: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        # torchaudio.functional.resample (sinc_interp_kaiser) does not support
-        # float16 — it produces zeros / NaN in fp16 mode (same reason Applio
-        # hard-codes torch.float32 for their realtime pipeline).  Force the
-        # entire forward pass to float32; the caller (Pipeline.py) already
-        # calls .float() on the result, so this adds zero overhead.
-        mel = mel.float()
-        f0  = f0.float()
+        target_dtype = self.pre_conv.weight.dtype
+        mel = mel.to(target_dtype)
         if g is not None:
-            g = g.float()
+            g = g.to(target_dtype)
 
         f0_frames = mel.shape[-1]
 
-        # Upsample F0 to full waveform resolution (float32 safe)
+        # Upsample F0 to full waveform resolution
         f0_up = F.interpolate(
             f0.unsqueeze(1), size=f0_frames * self.upp, mode="linear"
         )                                                    # (B, 1, T*upp)
 
         # Voiced/unvoiced sine harmonics excitation
-        # _SineGenerator already runs internally in float32 (phase cumsum safe)
         har = self.m_source(f0_up.transpose(1, 2)).transpose(1, 2)   # (B, 1, T*upp)
 
         # pre_conv: 1 ch → start_channels
         x = self.pre_conv(har)
 
-        # Build F0 down-branches with sinc-Kaiser anti-aliasing resampling
+        # Build F0 down-branches with precomputed Kaiser-sinc FIR filter buffers
         downs = []
-        for blk, (old_sz, new_sz) in zip(self.downsample_blocks, self.df0):
+        for idx, (blk, stride, padding) in enumerate(
+            zip(self.downsample_blocks, self.down_strides, self.down_paddings)
+        ):
             x = F.leaky_relu(x, self.leaky_relu_slope)
             downs.append(x)
-            x = torchaudio.functional.resample(
-                x.contiguous(),
-                orig_freq=int(f0_frames * old_sz),
-                new_freq=int(f0_frames * new_sz),
-                lowpass_filter_width=64,
-                rolloff=0.9475937167399596,
-                resampling_method="sinc_interp_kaiser",
-                beta=14.769656459379492,
+            # Native FP16/FP32 depthwise Conv1d with precomputed Kaiser-sinc buffer
+            kernel = getattr(self, f"resample_kernel_{idx}")
+            x = F.conv1d(
+                x,
+                kernel.expand(x.shape[1], 1, -1),
+                stride=stride,
+                padding=padding,
+                groups=x.shape[1],
             )
             x = blk(x)
 
