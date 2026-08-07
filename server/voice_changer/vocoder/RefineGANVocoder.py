@@ -390,55 +390,20 @@ class _RefineGANGenerator(nn.Module):
             nn.Conv1d(1, start_channels, 7, padding=3)
         )
 
-        # Build F0 down-branches with precomputed Kaiser-sinc FIR filter buffers
+        # Multi-scale F0 downsampling branches
         channels = start_channels
         size = self.upp
         self.downsample_blocks = nn.ModuleList()
         self.df0: list = []                       # [(old_T_factor, new_T_factor), …]
-        self.down_strides: list = []
-        self.down_paddings: list = []
-
-        # Precompute Kaiser-sinc FIR filter kernels as nn.Buffers for zero-overhead FP16 depthwise conv
         for i, _ in enumerate(upsample_rates):
             new_size = int(size / upsample_rates[-(i + 1)])
-            stride = int(size // new_size)
             self.df0.append((size, new_size))
-            self.down_strides.append(stride)
             size = new_size
             new_ch = channels * 2
             self.downsample_blocks.append(
                 weight_norm(nn.Conv1d(channels, new_ch, 7, padding=3))
             )
             channels = new_ch
-
-            # Generate exact Kaiser-sinc impulse response from torchaudio
-            impulse_len = 512
-            impulse = torch.zeros(1, 1, impulse_len, dtype=torch.float32)
-            impulse[0, 0, impulse_len // 2] = 1.0
-            filtered = torchaudio.functional.resample(
-                impulse,
-                orig_freq=stride,
-                new_freq=1,
-                lowpass_filter_width=64,
-                rolloff=0.9475937167399596,
-                resampling_method="sinc_interp_kaiser",
-                beta=14.769656459379492,
-            )
-            # Trim near-zero edges to keep kernel tight
-            filter_weights = filtered[0, 0]
-            non_zeros = torch.nonzero(torch.abs(filter_weights) > 1e-6)
-            if len(non_zeros) > 0:
-                first, last = non_zeros[0].item(), non_zeros[-1].item()
-                k_weights = filter_weights[first : last + 1]
-            else:
-                k_weights = filter_weights
-            if len(k_weights) % 2 == 0:
-                k_weights = k_weights[:-1]
-
-            kernel_tensor = k_weights.view(1, 1, -1)
-            padding = kernel_tensor.shape[-1] // 2
-            self.down_paddings.append(padding)
-            self.register_buffer(f"resample_kernel_{i}", kernel_tensor)
 
         # --- Mel / latent z projection ---
         ch = upsample_initial_channel
@@ -499,22 +464,22 @@ class _RefineGANGenerator(nn.Module):
         # pre_conv: 1 ch → start_channels
         x = self.pre_conv(har)
 
-        # Build F0 down-branches with precomputed Kaiser-sinc FIR filter buffers
+        # Build F0 down-branches with sinc-Kaiser anti-aliasing resampling
         downs = []
-        for idx, (blk, stride, padding) in enumerate(
-            zip(self.downsample_blocks, self.down_strides, self.down_paddings)
-        ):
+        for blk, (old_sz, new_sz) in zip(self.downsample_blocks, self.df0):
             x = F.leaky_relu(x, self.leaky_relu_slope)
             downs.append(x)
-            # Native FP16/FP32 depthwise Conv1d with precomputed Kaiser-sinc buffer
-            kernel = getattr(self, f"resample_kernel_{idx}")
-            x = F.conv1d(
-                x,
-                kernel.expand(x.shape[1], 1, -1),
-                stride=stride,
-                padding=padding,
-                groups=x.shape[1],
-            )
+            # torchaudio.functional.resample (sinc_interp_kaiser) requires float32 input.
+            # Localized float32 cast ensures 100% exact Applio audio quality while keeping convs in FP16.
+            x = torchaudio.functional.resample(
+                x.float().contiguous(),
+                orig_freq=int(f0_frames * old_sz),
+                new_freq=int(f0_frames * new_sz),
+                lowpass_filter_width=64,
+                rolloff=0.9475937167399596,
+                resampling_method="sinc_interp_kaiser",
+                beta=14.769656459379492,
+            ).to(target_dtype)
             x = blk(x)
 
         # Mel/z projection + optional speaker conditioning
