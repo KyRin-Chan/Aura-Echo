@@ -272,6 +272,8 @@ export const locales = {
         uploadModelTitle: "Upload Model",
         uploadLabel: "Upload",
         uploadingLabel: "Uploading...",
+        downloadLabel: "Download",
+        downloadingLabel: "Downloading...",
         modelFileLabel: "Model File (.pth, .safetensors, .onnx, .zip):",
         embedderTypeLabel: "Embedder Type",
         indexFileLabel: "Index File (.index) (Optional):",
@@ -614,6 +616,8 @@ export const locales = {
         uploadModelTitle: "上传模型",
         uploadLabel: "上传",
         uploadingLabel: "正在上传...",
+        downloadLabel: "下载",
+        downloadingLabel: "正在下载...",
         modelFileLabel: "模型文件 (.pth, .safetensors, .onnx, .zip)：",
         embedderTypeLabel: "特征提取器类型",
         indexFileLabel: "检索文件 (.index) (选填)：",
@@ -953,6 +957,8 @@ export const locales = {
         uploadModelTitle: "モデルをアップロード",
         uploadLabel: "アップロード",
         uploadingLabel: "アップロード中...",
+        downloadLabel: "ダウンロード",
+        downloadingLabel: "ダウンロード中...",
         modelFileLabel: "モデルファイル (.pth, .safetensors, .onnx, .zip):",
         embedderTypeLabel: "埋め込み器タイプ",
         indexFileLabel: "インデックスファイル (.index)（任意）:",
@@ -1042,5 +1048,5 @@ export const locales = {
 };
 
 export const t = (key: keyof typeof locales['en']): string => {
-    return locales[currentLang][key] || locales['en'][key] || String(key);
+    return (locales[currentLang] as typeof locales['en'])[key] || locales['en'][key] || String(key);
 };

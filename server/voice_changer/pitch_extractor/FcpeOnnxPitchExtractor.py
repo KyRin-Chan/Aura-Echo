@@ -28,7 +28,7 @@ class FcpeOnnxPitchExtractor(PitchExtractor):
         self.fp_dtype_t = torch.float16 if self.is_half else torch.float32
         self.fp_dtype_np = np.float16 if self.is_half else np.float32
 
-        self.threshold = np.array(0.006, dtype=self.fp_dtype_np)
+        self.threshold = np.array([0.006], dtype=self.fp_dtype_np)
 
         so = onnxruntime.SessionOptions()
         so.log_severity_level = 3
@@ -53,11 +53,13 @@ class FcpeOnnxPitchExtractor(PitchExtractor):
         window: int,
     ) -> torch.Tensor:
         mel = self.mel_extractor(audio.unsqueeze(0).float())
+        n_samples = np.array([mel.shape[1]], dtype=np.int64)
 
         if audio.device.type == 'cuda':
             binding = self.onnx_session.io_binding()
 
             binding.bind_input('mel', device_type='cuda', device_id=audio.device.index, element_type=self.fp_dtype_np, shape=tuple(mel.shape), buffer_ptr=mel.contiguous().data_ptr())
+            binding.bind_cpu_input('n_samples', n_samples)
             binding.bind_cpu_input('threshold', self.threshold)
 
             binding.bind_output('pitchf', device_type='cuda', device_id=audio.device.index)
@@ -80,6 +82,7 @@ class FcpeOnnxPitchExtractor(PitchExtractor):
                 ["pitchf"],
                 {
                     "mel": mel.detach().cpu().numpy(),
+                    "n_samples": n_samples,
                     "threshold": self.threshold,
                 },
             )

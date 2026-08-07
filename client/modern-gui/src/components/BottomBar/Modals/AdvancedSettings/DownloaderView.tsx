@@ -209,12 +209,12 @@ const DownloaderView = (props: DownloaderViewProps) => {
               {isDownloading ? (
                 <>
                   <FontAwesomeIcon icon={faSpinner} className="animate-spin mr-1" />
-                  {t('uploadingLabel')}
+                  {t('downloadingLabel')}
                 </>
               ) : (
                 <>
                   <FontAwesomeIcon icon={faDownload} className="mr-1" />
-                  {t('uploadLabel')}
+                  {t('downloadLabel')}
                 </>
               )}
             </button>
