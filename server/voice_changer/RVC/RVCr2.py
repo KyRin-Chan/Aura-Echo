@@ -105,6 +105,9 @@ class RVCr2(VoiceChangerModel):
             self.resampler_in = tat.Resample(
                 orig_freq=self.input_sample_rate,
                 new_freq=HUBERT_SAMPLE_RATE,
+                lowpass_filter_width=16,
+                rolloff=0.94,
+                resampling_method="kaiser_window",
                 dtype=torch.float32
             ).to(self.device_manager.device)
 
@@ -114,6 +117,9 @@ class RVCr2(VoiceChangerModel):
             self.resampler_out = tat.Resample(
                 orig_freq=self.slotInfo.samplingRate,
                 new_freq=self.output_sample_rate,
+                lowpass_filter_width=16,
+                rolloff=0.94,
+                resampling_method="kaiser_window",
                 dtype=torch.float32
             ).to(self.device_manager.device)
 
@@ -136,6 +142,9 @@ class RVCr2(VoiceChangerModel):
                 self.resampler_in = tat.Resample(
                     orig_freq=self.input_sample_rate,
                     new_freq=HUBERT_SAMPLE_RATE,
+                    lowpass_filter_width=16,
+                    rolloff=0.94,
+                    resampling_method="kaiser_window",
                     dtype=torch.float32
                 ).to(self.device_manager.device)
         if self.output_sample_rate != output_sample_rate:
@@ -146,6 +155,9 @@ class RVCr2(VoiceChangerModel):
                 self.resampler_out = tat.Resample(
                     orig_freq=self.slotInfo.samplingRate,
                     new_freq=self.output_sample_rate,
+                    lowpass_filter_width=16,
+                    rolloff=0.94,
+                    resampling_method="kaiser_window",
                     dtype=torch.float32
                 ).to(self.device_manager.device)
 
@@ -227,6 +239,9 @@ class RVCr2(VoiceChangerModel):
         resampler_temp = tat.Resample(
             orig_freq=sample_rate,
             new_freq=HUBERT_SAMPLE_RATE,
+            lowpass_filter_width=16,
+            rolloff=0.94,
+            resampling_method="kaiser_window",
             dtype=self.dtype
         ).to(self.device_manager.device)
         audio_in_16k = resampler_temp(audio_in_t)
