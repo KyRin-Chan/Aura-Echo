@@ -1,6 +1,10 @@
 from enum import Enum
 import os
 import sys
+
+# Prevent Intel OpenMP / LLVM OpenMP duplicate runtime warnings
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 import tempfile
 from typing import Literal, TypeAlias
 import numpy as np

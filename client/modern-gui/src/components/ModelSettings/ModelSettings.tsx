@@ -94,9 +94,9 @@ function ModelSettings({
           const targetProfile = profiles.find((p) => p.id === currentBinding.targetProfileId);
           if (inputProfile && targetProfile) {
             extraSettings = {
-              formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelope),
+              formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelopes || targetProfile.envelope),
               formantProfileTargetSr: targetProfile.sr,
-              formantProfileInputEnvelope: JSON.stringify(inputProfile.envelope),
+              formantProfileInputEnvelope: JSON.stringify(inputProfile.envelopes || inputProfile.envelope),
               formantProfileInputSr: inputProfile.sr
             };
           }
@@ -134,7 +134,7 @@ function ModelSettings({
       if (inputProfile) {
         appState.serverSetting.updateServerSettings({
           ...appState.serverSetting.serverSetting,
-          formantProfileInputEnvelope: JSON.stringify(inputProfile.envelope),
+          formantProfileInputEnvelope: JSON.stringify(inputProfile.envelopes || inputProfile.envelope),
           formantProfileInputSr: inputProfile.sr
         });
       }
@@ -164,7 +164,7 @@ function ModelSettings({
       if (targetProfile) {
         appState.serverSetting.updateServerSettings({
           ...appState.serverSetting.serverSetting,
-          formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelope),
+          formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelopes || targetProfile.envelope),
           formantProfileTargetSr: targetProfile.sr
         });
       }

@@ -264,14 +264,27 @@ class MMVC_Rest_VoiceChanger:
         voiced_log_envelope = log_envelope[:, voiced_frames] if np.any(voiced_frames) else log_envelope
         mean_log_envelope = np.mean(voiced_log_envelope, axis=1)
 
-        # Automatic Vowel Envelope Clustering (K-Means on cepstral features)
+        # Automatic Vowel Envelope Clustering (Pure NumPy 3-Cluster K-Means to avoid sklearn threadpoolctl warnings)
         vowel_envelopes = {}
         if voiced_log_envelope.shape[1] >= 6:
             try:
-                from sklearn.cluster import KMeans
                 cep_feat = cepstrum[:5, voiced_frames].T if np.any(voiced_frames) else cepstrum[:5, :].T
-                kmeans = KMeans(n_clusters=3, random_state=42, n_init=5).fit(cep_feat)
-                labels = kmeans.labels_
+                
+                # Pure NumPy 3-Cluster K-Means
+                N_samples = cep_feat.shape[0]
+                idx = np.linspace(0, N_samples - 1, 3, dtype=int)
+                centroids = cep_feat[idx].copy()
+                labels = np.zeros(N_samples, dtype=int)
+                for _ in range(10):
+                    dists = np.sum((cep_feat[:, np.newaxis, :] - centroids[np.newaxis, :, :]) ** 2, axis=2)
+                    new_labels = np.argmin(dists, axis=1)
+                    if np.array_equal(labels, new_labels):
+                        break
+                    labels = new_labels
+                    for k in range(3):
+                        k_mask = (labels == k)
+                        if np.any(k_mask):
+                            centroids[k] = np.mean(cep_feat[k_mask], axis=0)
                 
                 c_envs = []
                 for k in range(3):

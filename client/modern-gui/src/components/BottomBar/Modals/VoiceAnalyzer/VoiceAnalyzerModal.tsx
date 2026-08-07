@@ -34,7 +34,17 @@ interface AnalysisResult {
   recommended_pitch: number;
   recommended_formant_shift: number;
   target_envelope: number[];
+  target_envelopes?: {
+    open: number[];
+    front: number[];
+    close: number[];
+  };
   input_envelope: number[];
+  input_envelopes?: {
+    open: number[];
+    front: number[];
+    close: number[];
+  };
 }
 
 const VoiceAnalyzerModal = ({
@@ -408,6 +418,7 @@ const VoiceAnalyzerModal = ({
           name: newProfileName.trim(),
           type: newProfileType,
           envelope: data.target_envelope,
+          envelopes: data.target_envelopes,
           sr: data.target_sr,
           f0: data.target_f0,
           centroid: data.target_centroid

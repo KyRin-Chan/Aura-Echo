@@ -43,9 +43,9 @@ function App(): JSX.Element {
             tran: binding.recommendedPitch !== undefined ? binding.recommendedPitch : appState.serverSetting.serverSetting.tran,
             formantShift: binding.recommendedFormantShift !== undefined ? binding.recommendedFormantShift : appState.serverSetting.serverSetting.formantShift,
             formantProfileActive: isActive,
-            formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelope),
+            formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelopes || targetProfile.envelope),
             formantProfileTargetSr: targetProfile.sr,
-            formantProfileInputEnvelope: JSON.stringify(inputProfile.envelope),
+            formantProfileInputEnvelope: JSON.stringify(inputProfile.envelopes || inputProfile.envelope),
             formantProfileInputSr: inputProfile.sr,
             formantProfileStrength: binding.strength !== undefined ? binding.strength : (appState.serverSetting.serverSetting.formantProfileStrength ?? 0.35)
           });
