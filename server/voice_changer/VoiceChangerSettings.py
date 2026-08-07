@@ -323,7 +323,7 @@ class VoiceChangerSettings:
     _powerSavingMode: int = 0
 
     _indexRatio: float = 0
-    _protect: float = 0.5
+    _protect: float = 0.33
     _silenceFront: int = 1
 
     @property
