@@ -160,24 +160,29 @@ class _SineGenerator(nn.Module):
         Returns:
             (B, T, 1) — harmonic + noise excitation signal
         """
+        # Phase accumulation via cumsum is precision-sensitive: always run in float32
+        # to avoid overflow when operating in FP16 mode (float16 max ≈ 65504).
+        f0_fp32 = f0.float()
         with torch.no_grad():
             f0_buf = torch.zeros(
-                f0.shape[0], f0.shape[1], self.dim, device=f0.device, dtype=f0.dtype
+                f0_fp32.shape[0], f0_fp32.shape[1], self.dim,
+                device=f0_fp32.device, dtype=torch.float32
             )
-            f0_buf[:, :, 0] = f0[:, :, 0]
+            f0_buf[:, :, 0] = f0_fp32[:, :, 0]
             for i in range(self.harmonic_num):
                 f0_buf[:, :, i + 1] = f0_buf[:, :, 0] * (i + 2)
 
             sine_waves = self._f02sine(f0_buf) * self.sine_amp
 
-            uv = self._f02uv(f0)
+            uv = self._f02uv(f0_fp32)
             noise_amp = uv * self.noise_std + (1.0 - uv) * (self.sine_amp / 3.0)
             noise = noise_amp * torch.randn_like(sine_waves)
 
             sine_waves = sine_waves * uv + noise
 
-        # merge + tanh, with gradient
-        return self.merge(sine_waves)
+        # Cast float32 result to the Linear layer's dtype (float16 or float32)
+        target_dtype = self.merge[0].weight.dtype
+        return self.merge(sine_waves.to(target_dtype))
 
 
 class _AdaIN(nn.Module):
@@ -194,7 +199,7 @@ class _AdaIN(nn.Module):
         self.activation = nn.LeakyReLU(leaky_relu_slope)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        gaussian = torch.randn_like(x) * self.weight[None, :, None]
+        gaussian = (torch.randn_like(x) * self.weight[None, :, None]).to(x.dtype)
         return self.activation(x + gaussian)
 
 
@@ -399,15 +404,25 @@ class _RefineGANGenerator(nn.Module):
         f0: torch.Tensor,
         g: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        # mel and speaker embedding g go directly into conv layers → cast to model dtype
+        target_dtype = self.pre_conv.weight.dtype
+        mel = mel.to(target_dtype)
+        if g is not None:
+            g = g.to(target_dtype)
+
         f0_frames = mel.shape[-1]
 
-        # Upsample F0 to full waveform resolution
+        # Keep f0 in float32 through _SineGenerator: cumsum phase accumulation
+        # overflows in float16 (max ≈ 65504), causing NaN/Inf in the sine source.
+        f0_fp32 = f0.float()
         f0_up = F.interpolate(
-            f0.unsqueeze(1), size=f0_frames * self.upp, mode="linear"
+            f0_fp32.unsqueeze(1), size=f0_frames * self.upp, mode="linear"
         )                                                    # (B, 1, T*upp)
 
-        # Voiced/unvoiced sine harmonics excitation
+        # Voiced/unvoiced sine harmonics excitation (runs internally in float32)
         har = self.m_source(f0_up.transpose(1, 2)).transpose(1, 2)   # (B, 1, T*upp)
+        # Cast harmonic signal to model dtype before entering convolutional layers
+        har = har.to(target_dtype)
 
         # pre_conv: 1 ch → start_channels
         x = self.pre_conv(har)
