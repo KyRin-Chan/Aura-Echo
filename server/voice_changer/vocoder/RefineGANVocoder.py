@@ -404,28 +404,29 @@ class _RefineGANGenerator(nn.Module):
         f0: torch.Tensor,
         g: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        # mel and speaker embedding g go directly into conv layers → cast to model dtype
-        target_dtype = self.pre_conv.weight.dtype
-        mel = mel.to(target_dtype)
+        # torchaudio.functional.resample (sinc_interp_kaiser) does not support
+        # float16 — it produces zeros / NaN in fp16 mode (same reason Applio
+        # hard-codes torch.float32 for their realtime pipeline).  Force the
+        # entire forward pass to float32; the caller (Pipeline.py) already
+        # calls .float() on the result, so this adds zero overhead.
+        mel = mel.float()
+        f0  = f0.float()
         if g is not None:
-            g = g.to(target_dtype)
+            g = g.float()
 
         f0_frames = mel.shape[-1]
 
-        # Keep f0 in float32 through _SineGenerator: cumsum phase accumulation
-        # overflows in float16 (max ≈ 65504), causing NaN/Inf in the sine source.
-        f0_fp32 = f0.float()
+        # Upsample F0 to full waveform resolution (float32 safe)
         f0_up = F.interpolate(
-            f0_fp32.unsqueeze(1), size=f0_frames * self.upp, mode="linear"
+            f0.unsqueeze(1), size=f0_frames * self.upp, mode="linear"
         )                                                    # (B, 1, T*upp)
 
-        # Voiced/unvoiced sine harmonics excitation (runs internally in float32)
+        # Voiced/unvoiced sine harmonics excitation
+        # _SineGenerator already runs internally in float32 (phase cumsum safe)
         har = self.m_source(f0_up.transpose(1, 2)).transpose(1, 2)   # (B, 1, T*upp)
-        # Cast harmonic signal to model dtype before entering convolutional layers
-        har = har.to(target_dtype)
 
         # pre_conv: 1 ch → start_channels
-        x = self.pre_conv(har)
+        x = self.pre_conv(har.float())
 
         # Build F0 down-branches with sinc-Kaiser anti-aliasing resampling
         downs = []
