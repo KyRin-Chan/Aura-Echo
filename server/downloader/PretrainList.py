@@ -92,5 +92,6 @@ embedders = {
         "saveTo": "pretrain/embedder/spin_v2.onnx",
         "hash": "4983330cc048f7fc08646c33f8e4607c",
         "type": "onnx",
+        "mandatory": False,
     },
 }
