@@ -225,6 +225,8 @@ class MMVC_Rest:
                             d_input = np.frombuffer(d_raw, dtype=np.int16).astype(np.float32) / 32768.0
                             stale_count += 1
                             stale_ages.append(tracker.update(d_recv_ts - d_ts))
+                            if last_stale_log_time == 0.0:
+                                last_stale_log_time = time()
                             out_audio, vol, perf, err = await asyncio.to_thread(
                                 voiceChangerManager.skip_voice, d_input
                             )
@@ -247,7 +249,7 @@ class MMVC_Rest:
                             if last_stale_log_time == 0.0:
                                 last_stale_log_time = current_time
                             elif current_time - last_stale_log_time >= 3.0:
-                                avg_age = sum(stale_ages) // len(stale_ages)
+                                avg_age = sum(stale_ages) // len(stale_ages) if stale_ages else 0
                                 logger.warning(f"[WS] Stale packets detected: {stale_count} packet(s) skipped in the last {current_time - last_stale_log_time:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
                                 stale_count = 0
                                 stale_ages = []
@@ -259,8 +261,8 @@ class MMVC_Rest:
                         else:
                             if stale_count > 0:
                                 current_time = time()
-                                duration = current_time - last_stale_log_time
-                                avg_age = sum(stale_ages) // len(stale_ages)
+                                duration = (current_time - last_stale_log_time) if last_stale_log_time > 0.0 else 0.0
+                                avg_age = sum(stale_ages) // len(stale_ages) if stale_ages else 0
                                 logger.warning(f"[WS] Stale packets detected: {stale_count} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
                                 stale_count = 0
                                 stale_ages = []
@@ -285,8 +287,8 @@ class MMVC_Rest:
                     active_websockets.discard(websocket)
                     if stale_count > 0:
                         current_time = time()
-                        duration = current_time - last_stale_log_time
-                        avg_age = sum(stale_ages) // len(stale_ages)
+                        duration = (current_time - last_stale_log_time) if last_stale_log_time > 0.0 else 0.0
+                        avg_age = sum(stale_ages) // len(stale_ages) if stale_ages else 0
                         logger.warning(f"[WS] Stale packets detected: {stale_count} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
 
             @app_fastapi.websocket("/ws/progress")

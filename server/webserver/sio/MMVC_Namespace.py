@@ -100,7 +100,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
             if stats["last_log_time"] == 0.0:
                 stats["last_log_time"] = current_time
             elif current_time - stats["last_log_time"] >= 3.0:
-                avg_age = sum(stats["ages"]) // len(stats["ages"])
+                avg_age = sum(stats["ages"]) // len(stats["ages"]) if stats["ages"] else 0
                 logger.warning(f"[SIO] Stale packets detected: {stats['count']} packet(s) skipped in the last {current_time - stats['last_log_time']:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
                 stats["count"] = 0
                 stats["ages"] = []
@@ -112,8 +112,8 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         else:
             if stats["count"] > 0:
                 current_time = time()
-                duration = current_time - stats["last_log_time"]
-                avg_age = sum(stats["ages"]) // len(stats["ages"])
+                duration = (current_time - stats["last_log_time"]) if stats["last_log_time"] > 0.0 else 0.0
+                avg_age = sum(stats["ages"]) // len(stats["ages"]) if stats["ages"] else 0
                 logger.warning(f"[SIO] Stale packets detected: {stats['count']} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
                 stats["count"] = 0
                 stats["ages"] = []
@@ -141,7 +141,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
             stats = self.stale_stats[sid]
             if stats["count"] > 0:
                 current_time = time()
-                duration = current_time - stats["last_log_time"]
-                avg_age = sum(stats["ages"]) // len(stats["ages"])
+                duration = (current_time - stats["last_log_time"]) if stats["last_log_time"] > 0.0 else 0.0
+                avg_age = sum(stats["ages"]) // len(stats["ages"]) if stats["ages"] else 0
                 logger.warning(f"[SIO] Stale packets detected for SID {sid}: {stats['count']} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
             del self.stale_stats[sid]

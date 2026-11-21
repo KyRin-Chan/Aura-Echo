@@ -7,7 +7,12 @@ import numpy as np
 import sounddevice as sd
 
 from const import SERVER_DEVICE_SAMPLE_RATES
-from voice_changer.Local.AudioDeviceList import checkSamplingRate, list_audio_device
+from voice_changer.Local.AudioDeviceList import (
+    PORTAUDIO_LOCK,
+    checkSamplingRate,
+    list_audio_device,
+    reinitialize_portaudio,
+)
 from voice_changer.utils.SystemPriority import register_current_thread_mmcss
 from voice_changer.utils.VoiceChangerModel import AudioInOutFloat
 from voice_changer.VoiceChangerSettings import VoiceChangerSettings
@@ -147,6 +152,7 @@ class ServerAudio:
         self.stream = None
         self.monitor = None
         self.running = False
+        self._state_lock = threading.RLock()
 
         self._block_frame = 2048
         self._mon_sr = 48000
@@ -174,11 +180,15 @@ class ServerAudio:
         self._mon_last_sample = 0.0
 
     def getServerInputAudioDevice(self, index: int):
+        if index is None or index < 0:
+            return None
         audioinput, _ = list_audio_device()
         serverAudioDevice = [x for x in audioinput if x.index == index]
         return serverAudioDevice[0] if len(serverAudioDevice) > 0 else None
 
     def getServerOutputAudioDevice(self, index: int):
+        if index is None or index < 0:
+            return None
         _, audiooutput = list_audio_device()
         serverAudioDevice = [x for x in audiooutput if x.index == index]
         return serverAudioDevice[0] if len(serverAudioDevice) > 0 else None
@@ -368,166 +378,233 @@ class ServerAudio:
         )
         self._worker_thread.start()
 
-    def run_no_monitor(self, block_frame: int, inputMaxChannel: int, outputMaxChannel: int, inputExtraSetting, outputExtraSetting):
+    def run_no_monitor(
+        self,
+        block_frame: int,
+        inputMaxChannel: int,
+        outputMaxChannel: int,
+        inputExtraSetting,
+        outputExtraSetting,
+        inputDeviceId: Optional[int] = None,
+        outputDeviceId: Optional[int] = None,
+        sampleRate: Optional[int] = None,
+    ):
+        in_dev = self.settings.serverInputDeviceId if inputDeviceId is None else inputDeviceId
+        out_dev = self.settings.serverOutputDeviceId if outputDeviceId is None else outputDeviceId
+        sr = self.settings.serverInputAudioSampleRate if sampleRate is None else sampleRate
         self._start_worker_and_rings(block_frame, has_monitor=False)
-        self.stream = sd.Stream(
-            callback=self.audio_stream_callback,
-            latency='low',
-            dtype="float32",
-            device=(self.settings.serverInputDeviceId, self.settings.serverOutputDeviceId),
-            blocksize=block_frame,
-            samplerate=self.settings.serverInputAudioSampleRate,
-            channels=(inputMaxChannel, outputMaxChannel),
-            extra_settings=(inputExtraSetting, outputExtraSetting)
-        )
-        self.stream.start()
+        with PORTAUDIO_LOCK:
+            self.stream = sd.Stream(
+                callback=self.audio_stream_callback,
+                latency='low',
+                dtype="float32",
+                device=(in_dev, out_dev),
+                blocksize=block_frame,
+                samplerate=sr,
+                channels=(inputMaxChannel, outputMaxChannel),
+                extra_settings=(inputExtraSetting, outputExtraSetting)
+            )
+            self.stream.start()
 
-    def run_with_monitor(self, block_frame: int, inputMaxChannel: int, outputMaxChannel: int, monitorMaxChannel: int, inputExtraSetting, outputExtraSetting, monitorExtraSetting):
+    def run_with_monitor(
+        self,
+        block_frame: int,
+        inputMaxChannel: int,
+        outputMaxChannel: int,
+        monitorMaxChannel: int,
+        inputExtraSetting,
+        outputExtraSetting,
+        monitorExtraSetting,
+        inputDeviceId: Optional[int] = None,
+        outputDeviceId: Optional[int] = None,
+        monitorDeviceId: Optional[int] = None,
+        sampleRate: Optional[int] = None,
+    ):
+        in_dev = self.settings.serverInputDeviceId if inputDeviceId is None else inputDeviceId
+        out_dev = self.settings.serverOutputDeviceId if outputDeviceId is None else outputDeviceId
+        mon_dev = self.settings.serverMonitorDeviceId if monitorDeviceId is None else monitorDeviceId
+        sr = self.settings.serverInputAudioSampleRate if sampleRate is None else sampleRate
+        mon_sr = self.settings.serverMonitorAudioSampleRate if sampleRate is None else sampleRate
         self._start_worker_and_rings(block_frame, has_monitor=True)
-        self.stream = sd.Stream(
-            callback=self.audio_stream_callback,
-            latency='low',
-            dtype="float32",
-            device=(self.settings.serverInputDeviceId, self.settings.serverOutputDeviceId),
-            blocksize=block_frame,
-            samplerate=self.settings.serverInputAudioSampleRate,
-            channels=(inputMaxChannel, outputMaxChannel),
-            extra_settings=(inputExtraSetting, outputExtraSetting)
-        )
-        self.monitor = sd.OutputStream(
-            callback=self.audio_monitor_callback,
-            latency='low',
-            dtype="float32",
-            device=self.settings.serverMonitorDeviceId,
-            blocksize=block_frame,
-            samplerate=self.settings.serverMonitorAudioSampleRate,
-            channels=monitorMaxChannel,
-            extra_settings=monitorExtraSetting
-        )
-        self.stream.start()
-        self.monitor.start()
+        with PORTAUDIO_LOCK:
+            self.stream = sd.Stream(
+                callback=self.audio_stream_callback,
+                latency='low',
+                dtype="float32",
+                device=(in_dev, out_dev),
+                blocksize=block_frame,
+                samplerate=sr,
+                channels=(inputMaxChannel, outputMaxChannel),
+                extra_settings=(inputExtraSetting, outputExtraSetting)
+            )
+            self.monitor = sd.OutputStream(
+                callback=self.audio_monitor_callback,
+                latency='low',
+                dtype="float32",
+                device=mon_dev,
+                blocksize=block_frame,
+                samplerate=mon_sr,
+                channels=monitorMaxChannel,
+                extra_settings=monitorExtraSetting
+            )
+            self.stream.start()
+            self.monitor.start()
 
     def stop(self):
-        self.running = False
-        self._stop_event.set()
-        self._in_event.set()
+        with self._state_lock:
+            self.running = False
+            self._stop_event.set()
+            self._in_event.set()
 
-        if self.stream is not None:
-            try:
-                self.stream.close()
-            finally:
-                self.stream = None
-        if self.monitor is not None:
-            try:
-                self.monitor.close()
-            finally:
-                self.monitor = None
+            if self.stream is not None or self.monitor is not None:
+                with PORTAUDIO_LOCK:
+                    if self.stream is not None:
+                        try:
+                            self.stream.close()
+                        finally:
+                            self.stream = None
+                    if self.monitor is not None:
+                        try:
+                            self.monitor.close()
+                        finally:
+                            self.monitor = None
 
-        if self._worker_thread is not None and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=2.0)
-        self._worker_thread = None
+            if self._worker_thread is not None and self._worker_thread.is_alive():
+                self._worker_thread.join(timeout=2.0)
+            self._worker_thread = None
 
-        if self.in_ring is not None:
-            self.in_ring.clear()
-        if self.out_ring is not None:
-            self.out_ring.clear()
-        if self.mon_ring is not None:
-            self.mon_ring.clear()
+            if self.in_ring is not None:
+                self.in_ring.clear()
+            if self.out_ring is not None:
+                self.out_ring.clear()
+            if self.mon_ring is not None:
+                self.mon_ring.clear()
 
     ###########################################
     # Start Section
     ###########################################
     def start(self):
-        self.stop()
+        with self._state_lock:
+            self.stop()
 
-        sd._terminate()
-        sd._initialize()
+            input_dev_id = int(self.settings.serverInputDeviceId)
+            output_dev_id = int(self.settings.serverOutputDeviceId)
+            monitor_dev_id = int(self.settings.serverMonitorDeviceId)
 
-        serverInputAudioDevice = self.getServerInputAudioDevice(self.settings.serverInputDeviceId)
-        serverOutputAudioDevice = self.getServerOutputAudioDevice(self.settings.serverOutputDeviceId)
-        serverMonitorAudioDevice = self.getServerOutputAudioDevice(self.settings.serverMonitorDeviceId)
-
-        if serverInputAudioDevice is None or serverOutputAudioDevice is None:
-            logger.error("Input or output device is not selected.")
-            self.callbacks.emit_to(0, self.performance, ('ERR_GENERIC_SERVER_AUDIO_ERROR', ERR_GENERIC_SERVER_AUDIO_ERROR))
-            return
-
-        wasapiExclusiveMode = bool(self.settings.exclusiveMode)
-
-        inputChannels = serverInputAudioDevice.maxInputChannels
-        inputExtraSetting = None
-        if serverInputAudioDevice and "WASAPI" in serverInputAudioDevice.hostAPI:
-            inputExtraSetting = sd.WasapiSettings(exclusive=wasapiExclusiveMode, auto_convert=not wasapiExclusiveMode)
-        elif serverInputAudioDevice and "ASIO" in serverInputAudioDevice.hostAPI and self.settings.asioInputChannel != -1:
-            inputExtraSetting = sd.AsioSettings(channel_selectors=[self.settings.asioInputChannel])
-            inputChannels = 1
-
-        outputChannels = serverOutputAudioDevice.maxOutputChannels
-        outputExtraSetting = None
-        if serverOutputAudioDevice and "WASAPI" in serverOutputAudioDevice.hostAPI:
-            outputExtraSetting = sd.WasapiSettings(exclusive=wasapiExclusiveMode, auto_convert=not wasapiExclusiveMode)
-        elif serverOutputAudioDevice and "ASIO" in serverOutputAudioDevice.hostAPI and self.settings.asioOutputChannel != -1:
-            outputExtraSetting = sd.AsioSettings(channel_selectors=[self.settings.asioOutputChannel])
-            outputChannels = 1
-
-        monitorExtraSetting = None
-        if serverMonitorAudioDevice and "WASAPI" in serverMonitorAudioDevice.hostAPI:
-            monitorExtraSetting = sd.WasapiSettings(exclusive=wasapiExclusiveMode, auto_convert=not wasapiExclusiveMode)
-
-        logger.info("Devices:")
-        logger.info(f"  [Input]: {serverInputAudioDevice} {inputExtraSetting}")
-        logger.info(f"  [Output]: {serverOutputAudioDevice}, {outputExtraSetting}")
-        logger.info(f"  [Monitor]: {serverMonitorAudioDevice}, {monitorExtraSetting}")
-
-        self.settings.serverInputAudioSampleRate = self.settings.serverAudioSampleRate
-        self.settings.serverOutputAudioSampleRate = self.settings.serverAudioSampleRate
-        self.settings.serverMonitorAudioSampleRate = self.settings.serverAudioSampleRate
-
-        if "WASAPI" not in serverInputAudioDevice.hostAPI and not wasapiExclusiveMode:
-            inputAudioSampleRateAvailable = checkSamplingRate(self.settings.serverInputDeviceId, self.settings.serverInputAudioSampleRate, "input")
-            outputAudioSampleRateAvailable = checkSamplingRate(self.settings.serverOutputDeviceId, self.settings.serverOutputAudioSampleRate, "output")
-            monitorAudioSampleRateAvailable = checkSamplingRate(self.settings.serverMonitorDeviceId, self.settings.serverMonitorAudioSampleRate, "output") if serverMonitorAudioDevice else True
-
-            logger.info("Sample Rate:")
-            logger.info(f"  [Input]: {self.settings.serverInputAudioSampleRate} -> {inputAudioSampleRateAvailable}")
-            logger.info(f"  [Output]: {self.settings.serverOutputAudioSampleRate} -> {outputAudioSampleRateAvailable}")
-            if serverMonitorAudioDevice is not None:
-                logger.info(f"  [Monitor]: {self.settings.serverMonitorAudioSampleRate} -> {monitorAudioSampleRateAvailable}")
-
-            if not inputAudioSampleRateAvailable or not outputAudioSampleRateAvailable or not monitorAudioSampleRateAvailable:
-                logger.info("Checking Available Sample Rate:")
-                availableInputSampleRate = []
-                availableOutputSampleRate = []
-                availableMonitorSampleRate = []
-                for sr in SERVER_DEVICE_SAMPLE_RATES:
-                    if checkSamplingRate(self.settings.serverInputDeviceId, sr, "input"):
-                        availableInputSampleRate.append(sr)
-                    if checkSamplingRate(self.settings.serverOutputDeviceId, sr, "output"):
-                        availableOutputSampleRate.append(sr)
-                    if serverMonitorAudioDevice is not None:
-                        if checkSamplingRate(self.settings.serverMonitorDeviceId, sr, "output"):
-                            availableMonitorSampleRate.append(sr)
-                err = ERR_SAMPLE_RATE_NOT_SUPPORTED % (availableInputSampleRate, availableOutputSampleRate, availableMonitorSampleRate)
-                self.callbacks.emit_to(
-                    0,
-                    self.performance,
-                    ('ERR_SAMPLE_RATE_NOT_SUPPORTED', err)
-                )
-                logger.error(err)
+            if input_dev_id < 0 or output_dev_id < 0:
+                logger.warning("Input or output device is not selected.")
                 return
 
-        block_frame = int((self.settings.serverReadChunkSize * 128 / 48000) * self.settings.serverInputAudioSampleRate)
+            with PORTAUDIO_LOCK:
+                reinitialize_portaudio()
 
-        try:
-            if serverMonitorAudioDevice is None:
-                self.run_no_monitor(block_frame, inputChannels, outputChannels, inputExtraSetting, outputExtraSetting)
-            else:
-                self.run_with_monitor(block_frame, inputChannels, outputChannels, serverMonitorAudioDevice.maxOutputChannels, inputExtraSetting, outputExtraSetting, monitorExtraSetting)
-            self.running = True
-        except Exception as e:
-            self.stop()
-            self.callbacks.emit_to(0, self.performance, ('ERR_GENERIC_SERVER_AUDIO_ERROR', ERR_GENERIC_SERVER_AUDIO_ERROR))
-            logger.exception(e)
+                serverInputAudioDevice = self.getServerInputAudioDevice(input_dev_id)
+                serverOutputAudioDevice = self.getServerOutputAudioDevice(output_dev_id)
+                serverMonitorAudioDevice = self.getServerOutputAudioDevice(monitor_dev_id)
+
+                if serverInputAudioDevice is None or serverOutputAudioDevice is None:
+                    logger.error("Input or output device is not selected.")
+                    self.callbacks.emit_to(0, self.performance, ('ERR_GENERIC_SERVER_AUDIO_ERROR', ERR_GENERIC_SERVER_AUDIO_ERROR))
+                    return
+
+                wasapiExclusiveMode = bool(self.settings.exclusiveMode)
+
+                inputChannels = serverInputAudioDevice.maxInputChannels
+                inputExtraSetting = None
+                if serverInputAudioDevice and "WASAPI" in serverInputAudioDevice.hostAPI:
+                    inputExtraSetting = sd.WasapiSettings(exclusive=wasapiExclusiveMode, auto_convert=not wasapiExclusiveMode)
+                elif serverInputAudioDevice and "ASIO" in serverInputAudioDevice.hostAPI and self.settings.asioInputChannel != -1:
+                    inputExtraSetting = sd.AsioSettings(channel_selectors=[self.settings.asioInputChannel])
+                    inputChannels = 1
+
+                outputChannels = serverOutputAudioDevice.maxOutputChannels
+                outputExtraSetting = None
+                if serverOutputAudioDevice and "WASAPI" in serverOutputAudioDevice.hostAPI:
+                    outputExtraSetting = sd.WasapiSettings(exclusive=wasapiExclusiveMode, auto_convert=not wasapiExclusiveMode)
+                elif serverOutputAudioDevice and "ASIO" in serverOutputAudioDevice.hostAPI and self.settings.asioOutputChannel != -1:
+                    outputExtraSetting = sd.AsioSettings(channel_selectors=[self.settings.asioOutputChannel])
+                    outputChannels = 1
+
+                monitorExtraSetting = None
+                if serverMonitorAudioDevice and "WASAPI" in serverMonitorAudioDevice.hostAPI:
+                    monitorExtraSetting = sd.WasapiSettings(exclusive=wasapiExclusiveMode, auto_convert=not wasapiExclusiveMode)
+
+                logger.info("Devices:")
+                logger.info(f"  [Input]: {serverInputAudioDevice} {inputExtraSetting}")
+                logger.info(f"  [Output]: {serverOutputAudioDevice}, {outputExtraSetting}")
+                logger.info(f"  [Monitor]: {serverMonitorAudioDevice}, {monitorExtraSetting}")
+
+                sample_rate = int(self.settings.serverAudioSampleRate)
+                self.settings.serverInputAudioSampleRate = sample_rate
+                self.settings.serverOutputAudioSampleRate = sample_rate
+                self.settings.serverMonitorAudioSampleRate = sample_rate
+
+                if "WASAPI" not in serverInputAudioDevice.hostAPI and not wasapiExclusiveMode:
+                    inputAudioSampleRateAvailable = checkSamplingRate(input_dev_id, sample_rate, "input")
+                    outputAudioSampleRateAvailable = checkSamplingRate(output_dev_id, sample_rate, "output")
+                    monitorAudioSampleRateAvailable = checkSamplingRate(monitor_dev_id, sample_rate, "output") if serverMonitorAudioDevice else True
+
+                    logger.info("Sample Rate:")
+                    logger.info(f"  [Input]: {sample_rate} -> {inputAudioSampleRateAvailable}")
+                    logger.info(f"  [Output]: {sample_rate} -> {outputAudioSampleRateAvailable}")
+                    if serverMonitorAudioDevice is not None:
+                        logger.info(f"  [Monitor]: {sample_rate} -> {monitorAudioSampleRateAvailable}")
+
+                    if not inputAudioSampleRateAvailable or not outputAudioSampleRateAvailable or not monitorAudioSampleRateAvailable:
+                        logger.info("Checking Available Sample Rate:")
+                        availableInputSampleRate = []
+                        availableOutputSampleRate = []
+                        availableMonitorSampleRate = []
+                        for sr in SERVER_DEVICE_SAMPLE_RATES:
+                            if checkSamplingRate(input_dev_id, sr, "input"):
+                                availableInputSampleRate.append(sr)
+                            if checkSamplingRate(output_dev_id, sr, "output"):
+                                availableOutputSampleRate.append(sr)
+                            if serverMonitorAudioDevice is not None:
+                                if checkSamplingRate(monitor_dev_id, sr, "output"):
+                                    availableMonitorSampleRate.append(sr)
+                        err = ERR_SAMPLE_RATE_NOT_SUPPORTED % (availableInputSampleRate, availableOutputSampleRate, availableMonitorSampleRate)
+                        self.callbacks.emit_to(
+                            0,
+                            self.performance,
+                            ('ERR_SAMPLE_RATE_NOT_SUPPORTED', err)
+                        )
+                        logger.error(err)
+                        return
+
+                block_frame = int((self.settings.serverReadChunkSize * 128 / 48000) * sample_rate)
+
+                try:
+                    if serverMonitorAudioDevice is None:
+                        self.run_no_monitor(
+                            block_frame,
+                            inputChannels,
+                            outputChannels,
+                            inputExtraSetting,
+                            outputExtraSetting,
+                            inputDeviceId=input_dev_id,
+                            outputDeviceId=output_dev_id,
+                            sampleRate=sample_rate,
+                        )
+                    else:
+                        self.run_with_monitor(
+                            block_frame,
+                            inputChannels,
+                            outputChannels,
+                            serverMonitorAudioDevice.maxOutputChannels,
+                            inputExtraSetting,
+                            outputExtraSetting,
+                            monitorExtraSetting,
+                            inputDeviceId=input_dev_id,
+                            outputDeviceId=output_dev_id,
+                            monitorDeviceId=monitor_dev_id,
+                            sampleRate=sample_rate,
+                        )
+                    self.running = True
+                except Exception as e:
+                    self.stop()
+                    self.callbacks.emit_to(0, self.performance, ('ERR_GENERIC_SERVER_AUDIO_ERROR', ERR_GENERIC_SERVER_AUDIO_ERROR))
+                    logger.exception(e)
 
     ###########################################
     # Info Section
@@ -547,10 +624,18 @@ class ServerAudio:
         return data
 
     def update_settings(self, key: str, val, old_val):
-        if key == 'serverAudioStated':
-            if val:
-                self.start()
-            else:
+        with self._state_lock:
+            if key == 'serverAudioStated':
+                if val:
+                    self.start()
+                else:
+                    self.stop()
+                return
+            if key == 'enableServerAudio' and not val:
                 self.stop()
-        if self.running and key in {'serverInputDeviceId', 'serverOutputDeviceId', 'serverMonitorDeviceId', 'serverReadChunkSize', 'serverAudioSampleRate', 'asioInputChannel', 'asioOutputChannel'}:
-            self.start()
+                return
+            if self.running and key in {'serverInputDeviceId', 'serverOutputDeviceId', 'serverMonitorDeviceId', 'serverReadChunkSize', 'serverAudioSampleRate', 'asioInputChannel', 'asioOutputChannel'}:
+                if key in {'serverInputDeviceId', 'serverOutputDeviceId'} and (val is None or int(val) < 0):
+                    self.stop()
+                else:
+                    self.start()
