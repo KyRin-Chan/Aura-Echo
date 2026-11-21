@@ -1,130 +1,150 @@
-# Voice Changer (RTX 5080 Optimized Edition)
+<div align="center">
 
-## Table of Contents
+# Voice Changer — RTX 5080 Optimized Edition
 
-- [Overview](#overview)
-- [System Requirements](#system-requirements)
-- [How to Use (Pre-built Release)](#how-to-use-pre-built-release)
-  - [Prerequisites](#prerequisites)
-  - [Unpacking and Running](#unpacking-and-running)
-- [Troubleshooting](#troubleshooting)
-  - [Download verification errors](#exceptionspretraindownloadexception-failed-to-download-weight)
-  - [Audio devices are not displayed](#audio-devices-are-not-displayed)
-  - [No sound after start](#no-sound-after-start)
-  - [Hearing non-converted voice](#hearing-non-converted-voice)
-  - [Hearing audio crackles](#hearing-audio-crackles)
-  - [Audio is stuttery](#audio-is-stuttery)
-- [Development / Working with Source](#working-with-the-source)
-  - [Setting up the environment](#setting-up-the-environment)
-  - [Running the server](#running-the-server)
-  - [Building a package](#building-a-package)
+**Real-time voice conversion powered by RVC, tuned for NVIDIA RTX GPUs on Windows.**
+
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows)
+![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
+![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
+[Overview](#overview) · [Quick Start](#quick-start) · [Troubleshooting](#troubleshooting) · [Development](#development)
+
+</div>
 
 ---
 
 ## Overview
 
-This is a customized fork of [deiteris voice changer](https://github.com/deiteris/voice-changer) designed for real-time voice conversion using Retrieval-based Voice Conversion (RVC).
+This project is a customized fork of [deiteris/voice-changer](https://github.com/deiteris/voice-changer), providing low-latency, real-time voice conversion based on Retrieval-based Voice Conversion (RVC).
+
+This edition focuses on a single, well-tuned configuration, with dedicated optimizations for the **RTX 5080 (Blackwell)** via **TensorRT / ONNX**.
 
 > [!IMPORTANT]
-> This edition is specifically optimized for **Windows 10/11** and **Nvidia GPUs (CUDA)**, with dedicated performance tunings for **RTX 5080 / Blackwell architecture (TensorRT / ONNX)**. Other backends (DirectML, CPU-only, ROCm) and operating systems (macOS, Linux) are not supported in this branch.
-
----
+> Only **Windows 10/11** with **NVIDIA GPUs (CUDA)** is supported. DirectML, CPU-only, ROCm, macOS, and Linux are not supported on this branch.
 
 ## System Requirements
 
-- **Operating System**: Windows 10 or Windows 11 (64-bit).
-- **RAM**: At least 6GB.
-- **Disk Space**: At least 6GB of free space (SSD recommended).
-- **GPU**: Nvidia GeForce RTX 20 Series or later (Optimized for RTX 5080).
-- **GPU VRAM**: At least 2GB (FP32) or 1GB (FP16).
-- **Nvidia Driver**: Version `528.33` or later.
+| Component      | Requirement                                              |
+| -------------- | -------------------------------------------------------- |
+| OS             | Windows 10 / 11 (64-bit)                                 |
+| GPU            | NVIDIA GeForce RTX 20 series or newer (tuned for RTX 5080) |
+| VRAM           | ≥ 2 GB (FP32) or ≥ 1 GB (FP16)                           |
+| NVIDIA driver  | 528.33 or later                                          |
+| RAM            | ≥ 6 GB                                                   |
+| Disk           | ≥ 6 GB free (SSD recommended)                            |
 
----
+## Quick Start
 
-## How to Use (Pre-built Release)
+### 1. Prerequisites
 
-### Prerequisites
+- An archiver such as [7-Zip](https://www.7-zip.org/) or [WinRAR](https://www.win-rar.com/).
+- A virtual audio cable, e.g. [VAC Lite by Muzychenko](https://software.muzychenko.net/freeware/vac470lite.zip).
+- The latest release package, `voice-changer-windows-amd64-cuda-5080.7z`, from the **Releases** page.
 
-1. Download and install [7-Zip](https://www.7-zip.org/) or [WinRAR](https://www.win-rar.com/).
-2. Download and install [VAC Lite by Muzychenko](https://software.muzychenko.net/freeware/vac470lite.zip) or another virtual audio cable driver.
-3. Download the latest release package (`voice-changer-windows-amd64-cuda-5080.7z`) from the Releases section.
+### 2. Run
 
-### Unpacking and Running
-
-1. Put the downloaded `.7z` file in your preferred directory.
-2. Right-click and select **7-Zip** > **Extract to "voice-changer-windows-amd64-cuda-5080\"**.
-3. Open the extracted folder, navigate to `MMVCServerSIO`.
-4. Run `MMVCServerSIO.exe`.
-   - *Note: On first startup, it will automatically download necessary pre-trained weights. Do not close the command prompt until the download finishes.*
-5. Once the weights are downloaded, your default web browser will open the graphical interface.
-
----
+1. Extract the `.7z` archive to a directory of your choice.
+2. Open the extracted folder, then the `MMVCServerSIO` directory.
+3. Launch `MMVCServerSIO.exe`.
+4. Wait for the initial download of pre-trained weights to finish. Keep the console window open until it completes.
+5. Your default browser will open the web interface automatically.
 
 ## Troubleshooting
 
 > [!TIP]
-> When any issue occurs, check the command prompt window for specific error output.
+> When something goes wrong, the console window usually shows the relevant error message first.
 
-### Exceptions.PretrainDownloadException: 'Failed to download weight.'
-If files were corrupted or interrupted during download, check the terminal for lines like:
+<details>
+<summary><b>Failed to download weight (<code>PretrainDownloadException</code>)</b></summary>
+
+A corrupted or interrupted download produces a message such as:
+
 ```text
 [WeightDownloader] 'pretrain/content_vec_500.onnx failed to pass hash verification check.'
 ```
-Go to the voice changer folder, locate the failed file under the `pretrain` directory, delete it, and restart the voice changer to re-download.
 
-### Audio devices are not displayed
-1. Make sure you have granted microphone access permissions in Windows Settings.
-2. Use Google Chrome or a Chromium-based browser. Firefox ESR is not recommended.
+Delete the failing file from the `pretrain` directory and restart the application to download it again.
 
-### No sound after start
-1. Verify that the correct input and output audio devices are selected in the web UI.
-2. Verify that your hardware microphone is not muted and the volume is up.
+</details>
 
-### Hearing non-converted voice
-Make sure **passthru** is off in the web UI (the "Passthrough On" button is yellow when active; click it to turn it off).
+<details>
+<summary><b>Audio devices are not listed</b></summary>
 
-### Hearing audio crackles
-1. Make sure you are using a Virtual Audio Cable (e.g. **Line 1**).
-2. Ensure the sample rate of your microphone matches the sample rate of the Virtual Audio Cable in the Windows **Sound Control Panel**.
-3. If crackling persists, open **Task Manager** > **Details**, find `audiodg.exe`:
-   - Right-click `audiodg.exe` > **Set priority** > **High**.
-   - Right-click `audiodg.exe` > **Set affinity** > Uncheck all, and select only **CPU 2**.
+1. Grant microphone access in Windows **Settings**.
+2. Use Google Chrome or another Chromium-based browser (Firefox ESR is not recommended).
 
-### Audio is stuttery
-1. If you changed settings (Chunk, Extra, Crossfade) while voice conversion was active, click **Stop** and then **Start**.
-2. Make sure the reported `perf` conversion time in the UI is smaller than the selected `Chunk` size. If `perf` exceeds the chunk size, increase `Chunk` size or reduce `Extra` and `Crossfade` settings.
+</details>
 
----
+<details>
+<summary><b>No sound after starting</b></summary>
 
-## Working with the Source
+1. Confirm the correct input and output devices are selected in the web UI.
+2. Make sure your microphone is not muted and its volume is raised.
 
-### Setting up the environment
+</details>
 
-1. Install [Python 3.12](https://www.python.org/downloads/) (make sure to add Python to PATH).
-2. Install [Git](https://git-scm.com/).
-3. Clone this repository:
+<details>
+<summary><b>Hearing the unconverted voice</b></summary>
+
+Turn **Passthrough** off in the web UI. The button is yellow while active; click it to disable.
+
+</details>
+
+<details>
+<summary><b>Audio crackling</b></summary>
+
+1. Route audio through a virtual audio cable (e.g. **Line 1**).
+2. In the Windows **Sound** control panel, make sure the microphone and the virtual cable use the same sample rate.
+3. If crackling persists, open **Task Manager → Details** and locate `audiodg.exe`:
+   - Right-click → **Set priority** → **High**.
+   - Right-click → **Set affinity** → clear all, then select only **CPU 2**.
+
+</details>
+
+<details>
+<summary><b>Stuttering audio</b></summary>
+
+1. After changing **Chunk**, **Extra**, or **Crossfade** during conversion, click **Stop** and then **Start**.
+2. Ensure the `perf` time shown in the UI is lower than the selected **Chunk** size. Otherwise, increase **Chunk** or reduce **Extra** and **Crossfade**.
+
+</details>
+
+## Development
+
+### Set up the environment
+
+1. Install [Python 3.12](https://www.python.org/downloads/) (add it to `PATH`) and [Git](https://git-scm.com/).
+2. Clone the repository and run the installer, which creates a virtual environment and installs the RTX 5080 CUDA dependencies:
+
    ```cmd
    git clone <repo-url>
    cd rvc-custom/server
-   ```
-4. Run the installation script to set up a virtual environment and install RTX 5080 CUDA requirements:
-   ```cmd
    .\vc_install.bat
    ```
 
-### Running the server
+### Run the development server
 
-To launch the development server:
 ```cmd
 .\vc_startup.bat
 ```
-Then open the browser and navigate to the address shown in the command line (usually `http://localhost:18950`).
 
-### Building a package
+Then open the address printed in the console (typically `http://localhost:18950`).
 
-To package the project into a standalone executable:
+### Build a standalone package
+
 ```cmd
 pip install --upgrade pip wheel setuptools pyinstaller
 pyinstaller --clean -y --dist ./dist --workpath /tmp MMVCServerSIO.spec
 ```
-The compiled package will be outputted to the `dist` folder.
+
+The output is written to the `dist` directory.
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+## Acknowledgements
+
+Built upon [deiteris/voice-changer](https://github.com/deiteris/voice-changer) and the original [voice-changer](https://github.com/w-okada/voice-changer) by Wataru Okada.
