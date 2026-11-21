@@ -145,8 +145,7 @@ class RVCInferencerv2(Inferencer):
                     o = active_vocoder.infer(z_masked, nsff0_slice, g=g)
                     if o is not None and o.shape[-1] > 0:
                         self._last_used_standalone_vocoder = True
-                        res = o[0, 0]
-                        return torch.clip(res, -1.0, 1.0, out=res)
+                        return o[0, 0]
                 except Exception as e:
                     logger.warning(f"Error during active vocoder inference: {e}. Falling back to default decoder.")
 
@@ -161,4 +160,4 @@ class RVCInferencerv2(Inferencer):
                 formant_length=formant_length,
             )
             res = out[0][0, 0]
-        return torch.clip(res, -1.0, 1.0, out=res)
+        return res

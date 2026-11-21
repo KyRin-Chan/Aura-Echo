@@ -7,6 +7,8 @@ from typing import Optional
 from faiss import IndexIVFFlat
 import faiss.contrib.torch_utils
 import torch
+import torch.nn.functional as F
+from torchaudio import transforms as tat
 
 from const import F0_MEL_MIN, F0_MEL_MAX, HUBERT_SAMPLE_RATE, WINDOW_SIZE
 from voice_changer.audio_effects.AudioEffectsManager import AudioEffectsManager
@@ -115,11 +117,12 @@ class Pipeline:
         self._pitch_stream = self.device_manager.pitch_stream
         self._embedder_stream = self.device_manager.embedder_stream
 
-        # Cached small scalar tensors
+        # Cached small scalar tensors & formant resamplers
         self._cached_plen_val: Optional[int] = None
         self._cached_plen_tensor: Optional[torch.Tensor] = None
         self._cached_sid_val: Optional[int] = None
         self._cached_sid_tensor: Optional[torch.Tensor] = None
+        self._formant_resamplers: dict[tuple[int, int], tat.Resample] = {}
 
     def __del__(self):
         executor = getattr(self, "_executor", None)
@@ -363,23 +366,43 @@ class Pipeline:
         pitch_hop_frames: Optional[int] = None,
         pitch_scratch: Optional[torch.Tensor] = None,
         pitchf_scratch: Optional[torch.Tensor] = None,
+        formant_shift: float = 0.0,
     ) -> torch.Tensor:
         with Timer2("Pipeline-Exec", False) as t:
             assert audio.dim() == 1, audio.dim()
 
-            formant_length = return_length
+            standalone_active = False
+            if not getattr(self.inferencer, "is_refinegan", False):
+                try:
+                    from voice_changer.vocoder.VocoderManager import VocoderManager
+
+                    cand = VocoderManager.get_instance().get_active_vocoder()
+                    standalone_active = cand is not None and getattr(cand, "is_loaded", False)
+                except Exception:
+                    standalone_active = False
+
+            effective_formant_shift = 0.0 if standalone_active else float(formant_shift)
+            formant_factor = 2.0 ** (effective_formant_shift / 12.0)
+            scaled_window = max(1, int(math.floor(formant_factor * self.model_window)))
+            if scaled_window != self.model_window and return_length > 0:
+                formant_length = max(1, int(math.ceil(return_length * formant_factor)))
+                effective_f0_up_key = f0_up_key - effective_formant_shift
+            else:
+                formant_length = return_length
+                effective_f0_up_key = f0_up_key
             t.record("pre-process")
 
             # Pitch extraction and feature extraction in parallel via persistent executor
+            audio_emb = audio.to(dtype=self.dtype).view(1, -1)
             if self.use_f0:
                 def _run_feats_worker():
                     if self._embedder_stream is not None:
                         with torch.cuda.stream(self._embedder_stream):
                             return self.embedder.extract_features(
-                                audio.view(1, -1), embOutputLayer, useFinalProj
+                                audio_emb, embOutputLayer, useFinalProj
                             )
                     return self.embedder.extract_features(
-                        audio.view(1, -1), embOutputLayer, useFinalProj
+                        audio_emb, embOutputLayer, useFinalProj
                     )
 
                 if self._embedder_stream is not None:
@@ -396,7 +419,7 @@ class Pipeline:
                                 audio[silence_front:],
                                 pitch,
                                 pitchf,
-                                f0_up_key,
+                                effective_f0_up_key,
                                 pitch_hop_frames=pitch_hop_frames,
                                 pitch_scratch=pitch_scratch,
                                 pitchf_scratch=pitchf_scratch,
@@ -407,7 +430,7 @@ class Pipeline:
                             audio[silence_front:],
                             pitch,
                             pitchf,
-                            f0_up_key,
+                            effective_f0_up_key,
                             pitch_hop_frames=pitch_hop_frames,
                             pitch_scratch=pitch_scratch,
                             pitchf_scratch=pitchf_scratch,
@@ -430,7 +453,7 @@ class Pipeline:
                                 pass
             else:
                 pitch, pitchf = None, None
-                feats = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
+                feats = self.embedder.extract_features(audio_emb, embOutputLayer, useFinalProj)
 
             feats = torch.cat((feats, feats[:, -1:, :]), 1)
             t.record("extract-pitch-and-feats")
@@ -477,11 +500,38 @@ class Pipeline:
 
             p_len = self._get_cached_plen(audio_feats_len)
             sid_t = self._get_cached_sid(sid)
+            pitchf_infer = (
+                pitchf * (formant_length / float(return_length))
+                if (self.use_f0 and pitchf is not None and formant_length != return_length and return_length > 0)
+                else pitchf
+            )
             t.record("mid-precess")
 
             out_audio = self.inferencer.infer(
-                feats, p_len, pitch, pitchf, sid_t, skip_head, return_length, formant_length
+                feats, p_len, pitch, pitchf_infer, sid_t, skip_head, return_length, formant_length
             ).float()
             t.record("infer")
+
+            uses_standalone = getattr(self.inferencer, "uses_standalone_vocoder", lambda: False)()
+            if not uses_standalone and scaled_window != self.model_window and return_length > 0 and out_audio.numel() > 0:
+                resampler_key = (scaled_window, self.model_window)
+                resampler = self._formant_resamplers.get(resampler_key)
+                if resampler is None:
+                    resampler = tat.Resample(
+                        orig_freq=scaled_window,
+                        new_freq=self.model_window,
+                        lowpass_filter_width=16,
+                        rolloff=0.94,
+                        resampling_method="sinc_interp_kaiser",
+                        dtype=torch.float32,
+                    ).to(self.device)
+                    self._formant_resamplers[resampler_key] = resampler
+                slice_len = min(out_audio.shape[-1], return_length * scaled_window)
+                out_audio = resampler(out_audio[:slice_len])
+                target_len = return_length * self.model_window
+                if out_audio.shape[-1] > target_len:
+                    out_audio = out_audio[:target_len]
+                elif out_audio.shape[-1] < target_len:
+                    out_audio = F.pad(out_audio, (0, target_len - out_audio.shape[-1]))
 
         return out_audio

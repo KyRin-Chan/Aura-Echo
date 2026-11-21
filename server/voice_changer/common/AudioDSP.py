@@ -487,6 +487,94 @@ class MinimumPhaseFormantFilter(nn.Module):
         return y.to(dtype=orig_dtype)
 
 
+class StatefulPeakLimiter:
+    """
+    Stateful sub-block envelope peak limiter for real-time audio streams.
+
+    Leaves signals below `threshold` completely linear (unity gain) and tracks
+    peak excursions with fast attack / smooth release, avoiding the steady-state
+    harmonic distortion of stateless waveshapers on sustained loud audio.
+    """
+
+    def __init__(
+        self,
+        threshold: float = 0.85,
+        ceiling: float = 0.98,
+        attack_ms: float = 1.0,
+        release_ms: float = 80.0,
+    ):
+        self.threshold = float(threshold)
+        self.ceiling = float(ceiling)
+        self.attack_ms = max(0.1, float(attack_ms))
+        self.release_ms = max(1.0, float(release_ms))
+        self._env: float = 0.0
+        self._prev_gain: float = 1.0
+
+    def reset(self) -> None:
+        self._env = 0.0
+        self._prev_gain = 1.0
+
+    def _gain_for_env(self, env: float) -> float:
+        if env <= self.threshold or env <= 1e-8:
+            return 1.0
+        headroom = max(self.ceiling - self.threshold, 1e-6)
+        target_peak = self.threshold + headroom * math.tanh((env - self.threshold) / headroom)
+        return min(1.0, target_peak / env)
+
+    def process(self, audio: np.ndarray, sample_rate: int = 48000) -> np.ndarray:
+        if audio is None or audio.size == 0:
+            return audio
+
+        n = audio.shape[0]
+        sr = max(1, int(sample_rate))
+        sub_len = max(1, int(round(sr * 0.0005)))
+        abs_x = np.abs(audio)
+
+        full_subs = n // sub_len
+        if full_subs > 0 and full_subs * sub_len == n:
+            peaks = abs_x.reshape(full_subs, sub_len).max(axis=1)
+        elif full_subs > 0:
+            head_peaks = abs_x[: full_subs * sub_len].reshape(full_subs, sub_len).max(axis=1)
+            tail_peak = np.array([abs_x[full_subs * sub_len :].max()], dtype=np.float32)
+            peaks = np.concatenate([head_peaks, tail_peak])
+        else:
+            peaks = np.array([abs_x.max()], dtype=np.float32)
+
+        dt_sub = sub_len / float(sr)
+        g_attack = math.exp(-dt_sub / (self.attack_ms / 1000.0))
+        g_release = math.exp(-dt_sub / (self.release_ms / 1000.0))
+
+        n_subs = peaks.shape[0]
+        gain_knots = np.empty(n_subs + 1, dtype=np.float32)
+        gain_knots[0] = self._prev_gain
+
+        env = self._env
+        for i in range(n_subs):
+            peak = float(peaks[i])
+            if peak > env:
+                env = g_attack * env + (1.0 - g_attack) * peak
+            else:
+                env = g_release * env + (1.0 - g_release) * peak
+            gain_knots[i + 1] = self._gain_for_env(env)
+
+        self._env = env
+        self._prev_gain = float(gain_knots[-1])
+
+        if np.all(gain_knots >= 0.999999):
+            return audio
+
+        knot_x = np.empty(n_subs + 1, dtype=np.float32)
+        knot_x[0] = 0.0
+        for i in range(full_subs):
+            knot_x[i + 1] = float((i + 1) * sub_len)
+        if full_subs * sub_len < n:
+            knot_x[-1] = float(n)
+
+        sample_x = np.arange(n, dtype=np.float32)
+        gain_curve = np.interp(sample_x, knot_x, gain_knots).astype(np.float32)
+        return (audio * gain_curve).astype(np.float32, copy=False)
+
+
 def soft_knee_limit_np(
     audio: np.ndarray, threshold: float = 0.85, ceiling: float = 0.98
 ) -> np.ndarray:

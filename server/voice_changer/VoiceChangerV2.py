@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from const import VoiceChangerType
 from data.ModelSlot import ModelSlots
 from Exceptions import VoiceChangerIsNotSelectedException
-from voice_changer.common.AudioDSP import soft_knee_limit_np
+from voice_changer.common.AudioDSP import StatefulPeakLimiter, soft_knee_limit_np
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.IORecorder import IORecorder
 from voice_changer.utils.Timer import Timer2
@@ -22,16 +22,17 @@ class VoiceChangerV2:
     def __init__(self, settings: VoiceChangerSettings):
         self.settings = settings
 
-        self.block_frame = self.settings.serverReadChunkSize * 128
+        self.block_frame = self._compute_block_frame()
         self.crossfade_frame = int(self.settings.crossFadeOverlapSize * self.settings.inputSampleRate)
         self.extra_frame = int(self.settings.extraConvertSize * self.settings.inputSampleRate)
-        self.sola_search_frame = self.settings.inputSampleRate // 100
+        self.sola_search_frame = max(1, int(round(0.012 * self.settings.inputSampleRate)))
 
         self.vcmodel: VoiceChangerModel | None = None
         self.device_manager = DeviceManager.get_instance()
         self.sola_buffer: torch.Tensor | None = None
         self._zero_offset: torch.Tensor | None = None
         self._was_voiced: bool = False
+        self._peak_limiter = StatefulPeakLimiter(threshold=0.85, ceiling=0.98)
 
         self.io_recorder = IORecorder(
             self.settings.inputSampleRate,
@@ -44,6 +45,12 @@ class VoiceChangerV2:
         # Optional background audio mixer & shared audio effects manager
         self.audio_mixer = None
         self.audio_effects_manager = None
+
+    def _compute_block_frame(self) -> int:
+        return max(
+            128,
+            int(round((self.settings.serverReadChunkSize * 128 / 48000.0) * self.settings.inputSampleRate)),
+        )
 
     def set_audio_mixer(self, mixer):
         self.audio_mixer = mixer
@@ -60,6 +67,7 @@ class VoiceChangerV2:
         self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
         self.vcmodel.initialize()
         self._was_voiced = False
+        self._peak_limiter.reset()
         if self.sola_buffer is not None:
             self.sola_buffer.zero_()
 
@@ -70,6 +78,7 @@ class VoiceChangerV2:
         self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
         self.vcmodel.initialize()
         self._was_voiced = False
+        self._peak_limiter.reset()
         if self.sola_buffer is not None:
             self.sola_buffer.zero_()
 
@@ -82,10 +91,12 @@ class VoiceChangerV2:
         if self.settings.recordIO:
             self.io_recorder.open(self.settings.inputSampleRate, self.settings.outputSampleRate)
 
+        self.block_frame = self._compute_block_frame()
         self.extra_frame = int(self.settings.extraConvertSize * self.settings.inputSampleRate)
         self.crossfade_frame = int(self.settings.crossFadeOverlapSize * self.settings.inputSampleRate)
-        self.sola_search_frame = self.settings.inputSampleRate // 100
+        self.sola_search_frame = max(1, int(round(0.012 * self.settings.inputSampleRate)))
         self._generate_strength()
+        self._peak_limiter.reset()
 
         self.vcmodel.set_sampling_rate(self.settings.inputSampleRate, self.settings.outputSampleRate)
         self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
@@ -95,6 +106,7 @@ class VoiceChangerV2:
             self.io_recorder.open(self.settings.inputSampleRate, self.settings.outputSampleRate)
 
         self._generate_strength()
+        self._peak_limiter.reset()
         self.vcmodel.set_sampling_rate(self.settings.inputSampleRate, self.settings.outputSampleRate)
 
     def get_info(self):
@@ -104,7 +116,7 @@ class VoiceChangerV2:
 
     def update_settings(self, key: str, val: Any, old_val: Any):
         if key == "serverReadChunkSize":
-            self.block_frame = self.settings.serverReadChunkSize * 128
+            self.block_frame = self._compute_block_frame()
         elif key == 'gpu':
             self._generate_strength()
         elif key == "inputSampleRate":
@@ -128,6 +140,7 @@ class VoiceChangerV2:
             if key in {'gpu', 'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'forceFp32'}:
                 self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
                 self._was_voiced = False
+                self._peak_limiter.reset()
                 if self.sola_buffer is not None:
                     self.sola_buffer.zero_()
 
@@ -139,8 +152,9 @@ class VoiceChangerV2:
             device=self.device_manager.device,
             dtype=torch.float32,
         )
-        self.fade_in_window: torch.Tensor = torch.sin(0.5 * np.pi * linspace)
-        self.fade_out_window: torch.Tensor = torch.cos(0.5 * np.pi * linspace)
+        # Equal-gain Hann crossfade (sin^2 + cos^2 == 1) prevents +3 dB bumps on phase-aligned SOLA signals
+        self.fade_in_window: torch.Tensor = torch.sin(0.5 * np.pi * linspace) ** 2
+        self.fade_out_window: torch.Tensor = torch.cos(0.5 * np.pi * linspace) ** 2
 
         self.sola_buffer = torch.zeros(self.crossfade_frame, device=self.device_manager.device, dtype=torch.float32)
         self.sola_ones = torch.ones(1, 1, self.crossfade_frame, device=self.device_manager.device, dtype=torch.float32)
@@ -181,12 +195,23 @@ class VoiceChangerV2:
                 pass
 
         if getattr(self.settings, "agcEnabled", False):
-            mixed_np = soft_knee_limit_np(mixed_np, threshold=0.85, ceiling=0.98)
+            mixed_np = self._peak_limiter.process(mixed_np, sample_rate=self.settings.outputSampleRate)
+            mixed_np = soft_knee_limit_np(mixed_np, threshold=0.985, ceiling=0.999)
+        else:
+            mixed_np = soft_knee_limit_np(mixed_np, threshold=0.95, ceiling=0.999)
 
         return mixed_np
 
     def process_audio(self, audio_in: AudioInOutFloat) -> tuple[AudioInOutFloat, float]:
-        block_size = audio_in.shape[0]
+        block_size = int(audio_in.shape[0])
+
+        if block_size > 0 and block_size != self.block_frame and self.vcmodel is not None:
+            self.block_frame = block_size
+            self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
+            self._was_voiced = False
+            self._peak_limiter.reset()
+            if self.sola_buffer is not None:
+                self.sola_buffer.zero_()
 
         # Input effects on continuous non-overlapping incoming block
         if self.audio_effects_manager is not None:

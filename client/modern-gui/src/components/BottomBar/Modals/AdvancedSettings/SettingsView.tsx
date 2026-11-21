@@ -186,7 +186,7 @@ function SettingsView(): JSX.Element {
         </label>
         <MD3Slider
           id="crossfade"
-          min={0.05}
+          min={0.02}
           max={0.2}
           step={0.01}
           value={localCrossFadeOverlapSize}

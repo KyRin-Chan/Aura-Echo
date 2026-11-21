@@ -78,6 +78,7 @@ class RVCr2(VoiceChangerModel):
 
         self._pitch_sample_acc: int = 0
         self._rms_gain_ema_t: torch.Tensor | None = None
+        self._gate_hangover_chunks: int = 0
 
     def set_audio_effects_manager(self, manager) -> None:
         self._audio_effects_manager = manager
@@ -222,8 +223,8 @@ class RVCr2(VoiceChangerModel):
 
         audio_buffer_size = block_frame_16k + crossfade_frame_16k
         dev = self.device_manager.device
-        self.audio_buffer = torch.zeros(audio_buffer_size, dtype=self.dtype, device=dev)
-        self.convert_buffer = torch.zeros(convert_size_16k, dtype=self.dtype, device=dev)
+        self.audio_buffer = torch.zeros(audio_buffer_size, dtype=torch.float32, device=dev)
+        self.convert_buffer = torch.zeros(convert_size_16k, dtype=torch.float32, device=dev)
         self.pitch_buffer = torch.zeros(self.convert_feature_size_16k + 1, dtype=torch.int64, device=dev)
         self.pitchf_buffer = torch.zeros(self.convert_feature_size_16k + 1, dtype=self.dtype, device=dev)
 
@@ -241,6 +242,7 @@ class RVCr2(VoiceChangerModel):
 
         self._pitch_sample_acc = 0
         self._rms_gain_ema_t = None
+        self._gate_hangover_chunks = 0
         if self.resampler_in is not None:
             self.resampler_in.reset()
         self.formant_filter.reset()
@@ -294,8 +296,6 @@ class RVCr2(VoiceChangerModel):
         pitch_hop_frames = self._pitch_sample_acc // WINDOW_SIZE
         self._pitch_sample_acc %= WINDOW_SIZE
 
-        if self.is_half:
-            audio_in_16k = audio_in_16k.half()
         return audio_in_16k, pitch_hop_frames
 
     def feed_context(self, audio_in: AudioInOutFloat) -> None:
@@ -345,6 +345,7 @@ class RVCr2(VoiceChangerModel):
             0,
             convert_feature_size_16k,
             self.settings.protect,
+            formant_shift=float(getattr(self.settings, "formantShift", 0.0)),
         )
 
         audio_out: torch.Tensor = self.resampler_out(audio_model * torch.sqrt(vol_t))
@@ -357,22 +358,17 @@ class RVCr2(VoiceChangerModel):
         # Precompute RMS volume on CPU before GPU upload to avoid mid-pipeline GPU sync
         vol = float(np.sqrt(np.mean(np.square(audio_in, dtype=np.float32)))) if audio_in.size > 0 else 0.0
 
-        if vol < self.inputSensitivity:
-            dev = self.device_manager.device
-            zeros_in = torch.zeros(audio_in.shape[0], dtype=torch.float32, device=dev)
-            silence_16k = self.resampler_in(zeros_in)
-            self._pitch_sample_acc += int(silence_16k.shape[0])
-            pitch_hop_frames = self._pitch_sample_acc // WINDOW_SIZE
-            self._pitch_sample_acc %= WINDOW_SIZE
-            if self.is_half:
-                silence_16k = silence_16k.half()
-            circular_write(silence_16k, self.audio_buffer, scratch=self._audio_scratch)
-            circular_write(silence_16k, self.convert_buffer, scratch=self._convert_scratch)
-            self._shift_pitch_buffers_zero(pitch_hop_frames)
+        if vol >= self.inputSensitivity:
+            self._gate_hangover_chunks = 2
+        elif self._gate_hangover_chunks > 0:
+            self._gate_hangover_chunks -= 1
+        else:
+            self.feed_context(audio_in)
             if self._rms_gain_ema_t is not None:
                 self._rms_gain_ema_t = 0.9 * self._rms_gain_ema_t + 0.1
 
             # Lightweight CUDA clock keepalive instead of running full RVC pipeline on silence
+            dev = self.device_manager.device
             if getattr(self.settings, 'powerSavingMode', 0) == 0 and dev.type == 'cuda':
                 if self._keepalive_a is not None and self._keepalive_b is not None:
                     _ = torch.mm(self._keepalive_a, self._keepalive_b)
@@ -401,6 +397,7 @@ class RVCr2(VoiceChangerModel):
             pitch_hop_frames=pitch_hop_frames,
             pitch_scratch=self._pitch_scratch,
             pitchf_scratch=self._pitchf_scratch,
+            formant_shift=float(getattr(self.settings, "formantShift", 0.0)),
         )
 
         # Smoothed adaptive RMS normalization (zero GPU->CPU sync, prevents pumping and noise boost)

@@ -55,6 +55,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         self.sids: set[str] = set()
         self.clock_trackers: dict[str, ClockDriftTracker] = {}
         self.stale_stats = {}
+        self.sid_locks: dict[str, asyncio.Lock] = {}
         self.voiceChangerManager.setEmitTo(self.emit_coroutine)
         self.voiceChangerManager.setProgressEmitTo(self.emit_progress_coroutine)
 
@@ -72,6 +73,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
             pass
         logger.info(f"Connected SID: {sid}")
         self.clock_trackers[sid] = ClockDriftTracker(window_sec=60.0)
+        self.sid_locks[sid] = asyncio.Lock()
         self.stale_stats[sid] = {
             "count": 0,
             "ages": [],
@@ -86,57 +88,61 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         ts, data = msg
         input_audio = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
 
-        # Align clock offsets with 60s sliding window to resist long-term clock drift
-        diff = recv_timestamp - ts
-        tracker = self.clock_trackers.setdefault(sid, ClockDriftTracker(window_sec=60.0))
-        relative_age = tracker.update(diff)
+        lock = self.sid_locks.setdefault(sid, asyncio.Lock())
+        async with lock:
+            # Re-evaluate age after lock wait so queued packets skip cleanly and stay FIFO-ordered
+            now_ms = round(time() * 1000)
+            diff = now_ms - ts
+            tracker = self.clock_trackers.setdefault(sid, ClockDriftTracker(window_sec=60.0))
+            relative_age = tracker.update(diff)
 
-        stats = self.stale_stats.setdefault(sid, {"count": 0, "ages": [], "last_log_time": 0.0})
+            stats = self.stale_stats.setdefault(sid, {"count": 0, "ages": [], "last_log_time": 0.0})
 
-        if relative_age > 150:
-            stats["count"] += 1
-            stats["ages"].append(relative_age)
-            current_time = time()
-            if stats["last_log_time"] == 0.0:
-                stats["last_log_time"] = current_time
-            elif current_time - stats["last_log_time"] >= 3.0:
-                avg_age = sum(stats["ages"]) // len(stats["ages"]) if stats["ages"] else 0
-                logger.warning(f"[SIO] Stale packets detected: {stats['count']} packet(s) skipped in the last {current_time - stats['last_log_time']:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
-                stats["count"] = 0
-                stats["ages"] = []
-                stats["last_log_time"] = current_time
-
-            out_audio, vol, perf, err = await asyncio.to_thread(
-                self.voiceChangerManager.skip_voice, input_audio
-            )
-        else:
-            if stats["count"] > 0:
+            if relative_age > 150:
+                stats["count"] += 1
+                stats["ages"].append(relative_age)
                 current_time = time()
-                duration = (current_time - stats["last_log_time"]) if stats["last_log_time"] > 0.0 else 0.0
-                avg_age = sum(stats["ages"]) // len(stats["ages"]) if stats["ages"] else 0
-                logger.warning(f"[SIO] Stale packets detected: {stats['count']} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
-                stats["count"] = 0
-                stats["ages"] = []
-                stats["last_log_time"] = 0.0
+                if stats["last_log_time"] == 0.0:
+                    stats["last_log_time"] = current_time
+                elif current_time - stats["last_log_time"] >= 3.0:
+                    avg_age = sum(stats["ages"]) // len(stats["ages"]) if stats["ages"] else 0
+                    logger.warning(f"[SIO] Stale packets detected: {stats['count']} packet(s) skipped in the last {current_time - stats['last_log_time']:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
+                    stats["count"] = 0
+                    stats["ages"] = []
+                    stats["last_log_time"] = current_time
 
-            out_audio, vol, perf, err = await asyncio.to_thread(
-                self.voiceChangerManager.change_voice, input_audio
-            )
+                out_audio, vol, perf, err = await asyncio.to_thread(
+                    self.voiceChangerManager.skip_voice, input_audio
+                )
+            else:
+                if stats["count"] > 0:
+                    current_time = time()
+                    duration = (current_time - stats["last_log_time"]) if stats["last_log_time"] > 0.0 else 0.0
+                    avg_age = sum(stats["ages"]) // len(stats["ages"]) if stats["ages"] else 0
+                    logger.warning(f"[SIO] Stale packets detected: {stats['count']} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
+                    stats["count"] = 0
+                    stats["ages"] = []
+                    stats["last_log_time"] = 0.0
 
-        if err is not None:
-            error_code, error_message = err
-            await self.emit("error", [error_code, error_message], to=sid)
-        else:
-            ping = recv_timestamp - ts
-            out_audio = np.nan_to_num(out_audio)
-            out_audio = np.round(np.clip(out_audio, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
-            send_timestamp = round(time() * 1000)
-            await self.emit("response", [send_timestamp, out_audio, ping, vol, perf], to=sid)
+                out_audio, vol, perf, err = await asyncio.to_thread(
+                    self.voiceChangerManager.change_voice, input_audio
+                )
+
+            if err is not None:
+                error_code, error_message = err
+                await self.emit("error", [error_code, error_message], to=sid)
+            else:
+                ping = recv_timestamp - ts
+                out_audio = np.nan_to_num(out_audio)
+                out_audio = np.round(np.clip(out_audio, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
+                send_timestamp = round(time() * 1000)
+                await self.emit("response", [send_timestamp, out_audio, ping, vol, perf], to=sid)
 
     def on_disconnect(self, sid):
         self.sids.discard(sid)
         logger.info(f"Disconnected SID: {sid}")
         self.clock_trackers.pop(sid, None)
+        self.sid_locks.pop(sid, None)
         if sid in self.stale_stats:
             stats = self.stale_stats[sid]
             if stats["count"] > 0:
