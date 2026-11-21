@@ -1415,17 +1415,24 @@ class TestAudioPipelineQuality(unittest.TestCase):
         echo_raw = np.convolve(ref, rir)[:n_total]
         echo = np.concatenate([np.zeros(delay, dtype=np.float32), echo_raw[: n_total - delay]])
 
-        # Double-talk near-end speech burst in [1.5s, 2.2s]
+        # Double-talk voiced near-end speech burst in [1.5s, 2.2s]
         near = np.zeros(n_total, dtype=np.float32)
         dt_mask = (t >= 1.5) & (t <= 2.2)
-        near[dt_mask] = np.convolve(
-            rng.standard_normal(int(np.sum(dt_mask))).astype(np.float32),
-            np.ones(8, dtype=np.float32) / 8.0,
-        )[: int(np.sum(dt_mask))] * 0.4
+        near[dt_mask] = (
+            0.22 * np.sin(2.0 * np.pi * 260.0 * t[dt_mask])
+            + 0.14 * np.sin(2.0 * np.pi * 520.0 * t[dt_mask])
+        ).astype(np.float32)
         mic = (echo + near).astype(np.float32)
 
-        for bs in (2048, 5645, 128):
-            aec = ServerAEC(sr)
+        def _best_lag_corr(a: np.ndarray, b: np.ndarray, max_lag: int = 1200) -> float:
+            return max(
+                float(np.corrcoef(a[:-k] if k > 0 else a, b[k:])[0, 1])
+                for k in range(0, max_lag, 5)
+            )
+
+        for bs in (128, 2048, 5645, 24576):
+            aec = ServerAEC(sr, echo_cancellation=True, noise_suppression=True)
+            self.assertEqual(aec.backend, "webrtc")
             out = np.empty_like(mic)
             for i in range(0, n_total, bs):
                 end = min(n_total, i + bs)
@@ -1442,26 +1449,33 @@ class TestAudioPipelineQuality(unittest.TestCase):
             erle_post = 10.0 * np.log10(
                 np.mean(echo[post_dt] ** 2) / (np.mean(out[post_dt] ** 2) + 1e-12)
             )
-            dt_corr = float(np.corrcoef(near[dt_mask], out[dt_mask])[0, 1])
+            dt_corr = _best_lag_corr(near[dt_mask], out[dt_mask])
 
             self.assertGreater(erle_pre, 25.0)
-            self.assertGreater(erle_post, 20.0)
+            self.assertGreater(erle_post, 25.0)
             self.assertGreater(dt_corr, 0.85)
-            self.assertGreater(aec.bulk_delay_hops, 15)
 
-        # Silent reference acts as unity passthrough
-        aec_silent = ServerAEC(sr)
-        clean_in = (0.3 * np.sin(2.0 * np.pi * 300.0 * t[:4096])).astype(np.float32)
+        # Silent reference preserves near-end voiced signal (accounting for ~18.7ms QMF+FIFO shift)
+        aec_silent = ServerAEC(sr, echo_cancellation=True, noise_suppression=False)
+        clean_in = (0.3 * np.sin(2.0 * np.pi * 300.0 * t[:16384])).astype(np.float32)
         silent_out = aec_silent.process(clean_in, np.zeros_like(clean_in))
-        self.assertTrue(np.allclose(clean_in, silent_out, atol=1e-5))
+        self.assertGreater(_best_lag_corr(clean_in[2400:], silent_out[2400:]), 0.99)
+        rms_in = float(np.sqrt(np.mean(clean_in[2400:] ** 2)))
+        rms_out = float(np.sqrt(np.mean(silent_out[2400:] ** 2)))
+        self.assertGreater(rms_out / rms_in, 0.90)
 
     def test_server_audio_echo_cancel_lifecycle_and_worker(self):
         settings = VoiceChangerSettings()
         self.assertFalse(settings.echoCancel)
+        self.assertFalse(settings.noiseSuppression)
         settings.echoCancel = "true"
+        settings.noiseSuppression = "1"
         self.assertTrue(settings.echoCancel)
+        self.assertTrue(settings.noiseSuppression)
         settings.echoCancel = "0"
+        settings.noiseSuppression = "false"
         self.assertFalse(settings.echoCancel)
+        self.assertFalse(settings.noiseSuppression)
 
         sa = ServerAudio(MagicMock(), settings)
         sa.running = True
@@ -1488,6 +1502,7 @@ class TestAudioPipelineQuality(unittest.TestCase):
             sa.update_settings("echoCancel", True, False)
             mock_cap.start.assert_called_once()
             self.assertIsNotNone(sa._aec)
+            self.assertTrue(sa._aec.echo_cancellation)
             self.assertIsNotNone(sa._loopback_capture)
 
             # Applying AEC invokes loopback read_chunk and ServerAEC
@@ -1495,10 +1510,28 @@ class TestAudioPipelineQuality(unittest.TestCase):
             sa._apply_aec(sa._worker_in_buf, sa._worker_ref_buf)
             mock_cap.read_chunk.assert_called_once()
 
-            # Toggling echoCancel off stops loopback cleanly
+            # Toggling noiseSuppression on while echoCancel is on preserves running loopback
+            settings.noiseSuppression = True
+            sa.update_settings("noiseSuppression", True, False)
+            mock_cap.start.assert_called_once()
+            self.assertTrue(sa._aec.echo_cancellation)
+            self.assertTrue(sa._aec.noise_suppression)
+
+            # Toggling echoCancel off while noiseSuppression remains on stops loopback only
             settings.echoCancel = False
             sa.update_settings("echoCancel", False, True)
             mock_cap.stop.assert_called_once()
+            self.assertIsNone(sa._loopback_capture)
+            self.assertIsNotNone(sa._aec)
+            self.assertFalse(sa._aec.echo_cancellation)
+            self.assertTrue(sa._aec.noise_suppression)
+
+            sa._apply_aec(sa._worker_in_buf, sa._worker_ref_buf)
+            self.assertEqual(mock_cap.read_chunk.call_count, 1)
+
+            # Turning noiseSuppression off too clears ServerAEC
+            settings.noiseSuppression = False
+            sa.update_settings("noiseSuppression", False, True)
             self.assertIsNone(sa._aec)
             self.assertIsNone(sa._loopback_capture)
 

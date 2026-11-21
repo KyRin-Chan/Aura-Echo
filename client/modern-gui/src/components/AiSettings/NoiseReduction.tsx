@@ -8,11 +8,14 @@ interface NoiseReductionProps {
 }
 
 function NoiseReduction({ appState }: NoiseReductionProps) {
-  // Handle Noise Reduction Change
-  const handleChangeNoiseSuppression = (value: boolean) => {
+  const updateSyncedToggle = (key: 'echoCancel' | 'noiseSuppression', value: boolean) => {
     appState.setVoiceChangerClientSetting({
       ...appState.setting.voiceChangerClientSetting,
-      noiseSuppression: value
+      [key]: value
+    });
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      [key]: value
     });
   };
 
@@ -24,22 +27,13 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
     });
   };
 
-  // Handle Echo Cancel Change
-  const handleChangeEchoCancel = (value: boolean) => {
-    appState.setVoiceChangerClientSetting({
-      ...appState.setting.voiceChangerClientSetting,
-      echoCancel: value
-    });
-    appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      echoCancel: value
-    });
-  };
-
   const isServerAudio = appState.serverSetting.serverSetting.enableServerAudio === 1;
   const echoCancelChecked = (isServerAudio
     ? appState.serverSetting.serverSetting.echoCancel
     : appState.setting.voiceChangerClientSetting.echoCancel) ?? false;
+  const noiseSuppressionChecked = (isServerAudio
+    ? appState.serverSetting.serverSetting.noiseSuppression
+    : appState.setting.voiceChangerClientSetting.noiseSuppression) ?? false;
 
   return (
     <div className="flex flex-col space-y-2">
@@ -47,13 +41,12 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
       <div className="space-y-2.5 mt-1 bg-surface-container-low p-3 rounded-md border border-outline-variant">
         <MD3Switch
           checked={echoCancelChecked}
-          onChange={handleChangeEchoCancel}
+          onChange={(val) => updateSyncedToggle('echoCancel', val)}
           label={t('echoCancellationLabel')}
         />
         <MD3Switch
-          checked={appState.setting.voiceChangerClientSetting.noiseSuppression ?? false}
-          onChange={handleChangeNoiseSuppression}
-          disabled={appState.serverSetting.serverSetting.enableServerAudio === 1}
+          checked={noiseSuppressionChecked}
+          onChange={(val) => updateSyncedToggle('noiseSuppression', val)}
           label={t('noiseSuppressionLabel')}
         />
         <MD3Switch

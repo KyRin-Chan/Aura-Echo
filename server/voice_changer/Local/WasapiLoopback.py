@@ -176,16 +176,19 @@ class WasapiLoopbackCapture:
     shared loopback mode and exposes mono float32 reference audio at `sample_rate`.
     """
 
-    def __init__(self, sample_rate: int = 48000, buffer_seconds: float = 0.5):
+    def __init__(self, sample_rate: int = 48000, buffer_seconds: float = 2.0, min_buffer_samples: int = 0):
         self.sample_rate = max(8000, int(sample_rate))
-        self._buffer_cap = max(8192, int(round(self.sample_rate * buffer_seconds)))
+        self._buffer_cap = max(
+            8192,
+            int(round(self.sample_rate * buffer_seconds)),
+            int(min_buffer_samples),
+        )
         self._ring = None
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._start_ok = False
         self._running = False
-        self._underrun_debt = 0
 
         # Stateful linear resampler state when native mix rate != target sample_rate
         self._resample_phase = 0.0
@@ -211,7 +214,10 @@ class WasapiLoopbackCapture:
         self.stop()
         ring = self._ensure_ring()
         ring.clear()
-        self._underrun_debt = 0
+        # Pre-seed a 60ms lead cushion so hardware callback jitter and idle thresholds never starve read_chunk
+        init_cushion = min(self._buffer_cap // 4, max(256, int(round(self.sample_rate * 0.060))))
+        if init_cushion > 0:
+            ring.write(np.zeros(init_cushion, dtype=np.float32))
         self._resample_phase = 0.0
         self._resample_prev = 0.0
         self._resample_has_prev = False
@@ -238,7 +244,6 @@ class WasapiLoopbackCapture:
         self._thread = None
         if self._ring is not None:
             self._ring.clear()
-        self._underrun_debt = 0
 
     def _resample_to_target(self, mono: np.ndarray, src_sr: int) -> np.ndarray:
         if mono.size == 0 or src_sr == self.sample_rate:
@@ -281,8 +286,8 @@ class WasapiLoopbackCapture:
     def read_chunk(self, n_samples: int, out_buf: Optional[np.ndarray] = None) -> np.ndarray:
         """
         Read `n_samples` mono float32 reference samples aligned to real time.
-        Drops excess stale samples beyond a small cushion and tracks underrun debt
-        so timing stays synchronized across clock drift or bursty WASAPI packets.
+        Maintains a small cushion to absorb WASAPI packet jitter without inserting
+        mid-stream zero-gaps, and gently trims stale backlog above 80ms.
         """
         n = max(0, int(n_samples))
         if out_buf is None or out_buf.shape[0] != n:
@@ -295,29 +300,27 @@ class WasapiLoopbackCapture:
             out_buf.fill(0.0)
             return out_buf
 
-        # Reconcile any previous underrun debt before reading new samples
-        if self._underrun_debt > 0:
-            avail = ring.available()
-            if avail > 0:
-                dropped = ring.drop_oldest(min(avail, self._underrun_debt))
-                self._underrun_debt -= dropped
-
-        # Prevent stale backlog buildup from clock drift or startup skew
-        target_cushion = min(n, max(256, int(self.sample_rate * 0.015)))
-        max_backlog = n + max(target_cushion * 2, int(self.sample_rate * 0.04))
+        target_cushion = max(256, int(round(self.sample_rate * 0.060)))
+        max_backlog = n + max(target_cushion * 2, int(round(self.sample_rate * 0.140)))
         avail = ring.available()
         if avail > max_backlog:
             ring.drop_oldest(avail - (n + target_cushion))
+            avail = ring.available()
 
-        got = ring.read_into(out_buf)
-        if got < n:
-            out_buf[got:n] = 0.0
-            missing = n - got
-            # Cap debt so prolonged silence doesn't discard audio indefinitely
-            self._underrun_debt = min(
-                self._underrun_debt + missing,
-                max(n * 2, int(self.sample_rate * 0.1)),
-            )
+        if avail >= n:
+            ring.read_into(out_buf)
+        else:
+            # Left-pad missing prefix with zeros so trailing valid samples stay contiguous
+            missing = n - avail
+            out_buf[:missing] = 0.0
+            if avail > 0:
+                got = ring.read_into(out_buf[missing:])
+                if got < avail:
+                    out_buf[missing + got :] = 0.0
+            # Re-establish the 60ms cushion to prevent repeated underruns on the next block
+            re_cushion = min(self._buffer_cap // 4, max(256, int(round(self.sample_rate * 0.060))))
+            if re_cushion > 0:
+                ring.write(np.zeros(re_cushion, dtype=np.float32))
         return out_buf
 
     def _capture_loop(self) -> None:
@@ -530,9 +533,9 @@ class WasapiLoopbackCapture:
                             last_activity_ts = now
                         else:
                             # When playback is idle, WASAPI stops emitting loopback packets.
-                            # Emit silent frames to keep the reference timeline aligned.
+                            # Wait >45ms before padding silence so 10-20ms active packets never get gaps.
                             idle_elapsed = now - last_activity_ts
-                            if idle_elapsed >= 0.015:
+                            if idle_elapsed >= 0.045:
                                 silent_n = min(
                                     int(round(idle_elapsed * self.sample_rate)),
                                     self._buffer_cap // 4,
@@ -541,7 +544,7 @@ class WasapiLoopbackCapture:
                                     ring.write(np.zeros(silent_n, dtype=np.float32))
                                 last_activity_ts = now
 
-                        time.sleep(0.004)
+                        time.sleep(0.002)
 
                     if not device_invalidated:
                         break

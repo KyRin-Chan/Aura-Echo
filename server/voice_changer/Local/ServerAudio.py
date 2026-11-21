@@ -232,49 +232,99 @@ class ServerAudio:
 
     def _sync_echo_cancel_state(self, active: bool) -> None:
         want_aec = active and bool(getattr(self.settings, 'echoCancel', False))
-        if want_aec:
-            with self._aec_lock:
-                already_ok = (
-                    self._aec is not None
-                    and self._aec.sample_rate == self._out_sr
-                    and self._loopback_capture is not None
-                    and self._loopback_capture.sample_rate == self._out_sr
-                    and self._loopback_capture.is_running
-                )
-            if already_ok:
-                return
+        want_ns = active and bool(getattr(self.settings, 'noiseSuppression', False))
 
-            new_cap = WasapiLoopbackCapture(sample_rate=self._out_sr)
-            if new_cap.start():
-                new_aec = ServerAEC(sample_rate=self._out_sr)
-                old_cap = None
-                with self._aec_lock:
-                    old_cap = self._loopback_capture
-                    self._loopback_capture = new_cap
-                    self._aec = new_aec
-                if old_cap is not None:
-                    old_cap.stop()
-            else:
-                logger.warning("[ServerAudio] Failed to start default playback loopback; AEC disabled.")
-                self._sync_echo_cancel_state(active=False)
-        else:
+        if not want_aec and not want_ns:
             with self._aec_lock:
                 old_cap = self._loopback_capture
                 self._loopback_capture = None
                 self._aec = None
             if old_cap is not None:
                 old_cap.stop()
+            return
+
+        with self._aec_lock:
+            cur_cap = self._loopback_capture
+            cur_aec = self._aec
+            cap_ok = (
+                cur_cap is not None
+                and cur_cap.sample_rate == self._out_sr
+                and cur_cap.is_running
+            )
+            aec_ok = (
+                cur_aec is not None
+                and cur_aec.sample_rate == self._out_sr
+                and cur_aec.echo_cancellation == want_aec
+                and cur_aec.noise_suppression == want_ns
+            )
+        if aec_ok and (not want_aec or cap_ok):
+            return
+
+        new_cap = None
+        stop_old_cap = None
+        effective_aec = want_aec
+
+        if want_aec:
+            if not cap_ok:
+                candidate = WasapiLoopbackCapture(
+                    sample_rate=self._out_sr,
+                    min_buffer_samples=max(self._block_frame * 4, 8192),
+                )
+                if candidate.start():
+                    new_cap = candidate
+                else:
+                    logger.warning("[ServerAudio] Failed to start default playback loopback; AEC disabled.")
+                    effective_aec = False
+        else:
+            with self._aec_lock:
+                stop_old_cap = self._loopback_capture
+                self._loopback_capture = None
+
+        if not effective_aec and not want_ns:
+            with self._aec_lock:
+                if stop_old_cap is None:
+                    stop_old_cap = self._loopback_capture
+                self._loopback_capture = None
+                self._aec = None
+            if stop_old_cap is not None:
+                stop_old_cap.stop()
+            return
+
+        new_aec = ServerAEC(
+            sample_rate=self._out_sr,
+            echo_cancellation=effective_aec,
+            noise_suppression=want_ns,
+        )
+        logger.info(
+            f"[ServerAudio] Audio processing active (backend={new_aec.backend}, "
+            f"aec={effective_aec}, ns={want_ns}, sr={self._out_sr})"
+        )
+        with self._aec_lock:
+            if new_cap is not None:
+                stop_old_cap = self._loopback_capture
+                self._loopback_capture = new_cap
+            self._aec = new_aec
+        if stop_old_cap is not None:
+            stop_old_cap.stop()
 
     def _apply_aec(self, mic_buf: np.ndarray, ref_buf: np.ndarray) -> None:
-        if not bool(getattr(self.settings, 'echoCancel', False)):
+        if not (
+            bool(getattr(self.settings, 'echoCancel', False))
+            or bool(getattr(self.settings, 'noiseSuppression', False))
+        ):
             return
         with self._aec_lock:
             cap = self._loopback_capture
             aec = self._aec
-            if cap is None or aec is None:
+            if aec is None:
                 return
-            cap.read_chunk(mic_buf.shape[0], out_buf=ref_buf)
-            mic_buf[:] = aec.process(mic_buf, ref_buf)
+            if aec.echo_cancellation:
+                if cap is None:
+                    return
+                cap.read_chunk(mic_buf.shape[0], out_buf=ref_buf)
+                mic_buf[:] = aec.process(mic_buf, ref_buf)
+            else:
+                mic_buf[:] = aec.process(mic_buf, None)
 
     def _maybe_log_diagnostics(self, now: float) -> None:
         if now - self._last_diag_log_ts < 3.0:
@@ -889,7 +939,7 @@ class ServerAudio:
             if key == 'enableServerAudio' and not val:
                 self.stop()
                 return
-            if key == 'echoCancel':
+            if key in {'echoCancel', 'noiseSuppression'}:
                 if self.running:
                     self._sync_echo_cancel_state(active=True)
                 return

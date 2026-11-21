@@ -533,6 +533,7 @@ class VoiceChangerSettings:
 
     _agcEnabled: bool = False
     _echoCancel: bool = False
+    _noiseSuppression: bool = False
 
     @property
     def agcEnabled(self) -> bool:
@@ -549,3 +550,11 @@ class VoiceChangerSettings:
     @echoCancel.setter
     def echoCancel(self, val: Any):
         self._echoCancel = _parse_bool(val)
+
+    @property
+    def noiseSuppression(self) -> bool:
+        return self._noiseSuppression
+
+    @noiseSuppression.setter
+    def noiseSuppression(self, val: Any):
+        self._noiseSuppression = _parse_bool(val)
