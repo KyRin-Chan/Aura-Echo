@@ -34,6 +34,24 @@ module.exports = {
         new webpack.ProvidePlugin({
             Buffer: ["buffer", "Buffer"],
         }),
+        {
+            apply(compiler) {
+                compiler.hooks.thisCompilation.tap("EmitRootDtsPlugin", (compilation) => {
+                    compilation.hooks.processAssets.tap(
+                        {
+                            name: "EmitRootDtsPlugin",
+                            stage: webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONS,
+                        },
+                        () => {
+                            compilation.emitAsset(
+                                "index.d.ts",
+                                new webpack.sources.RawSource('export * from "./src/index";\n')
+                            );
+                        }
+                    );
+                });
+            },
+        },
     ],
     externals: {
         react: "react",

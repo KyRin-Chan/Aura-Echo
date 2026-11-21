@@ -34,7 +34,7 @@ export class VoiceChangerClient {
     private _isVoiceChanging = false;
     private opGeneration = 0;
 
-    private setting: VoiceChangerClientSetting = DefaultClientSettng.voiceChangerClientSetting;
+    private setting: VoiceChangerClientSetting = { ...DefaultClientSettng.voiceChangerClientSetting };
 
     private sslCertified: string[] = [];
 
@@ -303,24 +303,45 @@ export class VoiceChangerClient {
     };
 
     updateClientSetting = async (setting: VoiceChangerClientSetting) => {
+        const prevSetting = this.setting;
         let reconstructInputRequired = false;
-        if (this.setting.audioInput != setting.audioInput || this.setting.echoCancel != setting.echoCancel || this.setting.noiseSuppression != setting.noiseSuppression || this.setting.noiseSuppression2 != setting.noiseSuppression2 || this.setting.sampleRate != setting.sampleRate) {
+        if (
+            prevSetting.audioInput !== setting.audioInput ||
+            prevSetting.echoCancel !== setting.echoCancel ||
+            prevSetting.noiseSuppression !== setting.noiseSuppression ||
+            prevSetting.noiseSuppression2 !== setting.noiseSuppression2 ||
+            prevSetting.sampleRate !== setting.sampleRate
+        ) {
             reconstructInputRequired = true;
         }
 
-        if (this.setting.inputGain != setting.inputGain) {
-            this.setInputGain(setting.inputGain);
+        const agcChanged = prevSetting.agcEnabled !== setting.agcEnabled;
+        this.setting = { ...setting };
+
+        const isValidGain = (val: number) => typeof val === "number" && Number.isFinite(val) && val >= 0;
+
+        if (prevSetting.inputGain !== setting.inputGain) {
+            if (isValidGain(setting.inputGain)) {
+                this.setInputGain(setting.inputGain);
+            } else {
+                this.setting.inputGain = prevSetting.inputGain;
+            }
         }
-        if (this.setting.outputGain != setting.outputGain) {
-            this.setOutputGain(setting.outputGain);
+        if (prevSetting.outputGain !== setting.outputGain) {
+            if (isValidGain(setting.outputGain)) {
+                this.setOutputGain(setting.outputGain);
+            } else {
+                this.setting.outputGain = prevSetting.outputGain;
+            }
         }
-        if (this.setting.monitorGain != setting.monitorGain) {
-            this.setMonitorGain(setting.monitorGain);
+        if (prevSetting.monitorGain !== setting.monitorGain) {
+            if (isValidGain(setting.monitorGain)) {
+                this.setMonitorGain(setting.monitorGain);
+            } else {
+                this.setting.monitorGain = prevSetting.monitorGain;
+            }
         }
 
-        let agcChanged = this.setting.agcEnabled !== setting.agcEnabled;
-
-        this.setting = setting;
         if (agcChanged) {
             this.updateOutputConnections();
         }
@@ -331,31 +352,33 @@ export class VoiceChangerClient {
     };
 
     setInputGain = (val: number) => {
-        this.setting.inputGain = val;
-        if (!this.inputGainNode) {
+        if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
             return;
         }
-        if (!val) {
+        this.setting.inputGain = val;
+        if (!this.inputGainNode) {
             return;
         }
         this.inputGainNode.gain.value = val;
     };
 
     setOutputGain = (val: number) => {
-        if (!this.outputGainNode) {
+        if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
             return;
         }
-        if (!val) {
+        this.setting.outputGain = val;
+        if (!this.outputGainNode) {
             return;
         }
         this.outputGainNode.gain.value = val;
     };
 
     setMonitorGain = (val: number) => {
-        if (!this.monitorGainNode) {
+        if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
             return;
         }
-        if (!val) {
+        this.setting.monitorGain = val;
+        if (!this.monitorGainNode) {
             return;
         }
         this.monitorGainNode.gain.value = val;

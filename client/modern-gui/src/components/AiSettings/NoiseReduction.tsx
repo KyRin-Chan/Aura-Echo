@@ -30,16 +30,24 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
       ...appState.setting.voiceChangerClientSetting,
       echoCancel: value
     });
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      echoCancel: value
+    });
   };
+
+  const isServerAudio = appState.serverSetting.serverSetting.enableServerAudio === 1;
+  const echoCancelChecked = (isServerAudio
+    ? appState.serverSetting.serverSetting.echoCancel
+    : appState.setting.voiceChangerClientSetting.echoCancel) ?? false;
 
   return (
     <div className="flex flex-col space-y-2">
       <label className={CSS_CLASSES.label}>{t('noiseReductionLabel')}</label>
       <div className="space-y-2.5 mt-1 bg-surface-container-low p-3 rounded-md border border-outline-variant">
         <MD3Switch
-          checked={appState.setting.voiceChangerClientSetting.echoCancel ?? false}
+          checked={echoCancelChecked}
           onChange={handleChangeEchoCancel}
-          disabled={appState.serverSetting.serverSetting.enableServerAudio === 1}
           label={t('echoCancellationLabel')}
         />
         <MD3Switch

@@ -13,6 +13,8 @@ from voice_changer.Local.AudioDeviceList import (
     list_audio_device,
     reinitialize_portaudio,
 )
+from voice_changer.Local.WasapiLoopback import WasapiLoopbackCapture
+from voice_changer.common.ServerAEC import ServerAEC
 from voice_changer.utils.SystemPriority import register_current_thread_mmcss
 from voice_changer.utils.VoiceChangerModel import AudioInOutFloat
 from voice_changer.VoiceChangerSettings import VoiceChangerSettings
@@ -177,6 +179,11 @@ class ServerAudio:
         self._mon_xfade_scratch = np.zeros(128, dtype=np.float32)
         self._worker_in_buf = np.zeros(2048, dtype=np.float32)
         self._worker_skip_buf = np.zeros(2048, dtype=np.float32)
+        self._worker_ref_buf = np.zeros(2048, dtype=np.float32)
+        self._worker_skip_ref_buf = np.zeros(2048, dtype=np.float32)
+        self._aec_lock = threading.Lock()
+        self._loopback_capture: Optional[WasapiLoopbackCapture] = None
+        self._aec: Optional[ServerAEC] = None
 
         self._fade_in_64 = np.linspace(0.0, 1.0, 64, dtype=np.float32)
         self._fade_out_128 = np.linspace(1.0, 0.0, 128, dtype=np.float32)
@@ -222,6 +229,52 @@ class ServerAudio:
     ###########################################
     # Inference Worker Section
     ###########################################
+
+    def _sync_echo_cancel_state(self, active: bool) -> None:
+        want_aec = active and bool(getattr(self.settings, 'echoCancel', False))
+        if want_aec:
+            with self._aec_lock:
+                already_ok = (
+                    self._aec is not None
+                    and self._aec.sample_rate == self._out_sr
+                    and self._loopback_capture is not None
+                    and self._loopback_capture.sample_rate == self._out_sr
+                    and self._loopback_capture.is_running
+                )
+            if already_ok:
+                return
+
+            new_cap = WasapiLoopbackCapture(sample_rate=self._out_sr)
+            if new_cap.start():
+                new_aec = ServerAEC(sample_rate=self._out_sr)
+                old_cap = None
+                with self._aec_lock:
+                    old_cap = self._loopback_capture
+                    self._loopback_capture = new_cap
+                    self._aec = new_aec
+                if old_cap is not None:
+                    old_cap.stop()
+            else:
+                logger.warning("[ServerAudio] Failed to start default playback loopback; AEC disabled.")
+                self._sync_echo_cancel_state(active=False)
+        else:
+            with self._aec_lock:
+                old_cap = self._loopback_capture
+                self._loopback_capture = None
+                self._aec = None
+            if old_cap is not None:
+                old_cap.stop()
+
+    def _apply_aec(self, mic_buf: np.ndarray, ref_buf: np.ndarray) -> None:
+        if not bool(getattr(self.settings, 'echoCancel', False)):
+            return
+        with self._aec_lock:
+            cap = self._loopback_capture
+            aec = self._aec
+            if cap is None or aec is None:
+                return
+            cap.read_chunk(mic_buf.shape[0], out_buf=ref_buf)
+            mic_buf[:] = aec.process(mic_buf, ref_buf)
 
     def _maybe_log_diagnostics(self, now: float) -> None:
         if now - self._last_diag_log_ts < 3.0:
@@ -297,6 +350,7 @@ class ServerAudio:
                             break
                         if not in_ring.read_exact_into(self._worker_skip_buf):
                             break
+                        self._apply_aec(self._worker_skip_buf, self._worker_skip_ref_buf)
                         if skip_cb is not None:
                             try:
                                 skip_cb(self._worker_skip_buf)
@@ -308,6 +362,8 @@ class ServerAudio:
 
                 if not in_ring.read_exact_into(self._worker_in_buf):
                     break
+
+                self._apply_aec(self._worker_in_buf, self._worker_ref_buf)
 
                 try:
                     out_wav, vol, perf, err = self.callbacks.on_audio(self._worker_in_buf)
@@ -526,6 +582,12 @@ class ServerAudio:
             self._worker_in_buf = np.zeros(block_frame, dtype=np.float32)
         if self._worker_skip_buf.shape[0] != block_frame:
             self._worker_skip_buf = np.zeros(block_frame, dtype=np.float32)
+        if self._worker_ref_buf.shape[0] != block_frame:
+            self._worker_ref_buf = np.zeros(block_frame, dtype=np.float32)
+        if self._worker_skip_ref_buf.shape[0] != block_frame:
+            self._worker_skip_ref_buf = np.zeros(block_frame, dtype=np.float32)
+
+        self._sync_echo_cancel_state(active=True)
 
         self.in_ring = Float32RingBuffer(max(block_frame * 8, 32768))
         self.out_ring = Float32RingBuffer(max(block_frame * 8, 32768))
@@ -659,6 +721,8 @@ class ServerAudio:
             if self._worker_thread is not None and self._worker_thread.is_alive():
                 self._worker_thread.join(timeout=2.0)
             self._worker_thread = None
+
+            self._sync_echo_cancel_state(active=False)
 
             if self.in_ring is not None:
                 self.in_ring.clear()
@@ -824,6 +888,10 @@ class ServerAudio:
                 return
             if key == 'enableServerAudio' and not val:
                 self.stop()
+                return
+            if key == 'echoCancel':
+                if self.running:
+                    self._sync_echo_cancel_state(active=True)
                 return
             if self.running and key in {'serverInputDeviceId', 'serverOutputDeviceId', 'serverMonitorDeviceId', 'serverReadChunkSize', 'serverAudioSampleRate', 'asioInputChannel', 'asioOutputChannel'}:
                 if key in {'serverInputDeviceId', 'serverOutputDeviceId'} and (val is None or int(val) < 0):

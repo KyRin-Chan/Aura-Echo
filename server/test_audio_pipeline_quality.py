@@ -1391,6 +1391,117 @@ class TestAudioPipelineQuality(unittest.TestCase):
                     ["defaultTune", "defaultIndexRatio", "defaultFormantShift"],
                 )
 
+    def test_server_aec_delay_erle_double_talk_and_chunk_sizes(self):
+        from voice_changer.common.ServerAEC import ServerAEC
+
+        sr = 48000
+        n_total = int(sr * 3.0)
+        t = np.arange(n_total, dtype=np.float32) / sr
+        rng = np.random.default_rng(123)
+
+        # Colored speech-like far-end playback reference with amplitude modulation
+        ref = np.convolve(
+            rng.standard_normal(n_total).astype(np.float32),
+            np.ones(16, dtype=np.float32) / 16.0,
+        )[:n_total] * 0.4
+        ref *= (0.2 + 0.8 * np.maximum(0.0, np.sin(2.0 * np.pi * 3.0 * t))).astype(np.float32)
+
+        # Synthetic room impulse response with 115ms speaker+air bulk delay
+        rir = np.zeros(800, dtype=np.float32)
+        rir[0] = 1.2
+        rir[160] = -0.45
+        rir[450] = 0.2
+        delay = int(0.115 * sr)
+        echo_raw = np.convolve(ref, rir)[:n_total]
+        echo = np.concatenate([np.zeros(delay, dtype=np.float32), echo_raw[: n_total - delay]])
+
+        # Double-talk near-end speech burst in [1.5s, 2.2s]
+        near = np.zeros(n_total, dtype=np.float32)
+        dt_mask = (t >= 1.5) & (t <= 2.2)
+        near[dt_mask] = np.convolve(
+            rng.standard_normal(int(np.sum(dt_mask))).astype(np.float32),
+            np.ones(8, dtype=np.float32) / 8.0,
+        )[: int(np.sum(dt_mask))] * 0.4
+        mic = (echo + near).astype(np.float32)
+
+        for bs in (2048, 5645, 128):
+            aec = ServerAEC(sr)
+            out = np.empty_like(mic)
+            for i in range(0, n_total, bs):
+                end = min(n_total, i + bs)
+                chunk_out = aec.process(mic[i:end], ref[i:end])
+                self.assertEqual(chunk_out.shape[0], end - i)
+                out[i:end] = chunk_out
+            self.assertFalse(np.any(np.isnan(out)))
+
+            echo_only = (t >= 0.8) & (t <= 1.4)
+            post_dt = (t >= 2.4) & (t <= 2.95)
+            erle_pre = 10.0 * np.log10(
+                np.mean(echo[echo_only] ** 2) / (np.mean(out[echo_only] ** 2) + 1e-12)
+            )
+            erle_post = 10.0 * np.log10(
+                np.mean(echo[post_dt] ** 2) / (np.mean(out[post_dt] ** 2) + 1e-12)
+            )
+            dt_corr = float(np.corrcoef(near[dt_mask], out[dt_mask])[0, 1])
+
+            self.assertGreater(erle_pre, 25.0)
+            self.assertGreater(erle_post, 20.0)
+            self.assertGreater(dt_corr, 0.85)
+            self.assertGreater(aec.bulk_delay_hops, 15)
+
+        # Silent reference acts as unity passthrough
+        aec_silent = ServerAEC(sr)
+        clean_in = (0.3 * np.sin(2.0 * np.pi * 300.0 * t[:4096])).astype(np.float32)
+        silent_out = aec_silent.process(clean_in, np.zeros_like(clean_in))
+        self.assertTrue(np.allclose(clean_in, silent_out, atol=1e-5))
+
+    def test_server_audio_echo_cancel_lifecycle_and_worker(self):
+        settings = VoiceChangerSettings()
+        self.assertFalse(settings.echoCancel)
+        settings.echoCancel = "true"
+        self.assertTrue(settings.echoCancel)
+        settings.echoCancel = "0"
+        self.assertFalse(settings.echoCancel)
+
+        sa = ServerAudio(MagicMock(), settings)
+        sa.running = True
+        sa._out_sr = 48000
+        sa._block_frame = 2048
+        sa._worker_in_buf = np.zeros(2048, dtype=np.float32)
+        sa._worker_ref_buf = np.zeros(2048, dtype=np.float32)
+
+        mock_cap = MagicMock()
+        mock_cap.sample_rate = 48000
+        mock_cap.is_running = True
+        mock_cap.start.return_value = True
+
+        def _fake_read_chunk(n, out_buf=None):
+            if out_buf is None:
+                out_buf = np.zeros(n, dtype=np.float32)
+            out_buf[:n] = 0.1
+            return out_buf
+
+        mock_cap.read_chunk.side_effect = _fake_read_chunk
+
+        with patch("voice_changer.Local.ServerAudio.WasapiLoopbackCapture", return_value=mock_cap):
+            settings.echoCancel = True
+            sa.update_settings("echoCancel", True, False)
+            mock_cap.start.assert_called_once()
+            self.assertIsNotNone(sa._aec)
+            self.assertIsNotNone(sa._loopback_capture)
+
+            # Applying AEC invokes loopback read_chunk and ServerAEC
+            sa._worker_in_buf[:] = 0.2
+            sa._apply_aec(sa._worker_in_buf, sa._worker_ref_buf)
+            mock_cap.read_chunk.assert_called_once()
+
+            # Toggling echoCancel off stops loopback cleanly
+            settings.echoCancel = False
+            sa.update_settings("echoCancel", False, True)
+            mock_cap.stop.assert_called_once()
+            self.assertIsNone(sa._aec)
+            self.assertIsNone(sa._loopback_capture)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

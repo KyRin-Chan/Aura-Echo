@@ -36,10 +36,10 @@ function AudioVolume(): JSX.Element {
       serverInputAudioGain: gain
     });
 
-    appState.setVoiceChangerClientSetting({
-      ...appState.setting.voiceChangerClientSetting,
+    appState.setVoiceChangerClientSetting((prev) => ({
+      ...prev,
       inputGain: gain
-    });
+    }));
   };
 
   // Handle Output Gain Change
@@ -50,10 +50,10 @@ function AudioVolume(): JSX.Element {
       serverOutputAudioGain: gain
     });
 
-    appState.setVoiceChangerClientSetting({
-      ...appState.setting.voiceChangerClientSetting,
+    appState.setVoiceChangerClientSetting((prev) => ({
+      ...prev,
       outputGain: gain
-    });
+    }));
   };
 
   // Handle Monitor Gain Change
@@ -64,10 +64,10 @@ function AudioVolume(): JSX.Element {
       serverMonitorAudioGain: gain
     });
 
-    appState.setVoiceChangerClientSetting({
-      ...appState.setting.voiceChangerClientSetting,
+    appState.setVoiceChangerClientSetting((prev) => ({
+      ...prev,
       monitorGain: gain
-    });
+    }));
   };
 
   // ---------------- Render ----------------
@@ -87,6 +87,7 @@ function AudioVolume(): JSX.Element {
           value={Math.round(inputGain * 100)}
           onChange={handleInputGainChange}
           onImmediateChange={(value) => setInputGain(value / 100)}
+          flushOnUnmount={true}
           showValue={true}
           valueFormatter={(val) => `${val}%`}
         />
@@ -104,6 +105,7 @@ function AudioVolume(): JSX.Element {
           value={Math.round(outputGain * 100)}
           onChange={handleOutputGainChange}
           onImmediateChange={(value) => setOutputGain(value / 100)}
+          flushOnUnmount={true}
           showValue={true}
           valueFormatter={(val) => `${val}%`}
         />
@@ -121,6 +123,7 @@ function AudioVolume(): JSX.Element {
           value={Math.round(monitorGain * 100)}
           onChange={handleMonitorGainChange}
           onImmediateChange={(value) => setMonitorGain(value / 100)}
+          flushOnUnmount={true}
           showValue={true}
           valueFormatter={(val) => `${val}%`}
         />

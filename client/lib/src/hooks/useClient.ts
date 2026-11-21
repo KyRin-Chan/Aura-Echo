@@ -1,11 +1,85 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VoiceChangerClient } from "../VoiceChangerClient";
 import { useClientSetting } from "./useClientSetting";
 import { IndexedDBStateAndMethod, useIndexedDB } from "./useIndexedDB";
 import { ServerSettingState, useServerSetting } from "./useServerSetting";
 import { useWorkletNodeSetting } from "./useWorkletNodeSetting";
 import { useWorkletSetting } from "./useWorkletSetting";
-import { ClientSetting, DefaultClientSettng, VoiceChangerClientSetting, WorkletNodeSetting, WorkletSetting } from "../const";
+import { ClientSetting, DefaultClientSettng, ServerInfo, VoiceChangerClientSetting, WorkletNodeSetting, WorkletSetting } from "../const";
+
+export type VoiceChangerClientSettingUpdater =
+    | VoiceChangerClientSetting
+    | ((prev: VoiceChangerClientSetting) => VoiceChangerClientSetting);
+
+const isValidGain = (val: unknown): val is number =>
+    typeof val === "number" && Number.isFinite(val) && val >= 0;
+
+export const mergeLoadedClientSettings = (
+    server: Partial<ServerInfo> | null | undefined,
+    stored: Partial<ClientSetting> | null | undefined,
+    pendingVcPatch?: Partial<VoiceChangerClientSetting>,
+    pendingWorkletNodePatch?: Partial<WorkletNodeSetting>,
+    pendingWorkletPatch?: Partial<WorkletSetting>
+): ClientSetting => {
+    const serverChunk =
+        typeof server?.serverReadChunkSize === "number"
+            ? server.serverReadChunkSize
+            : DefaultClientSettng.workletNodeSetting.inputChunkNum;
+
+    const loadedVc: VoiceChangerClientSetting = {
+        ...DefaultClientSettng.voiceChangerClientSetting,
+        ...(stored?.voiceChangerClientSetting || {}),
+    };
+
+    const inGain = server?.serverInputAudioGain;
+    if (isValidGain(inGain)) {
+        loadedVc.inputGain = inGain;
+    }
+    const outGain = server?.serverOutputAudioGain;
+    if (isValidGain(outGain)) {
+        loadedVc.outputGain = outGain;
+    }
+    const monGain = server?.serverMonitorAudioGain;
+    if (isValidGain(monGain)) {
+        loadedVc.monitorGain = monGain;
+    }
+    if (
+        typeof server?.echoCancel === "boolean" &&
+        (server.enableServerAudio === 1 || stored?.voiceChangerClientSetting?.echoCancel === undefined)
+    ) {
+        loadedVc.echoCancel = server.echoCancel;
+    }
+
+    return {
+        workletSetting: {
+            ...DefaultClientSettng.workletSetting,
+            ...(stored?.workletSetting || {}),
+            ...(pendingWorkletPatch || {}),
+        },
+        workletNodeSetting: {
+            ...DefaultClientSettng.workletNodeSetting,
+            ...(stored?.workletNodeSetting || {}),
+            inputChunkNum: serverChunk,
+            ...(pendingWorkletNodePatch || {}),
+        },
+        voiceChangerClientSetting: {
+            ...loadedVc,
+            ...(pendingVcPatch || {}),
+        },
+    };
+};
+
+const collectChangedPatch = <T extends object>(prev: T, next: T, existing: Partial<T>): Partial<T> => {
+    const patch: Record<string, unknown> = { ...existing };
+    const prevRec = prev as Record<string, unknown>;
+    const nextRec = next as Record<string, unknown>;
+    for (const key of Object.keys(nextRec)) {
+        if (nextRec[key] !== prevRec[key]) {
+            patch[key] = nextRec[key];
+        }
+    }
+    return patch as Partial<T>;
+};
 
 export type UseClientProps = {
     audioContext: AudioContext | null;
@@ -15,7 +89,7 @@ export type ClientState = {
     initialized: boolean;
     setting: ClientSetting;
     // 各種設定I/Fへの参照
-    setVoiceChangerClientSetting: (_voiceChangerClientSetting: VoiceChangerClientSetting) => void;
+    setVoiceChangerClientSetting: (_voiceChangerClientSetting: VoiceChangerClientSettingUpdater) => void;
     setServerUrl: (url: string) => void;
     start: () => Promise<void>;
     stop: () => Promise<void>;
@@ -63,7 +137,16 @@ export type PerformanceStats = {
 
 export const useClient = (props: UseClientProps): ClientState => {
     const [initialized, setInitialized] = useState<boolean>(false);
-    const [setting, setSetting] = useState<ClientSetting>(DefaultClientSettng);
+    const [setting, setSetting] = useState<ClientSetting>(() => ({
+        workletSetting: { ...DefaultClientSettng.workletSetting },
+        workletNodeSetting: { ...DefaultClientSettng.workletNodeSetting },
+        voiceChangerClientSetting: { ...DefaultClientSettng.voiceChangerClientSetting },
+    }));
+    const settingRef = useRef<ClientSetting>(setting);
+    const settingsLoadedRef = useRef<boolean>(false);
+    const pendingVcPatchRef = useRef<Partial<VoiceChangerClientSetting>>({});
+    const pendingWorkletNodePatchRef = useRef<Partial<WorkletNodeSetting>>({});
+    const pendingWorkletPatchRef = useRef<Partial<WorkletSetting>>({});
     // (1-1) クライアント
     const voiceChangerClientRef = useRef<VoiceChangerClient | null>(null);
     const [voiceChangerClient, setVoiceChangerClient] = useState<VoiceChangerClient | null>(voiceChangerClientRef.current);
@@ -99,47 +182,74 @@ export const useClient = (props: UseClientProps): ClientState => {
 
     // 設定データ管理
     const { setItem, getItem, removeItem } = useIndexedDB({ clientType: null });
-    // 設定データの更新と保存
-    const _setSetting = (_setting: ClientSetting) => {
-        const storeData = { ..._setting };
-        storeData.voiceChangerClientSetting = { ...storeData.voiceChangerClientSetting };
-        if (typeof storeData.voiceChangerClientSetting.audioInput != "string") {
-            storeData.voiceChangerClientSetting.audioInput = "none";
-        }
-        setItem("clientSetting", storeData);
+    const persistClientSetting = useCallback(
+        (nextSetting: ClientSetting) => {
+            const storeData: ClientSetting = {
+                ...nextSetting,
+                voiceChangerClientSetting: { ...nextSetting.voiceChangerClientSetting },
+            };
+            if (typeof storeData.voiceChangerClientSetting.audioInput !== "string") {
+                storeData.voiceChangerClientSetting.audioInput = "none";
+            }
+            setItem("clientSetting", storeData);
+        },
+        [setItem]
+    );
 
-        setSetting(_setting);
-    };
     // 設定データ初期化
     useEffect(() => {
         if (!voiceChangerClient) {
             return;
         }
+        let cancelled = false;
+        settingsLoadedRef.current = false;
         const loadSettings = async () => {
-            const server = await serverSetting.reloadServerInfo();
-            const _setting = (await getItem("clientSetting")) as Partial<ClientSetting> | null;
-            const serverChunk =
-                typeof server?.serverReadChunkSize === "number"
-                    ? server.serverReadChunkSize
-                    : DefaultClientSettng.workletNodeSetting.inputChunkNum;
-            const mergedSetting: ClientSetting = {
-                workletSetting: {
-                    ...DefaultClientSettng.workletSetting,
-                    ...(_setting?.workletSetting || {}),
-                },
-                workletNodeSetting: {
-                    ...DefaultClientSettng.workletNodeSetting,
-                    ...(_setting?.workletNodeSetting || {}),
-                    inputChunkNum: serverChunk,
-                },
-                voiceChangerClientSetting: {
-                    ...DefaultClientSettng.voiceChangerClientSetting,
-                    ...(_setting?.voiceChangerClientSetting || {}),
-                },
-            };
+            let server: Partial<ServerInfo> | undefined;
+            let _setting: Partial<ClientSetting> | null = null;
+            try {
+                const [srv, stored] = await Promise.all([
+                    serverSetting.reloadServerInfo(),
+                    getItem("clientSetting") as Promise<Partial<ClientSetting> | null>,
+                ]);
+                server = srv as Partial<ServerInfo> | undefined;
+                _setting = stored;
+            } catch (e) {
+                console.warn("[useClient] Failed to load initial settings:", e);
+            }
+            if (cancelled) {
+                return;
+            }
+
+            const pendingVc = pendingVcPatchRef.current;
+            const pendingWorkletNode = pendingWorkletNodePatchRef.current;
+            const pendingWorklet = pendingWorkletPatchRef.current;
+            const hadPending =
+                Object.keys(pendingVc).length > 0 ||
+                Object.keys(pendingWorkletNode).length > 0 ||
+                Object.keys(pendingWorklet).length > 0;
+
+            const mergedSetting = mergeLoadedClientSettings(
+                server,
+                _setting,
+                pendingVc,
+                pendingWorkletNode,
+                pendingWorklet
+            );
+
+            settingsLoadedRef.current = true;
+            pendingVcPatchRef.current = {};
+            pendingWorkletNodePatchRef.current = {};
+            pendingWorkletPatchRef.current = {};
+            settingRef.current = mergedSetting;
+            if (hadPending) {
+                persistClientSetting(mergedSetting);
+            }
             setSetting(mergedSetting);
         };
         loadSettings();
+        return () => {
+            cancelled = true;
+        };
     }, [voiceChangerClient]);
 
     const [popLogs, setPopLogs] = useState<{ type: string; timestamp: string; count: number }[]>([]);
@@ -234,35 +344,85 @@ export const useClient = (props: UseClientProps): ClientState => {
     };
 
     // 設定変更
-    const setVoiceChangerClientSetting = (_voiceChangerClientSetting: VoiceChangerClientSetting) => {
-        const nextSetting: ClientSetting = {
-            ...setting,
-            voiceChangerClientSetting: _voiceChangerClientSetting,
-        };
-        console.log("setting.voiceChangerClientSetting", nextSetting.voiceChangerClientSetting);
-        // workletSettingIF.setSetting(_workletSetting)
-        _setSetting(nextSetting);
-    };
+    const setVoiceChangerClientSetting = useCallback(
+        (_voiceChangerClientSetting: VoiceChangerClientSettingUpdater) => {
+            const prevVc = settingRef.current.voiceChangerClientSetting;
+            const nextVc =
+                typeof _voiceChangerClientSetting === "function"
+                    ? _voiceChangerClientSetting(prevVc)
+                    : _voiceChangerClientSetting;
 
-    const setWorkletNodeSetting = (_workletNodeSetting: WorkletNodeSetting) => {
-        const nextSetting: ClientSetting = {
-            ...setting,
-            workletNodeSetting: _workletNodeSetting,
-        };
-        console.log("setting.workletNodeSetting", nextSetting.workletNodeSetting);
-        // workletSettingIF.setSetting(_workletSetting)
-        _setSetting(nextSetting);
-    };
+            if (!settingsLoadedRef.current) {
+                pendingVcPatchRef.current = collectChangedPatch(
+                    prevVc,
+                    nextVc,
+                    pendingVcPatchRef.current
+                );
+            }
 
-    const setWorkletSetting = (_workletSetting: WorkletSetting) => {
-        const nextSetting: ClientSetting = {
-            ...setting,
-            workletSetting: _workletSetting,
-        };
-        console.log("setting.workletSetting", nextSetting.workletSetting);
-        // workletSettingIF.setSetting(_workletSetting)
-        _setSetting(nextSetting);
-    };
+            const nextSetting: ClientSetting = {
+                ...settingRef.current,
+                voiceChangerClientSetting: nextVc,
+            };
+            console.log("setting.voiceChangerClientSetting", nextSetting.voiceChangerClientSetting);
+            settingRef.current = nextSetting;
+            if (settingsLoadedRef.current) {
+                persistClientSetting(nextSetting);
+            }
+            setSetting(nextSetting);
+        },
+        [persistClientSetting]
+    );
+
+    const setWorkletNodeSetting = useCallback(
+        (_workletNodeSetting: WorkletNodeSetting) => {
+            const prevWn = settingRef.current.workletNodeSetting;
+            if (!settingsLoadedRef.current) {
+                pendingWorkletNodePatchRef.current = collectChangedPatch(
+                    prevWn,
+                    _workletNodeSetting,
+                    pendingWorkletNodePatchRef.current
+                );
+            }
+
+            const nextSetting: ClientSetting = {
+                ...settingRef.current,
+                workletNodeSetting: _workletNodeSetting,
+            };
+            console.log("setting.workletNodeSetting", nextSetting.workletNodeSetting);
+            settingRef.current = nextSetting;
+            if (settingsLoadedRef.current) {
+                persistClientSetting(nextSetting);
+            }
+            setSetting(nextSetting);
+        },
+        [persistClientSetting]
+    );
+
+    const setWorkletSetting = useCallback(
+        (_workletSetting: WorkletSetting) => {
+            const prevWs = settingRef.current.workletSetting;
+            if (!settingsLoadedRef.current) {
+                pendingWorkletPatchRef.current = collectChangedPatch(
+                    prevWs,
+                    _workletSetting,
+                    pendingWorkletPatchRef.current
+                );
+            }
+
+            const nextSetting: ClientSetting = {
+                ...settingRef.current,
+                workletSetting: _workletSetting,
+            };
+            console.log("setting.workletSetting", nextSetting.workletSetting);
+            settingRef.current = nextSetting;
+            if (settingsLoadedRef.current) {
+                persistClientSetting(nextSetting);
+            }
+            setSetting(nextSetting);
+        },
+        [persistClientSetting]
+    );
 
     const stop = useMemo(() => {
         return async () => {

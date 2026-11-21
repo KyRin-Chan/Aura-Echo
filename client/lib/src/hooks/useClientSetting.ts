@@ -17,7 +17,7 @@ export type ClientSettingState = {
 
 export const useClientSetting = (props: UseClientSettingProps): ClientSettingState => {
     // 更新比較用
-    const [voiceChangerClientSetting, setVoiceChangerClientSetting] = useState<VoiceChangerClientSetting>(props.voiceChangerClientSetting);
+    const [voiceChangerClientSetting, setVoiceChangerClientSetting] = useState<VoiceChangerClientSetting>(() => ({ ...props.voiceChangerClientSetting }));
 
     useEffect(() => {
         const update = async () => {
@@ -25,7 +25,7 @@ export const useClientSetting = (props: UseClientSettingProps): ClientSettingSta
             for (let k in props.voiceChangerClientSetting) {
                 const cur_v = voiceChangerClientSetting[k as keyof VoiceChangerClientSetting];
                 const new_v = props.voiceChangerClientSetting[k as keyof VoiceChangerClientSetting];
-                if (cur_v != new_v) {
+                if (cur_v !== new_v) {
                     setVoiceChangerClientSetting(props.voiceChangerClientSetting);
                     await props.voiceChangerClient.updateClientSetting(props.voiceChangerClientSetting);
                     break;

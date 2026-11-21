@@ -110,10 +110,10 @@ function AudioDevicesClient(): JSX.Element {
     getItem(INDEXEDDB_KEYS.INDEXEDDB_KEY_AUDIO_INPUT).then((input) => {
       if (input) {
         uiState.setAudioInputForGUI(input as string);
-        appState.setVoiceChangerClientSetting({
-          ...appState.setting.voiceChangerClientSetting,
+        appState.setVoiceChangerClientSetting((prev) => ({
+          ...prev,
           audioInput: input as string
-        });
+        }));
       }
     });
 
@@ -138,12 +138,13 @@ function AudioDevicesClient(): JSX.Element {
 
   // Handle input device change
   const handleInputDeviceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    appState.setVoiceChangerClientSetting({
-      ...appState.setting.voiceChangerClientSetting,
-      audioInput: event.target.value
-    });
-    setItem(INDEXEDDB_KEYS.INDEXEDDB_KEY_AUDIO_INPUT, event.target.value);
-    uiState.setAudioInputForGUI(event.target.value);
+    const value = event.target.value;
+    appState.setVoiceChangerClientSetting((prev) => ({
+      ...prev,
+      audioInput: value
+    }));
+    setItem(INDEXEDDB_KEYS.INDEXEDDB_KEY_AUDIO_INPUT, value);
+    uiState.setAudioInputForGUI(value);
   };
 
   // Handle output device change

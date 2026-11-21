@@ -144,6 +144,7 @@ export const ServerSettingKey = {
     serverMonitorAudioGain: "serverMonitorAudioGain",
     asioInputChannel: "asioInputChannel",
     asioOutputChannel: "asioOutputChannel",
+    echoCancel: "echoCancel",
 
     tran: "tran",
     formantShift: "formantShift",
@@ -228,6 +229,7 @@ export type VoiceChangerServerSetting = {
     serverMonitorAudioGain: number;
     asioInputChannel: number;
     asioOutputChannel: number;
+    echoCancel: boolean;
 
     tran: number;
     formantShift: number;
@@ -364,6 +366,7 @@ export const DefaultServerSetting: ServerInfo = {
     serverMonitorAudioGain: 1.0,
     asioInputChannel: -1,
     asioOutputChannel: -1,
+    echoCancel: false,
 
     // VC Specific
     srcId: 0,

@@ -1,13 +1,15 @@
 import { IndexedDBStateAndMethod } from "./useIndexedDB";
 import { ServerSettingState } from "./useServerSetting";
-import { ClientSetting, VoiceChangerClientSetting, WorkletNodeSetting, WorkletSetting } from "../const";
+import { ClientSetting, ServerInfo, VoiceChangerClientSetting, WorkletNodeSetting, WorkletSetting } from "../const";
+export type VoiceChangerClientSettingUpdater = VoiceChangerClientSetting | ((prev: VoiceChangerClientSetting) => VoiceChangerClientSetting);
+export declare const mergeLoadedClientSettings: (server: Partial<ServerInfo> | null | undefined, stored: Partial<ClientSetting> | null | undefined, pendingVcPatch?: Partial<VoiceChangerClientSetting>, pendingWorkletNodePatch?: Partial<WorkletNodeSetting>, pendingWorkletPatch?: Partial<WorkletSetting>) => ClientSetting;
 export type UseClientProps = {
     audioContext: AudioContext | null;
 };
 export type ClientState = {
     initialized: boolean;
     setting: ClientSetting;
-    setVoiceChangerClientSetting: (_voiceChangerClientSetting: VoiceChangerClientSetting) => void;
+    setVoiceChangerClientSetting: (_voiceChangerClientSetting: VoiceChangerClientSettingUpdater) => void;
     setServerUrl: (url: string) => void;
     start: () => Promise<void>;
     stop: () => Promise<void>;

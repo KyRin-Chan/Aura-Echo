@@ -16,6 +16,14 @@ STATEFUL_KEYS = [
 def _js_bool_to_bool(value: str) -> bool:
     return value == 'true'
 
+
+def _parse_bool(val: Any) -> bool:
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, int):
+        return bool(val)
+    return str(val).lower() in ("true", "1", "yes")
+
 class SetPropertyResult(NamedTuple):
     error: bool
     old_value: str | int | float | bool | None
@@ -524,6 +532,7 @@ class VoiceChangerSettings:
             pass
 
     _agcEnabled: bool = False
+    _echoCancel: bool = False
 
     @property
     def agcEnabled(self) -> bool:
@@ -531,9 +540,12 @@ class VoiceChangerSettings:
 
     @agcEnabled.setter
     def agcEnabled(self, val: Any):
-        if isinstance(val, bool):
-            self._agcEnabled = val
-        elif isinstance(val, int):
-            self._agcEnabled = bool(val)
-        else:
-            self._agcEnabled = str(val).lower() in ("true", "1", "yes")
+        self._agcEnabled = _parse_bool(val)
+
+    @property
+    def echoCancel(self) -> bool:
+        return self._echoCancel
+
+    @echoCancel.setter
+    def echoCancel(self, val: Any):
+        self._echoCancel = _parse_bool(val)

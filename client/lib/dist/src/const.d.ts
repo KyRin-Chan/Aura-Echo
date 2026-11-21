@@ -111,6 +111,7 @@ export declare const ServerSettingKey: {
     readonly serverMonitorAudioGain: "serverMonitorAudioGain";
     readonly asioInputChannel: "asioInputChannel";
     readonly asioOutputChannel: "asioOutputChannel";
+    readonly echoCancel: "echoCancel";
     readonly tran: "tran";
     readonly formantShift: "formantShift";
     readonly useONNX: "useONNX";
@@ -182,6 +183,7 @@ export type VoiceChangerServerSetting = {
     serverMonitorAudioGain: number;
     asioInputChannel: number;
     asioOutputChannel: number;
+    echoCancel: boolean;
     tran: number;
     formantShift: number;
     useONNX: number;
