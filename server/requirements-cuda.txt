@@ -1,4 +1,4 @@
-# CUDA 12.8 + Blackwell (RTX 5080) Optimized Requirements
+# CUDA 12.8 Requirements
 --extra-index-url https://download.pytorch.org/whl/cu128
 torch==2.7.1
 torchaudio==2.7.1

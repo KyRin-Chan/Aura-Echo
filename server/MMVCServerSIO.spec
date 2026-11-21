@@ -21,7 +21,7 @@ if 'BUILD_NAME' in os.environ:
 binaries = []
 hiddenimports = ['app', 'torchgen']
 
-# Collect TensorRT dynamic libraries and data for RTX 5080 / Blackwell optimization
+# Collect TensorRT dynamic libraries and data
 datas += collect_data_files('onnxscript', include_py_files=True)
 try:
     trt_ret = collect_all('tensorrt')

@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo ===============================================
-echo Voice Changer Server Installation Script (RTX 5080 CUDA)
+echo Voice Changer Server Installation Script (CUDA)
 echo ===============================================
 echo.
 
@@ -48,8 +48,8 @@ if %PYTHON_MAJOR% equ 3 if %PYTHON_MINOR% lss 10 (
 )
 
 echo Found Python: %PYTHON_VERSION%
-set BACKEND=cuda-rtx5080
-set REQUIREMENTS_FILE=requirements-cuda-5080.txt
+set BACKEND=cuda
+set REQUIREMENTS_FILE=requirements-cuda.txt
 
 REM Function to create virtual environment
 :create_venv
@@ -130,7 +130,7 @@ echo To start the voice changer server:
 echo.
 echo Run .\vc_startup.bat
 echo.
-echo Backend: %BACKEND% (RTX 5080 Optimized)
+echo Backend: %BACKEND%
 echo.
 echo Press any key to exit...
 pause >nul

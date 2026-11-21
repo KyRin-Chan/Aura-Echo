@@ -1,6 +1,6 @@
 <div align="center">
 
-# Voice Changer — RTX 5080 Optimized Edition
+# Voice Changer
 
 **Real-time voice conversion powered by RVC, tuned for NVIDIA RTX GPUs on Windows.**
 
@@ -19,7 +19,7 @@
 
 This project is a customized fork of [deiteris/voice-changer](https://github.com/deiteris/voice-changer), providing low-latency, real-time voice conversion based on Retrieval-based Voice Conversion (RVC).
 
-This edition focuses on a single, well-tuned configuration, with dedicated optimizations for the **RTX 5080 (Blackwell)** via **TensorRT / ONNX**.
+This edition focuses on a single, well-tuned configuration for **NVIDIA RTX GPUs**, with acceleration via **CUDA / TensorRT / ONNX**.
 
 > [!IMPORTANT]
 > Only **Windows 10/11** with **NVIDIA GPUs (CUDA)** is supported. DirectML, CPU-only, ROCm, macOS, and Linux are not supported on this branch.
@@ -29,7 +29,7 @@ This edition focuses on a single, well-tuned configuration, with dedicated optim
 | Component      | Requirement                                              |
 | -------------- | -------------------------------------------------------- |
 | OS             | Windows 10 / 11 (64-bit)                                 |
-| GPU            | NVIDIA GeForce RTX 20 series or newer (tuned for RTX 5080) |
+| GPU            | NVIDIA GeForce RTX 20 series or newer                    |
 | VRAM           | ≥ 2 GB (FP32) or ≥ 1 GB (FP16)                           |
 | NVIDIA driver  | 528.33 or later                                          |
 | RAM            | ≥ 6 GB                                                   |
@@ -41,7 +41,7 @@ This edition focuses on a single, well-tuned configuration, with dedicated optim
 
 - An archiver such as [7-Zip](https://www.7-zip.org/) or [WinRAR](https://www.win-rar.com/).
 - A virtual audio cable, e.g. [VAC Lite by Muzychenko](https://software.muzychenko.net/freeware/vac470lite.zip).
-- The latest release package, `voice-changer-windows-amd64-cuda-5080.7z`, from the **Releases** page.
+- The latest release package, `voice-changer-windows-amd64-cuda.7z`, from the **Releases** page.
 
 ### 2. Run
 
@@ -116,7 +116,7 @@ Turn **Passthrough** off in the web UI. The button is yellow while active; click
 ### Set up the environment
 
 1. Install [Python 3.12](https://www.python.org/downloads/) (add it to `PATH`) and [Git](https://git-scm.com/).
-2. Clone the repository and run the installer, which creates a virtual environment and installs the RTX 5080 CUDA dependencies:
+2. Clone the repository and run the installer, which creates a virtual environment and installs the CUDA dependencies:
 
    ```cmd
    git clone <repo-url>

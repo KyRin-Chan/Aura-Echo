@@ -89,7 +89,7 @@ jobs:
       id: cache-venv
       with:
         path: .venv
-        key: venv-${{ runner.os }}-full-${{ hashFiles('server/requirements-common.txt', 'server/requirements-cuda-5080.txt') }}
+        key: venv-${{ runner.os }}-full-${{ hashFiles('server/requirements-common.txt', 'server/requirements-cuda.txt') }}
 
     - name: Setup Virtual Environment
       if: steps.cache-venv.outputs.cache-hit != 'true'
@@ -105,9 +105,9 @@ jobs:
     - name: Install CUDA Dependencies (Full Build Only)
       working-directory: ./server
       run: |
-        ..\.venv\Scripts\python -m pip install -r requirements-cuda-5080.txt
+        ..\.venv\Scripts\python -m pip install -r requirements-cuda.txt
 
-    - name: Building executable (RTX 5080 Spec)
+    - name: Building executable
       working-directory: ./server
       run: |
         ..\.venv\Scripts\python -m PyInstaller --clean -y --dist ./dist MMVCServerSIO.spec
@@ -121,7 +121,7 @@ jobs:
       shell: bash
       run: |
         mkdir ./server/artifacts
-        ARCHIVE_NAME="voice-changer-windows-amd64-cuda-5080"
+        ARCHIVE_NAME="voice-changer-windows-amd64-cuda"
         EXTRA_7Z_ARGS="-mx=9 -ms=on"
         VOLUME_ARG="-v2000m"
         if [ "${{ matrix.build_type }}" = "patch" ]; then
