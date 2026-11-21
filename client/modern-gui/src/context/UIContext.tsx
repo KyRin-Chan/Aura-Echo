@@ -20,6 +20,8 @@ export interface UIContextType {
   isConverting: boolean;
 
   loadingProgress: LoadingProgress | null;
+  assetVersion: number;
+  bumpAssetVersion: () => void;
 
   reloadDeviceInfo: () => Promise<void>;
   inputAudioDeviceInfo: MediaDeviceInfo[];
@@ -54,6 +56,7 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
   const [isLoading, setIsLoading] = useState(false);
   const [isConverting, setIsConverting] = useState<boolean>(false);
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgress | null>(null);
+  const [assetVersion, setAssetVersion] = useState<number>(() => Date.now());
   const [inputAudioDeviceInfo, setInputAudioDeviceInfo] = useState<MediaDeviceInfo[]>([]);
   const [outputAudioDeviceInfo, setOutputAudioDeviceInfo] = useState<MediaDeviceInfo[]>([]);
   const [audioOutputForAnalyzer, setAudioOutputForAnalyzer] = useState<string>("none");
@@ -82,6 +85,10 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
     setIsLoading(false);
     setLoadingMessage(undefined);
     setLoadingProgress(null);
+  }, []);
+
+  const bumpAssetVersion = useCallback(() => {
+    setAssetVersion(Date.now());
   }, []);
 
   // Normalize notification type from legacy or localized strings
@@ -225,7 +232,7 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
   return (
     <UIContext.Provider value={{
       startLoading, stopLoading, showError, setIsConverting, reloadDeviceInfo,
-      isConverting, loadingProgress, setAudioInputForGUI, setAudioOutputForGUI, setAudioMonitorForGUI,
+      isConverting, loadingProgress, assetVersion, bumpAssetVersion, setAudioInputForGUI, setAudioOutputForGUI, setAudioMonitorForGUI,
       inputAudioDeviceInfo, outputAudioDeviceInfo, audioInputForGUI, audioOutputForGUI, audioMonitorForGUI, audioOutputForAnalyzer, setAudioOutputForAnalyzer
     }}>
       {children}

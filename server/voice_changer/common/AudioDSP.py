@@ -1,8 +1,9 @@
 import json
 import math
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
+from scipy import signal as scipy_signal
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -185,117 +186,441 @@ def compute_minimum_phase_fir(
     return torch.flip(h_ir, dims=[0]).contiguous()
 
 
+def _extract_voiced_f0_yin_16k(
+    y_16k: np.ndarray,
+    sr_16k: int = 16000,
+    frame_length: int = 1024,
+    hop_length: int = 160,
+    fmin: float = 55.0,
+    fmax: float = 800.0,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Vectorized FFT-based YIN pitch & aperiodicity estimator at 16 kHz.
+    Returns (f0_hz, aperiodicity, rms) per frame.
+    """
+    x = np.asarray(y_16k, dtype=np.float32).reshape(-1)
+    pad = frame_length // 2
+    if x.size == 0:
+        return (
+            np.zeros(1, dtype=np.float32),
+            np.ones(1, dtype=np.float32),
+            np.zeros(1, dtype=np.float32),
+        )
+    if x.size < frame_length:
+        x = np.pad(x, (0, frame_length - x.size), mode="constant")
+    x_padded = np.pad(x, (pad, pad), mode="constant")
+    frames = np.lib.stride_tricks.sliding_window_view(x_padded, frame_length)[::hop_length]
+    n_frames = frames.shape[0]
+
+    w_int = frame_length // 2
+    n_fft_yin = 2 * frame_length
+    tau_min = max(2, int(math.floor(sr_16k / float(fmax))))
+    tau_max = min(w_int - 2, int(math.ceil(sr_16k / float(fmin))))
+
+    f0_out = np.zeros(n_frames, dtype=np.float32)
+    aper_out = np.ones(n_frames, dtype=np.float32)
+    rms_out = np.zeros(n_frames, dtype=np.float32)
+
+    batch_size = 512
+    for start in range(0, n_frames, batch_size):
+        end = min(start + batch_size, n_frames)
+        f = frames[start:end].astype(np.float64, copy=False)
+        bsz = f.shape[0]
+        rms_b = np.sqrt(np.mean(f * f, axis=1))
+        rms_out[start:end] = rms_b.astype(np.float32)
+
+        x0 = f[:, :w_int]
+        X0 = np.fft.rfft(x0, n=n_fft_yin, axis=1)
+        X1 = np.fft.rfft(f, n=n_fft_yin, axis=1)
+        acf = np.fft.irfft(np.conj(X0) * X1, n=n_fft_yin, axis=1)[:, :w_int]
+
+        sq = f * f
+        cs = np.concatenate(
+            [np.zeros((bsz, 1), dtype=np.float64), np.cumsum(sq, axis=1)], axis=1
+        )
+        e0 = cs[:, w_int : w_int + 1]
+        e_tau = cs[:, w_int:frame_length] - cs[:, :w_int]
+        d = np.maximum(e0 + e_tau - 2.0 * acf, 0.0)
+
+        taus = np.arange(1, w_int, dtype=np.float64)[np.newaxis, :]
+        d_pos = d[:, 1:]
+        cum_d = np.cumsum(d_pos, axis=1)
+        cmndf = np.ones((bsz, w_int), dtype=np.float64)
+        cmndf[:, 1:] = np.where(cum_d > 1e-12, d_pos * taus / np.maximum(cum_d, 1e-12), 1.0)
+
+        for i in range(bsz):
+            if rms_b[i] < 1e-5 or e0[i, 0] < 1e-10:
+                continue
+            sub = cmndf[i, tau_min : tau_max + 1]
+            below = np.flatnonzero(sub < 0.20)
+            if below.size > 0:
+                t = tau_min + int(below[0])
+                while t + 1 <= tau_max and cmndf[i, t + 1] < cmndf[i, t]:
+                    t += 1
+            else:
+                t = tau_min + int(np.argmin(sub))
+
+            a, b, c = cmndf[i, t - 1], cmndf[i, t], cmndf[i, t + 1]
+            denom = a - 2.0 * b + c
+            if denom > 1e-12:
+                shift = float(np.clip(0.5 * (a - c) / denom, -0.5, 0.5))
+                tau_ref = float(t) + shift
+            else:
+                tau_ref = float(t)
+
+            if tau_ref > 0.0:
+                f0_out[start + i] = float(sr_16k / tau_ref)
+                aper_out[start + i] = float(np.clip(b, 0.0, 1.0))
+
+    return f0_out, aper_out, rms_out
+
+
+def _to_mono_float32(y: np.ndarray) -> np.ndarray:
+    arr = np.asarray(y, dtype=np.float32)
+    if arr.ndim == 0 or arr.size == 0:
+        return np.empty(0, dtype=np.float32)
+    if arr.ndim > 1:
+        # Collapse whichever axis looks like channels (smaller dimension)
+        ch_axis = 0 if arr.shape[0] <= arr.shape[-1] else -1
+        arr = np.mean(arr, axis=ch_axis, dtype=np.float32)
+    return arr.reshape(-1)
+
+
+def _select_highest_energy_segment(y: np.ndarray, sr: int, max_duration_sec: float) -> np.ndarray:
+    max_len = int(round(max_duration_sec * sr))
+    if max_len <= 0 or y.shape[0] <= max_len:
+        return y
+    step = max(1, sr // 4)
+    sq = y.astype(np.float64, copy=False) ** 2
+    cs = np.concatenate([[0.0], np.cumsum(sq)])
+    starts = np.arange(0, y.shape[0] - max_len + 1, step, dtype=np.int64)
+    energies = cs[starts + max_len] - cs[starts]
+    best_start = int(starts[int(np.argmax(energies))])
+    return y[best_start : best_start + max_len]
+
+
+def analyze_voice_acoustics(
+    y: np.ndarray,
+    sr: int,
+    max_duration_sec: float = 30.0,
+) -> Dict[str, Any]:
+    """
+    Extract pitch (F0), SR-invariant formant centroid, and physical-time cepstral
+    spectral envelope over strictly voiced frames.
+    """
+    sr_int = max(1, int(sr))
+    y_mono = _to_mono_float32(y)
+    if y_mono.size > 0:
+        y_mono = y_mono - float(np.mean(y_mono))
+
+    n_fft = 1024 if sr_int < 28000 else (2048 if sr_int < 64000 else 4096)
+    flat_env = np.ones(n_fft // 2 + 1, dtype=np.float32)
+
+    if y_mono.size < 512 or float(np.max(np.abs(y_mono))) < 1e-6:
+        return {
+            "f0": 0.0,
+            "centroid": 0.0,
+            "envelope": flat_env,
+            "sr": sr_int,
+            "voiced_ratio": 0.0,
+        }
+
+    y_mono = _select_highest_energy_segment(y_mono, sr_int, max_duration_sec)
+
+    # Resample to 16 kHz solely for YIN F0 / periodicity analysis
+    if sr_int == 16000:
+        y_16k = y_mono
+    else:
+        g = math.gcd(16000, sr_int)
+        up, down = 16000 // g, sr_int // g
+        if max(up, down) <= 2000:
+            y_16k = scipy_signal.resample_poly(y_mono, up, down).astype(
+                np.float32, copy=False
+            )
+        else:
+            target_len = max(1, int(round(y_mono.shape[0] * 16000.0 / float(sr_int))))
+            y_16k = scipy_signal.resample(y_mono, target_len).astype(
+                np.float32, copy=False
+            )
+
+    yin_hop = 160
+    f0_yin, aper_yin, _ = _extract_voiced_f0_yin_16k(
+        y_16k, sr_16k=16000, frame_length=1024, hop_length=yin_hop, fmin=55.0, fmax=800.0
+    )
+
+    # STFT on native sample rate with physically consistent window size
+    hop_length = n_fft // 4
+    pad = n_fft // 2
+    pad_mode = "reflect" if y_mono.size > pad else "constant"
+    y_pad = np.pad(y_mono, (pad, pad), mode=pad_mode)
+    frames = np.lib.stride_tricks.sliding_window_view(y_pad, n_fft)[::hop_length]
+    win = np.hanning(n_fft).astype(np.float32)
+    win_rms = float(np.sqrt(np.mean(win * win))) or 1.0
+    rms_stft = np.sqrt(np.mean((frames * win) ** 2, axis=1)) / win_rms
+
+    spec_mag = np.abs(np.fft.rfft(frames * win, axis=-1)).T  # (n_bins, n_frames)
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / float(sr_int))
+    n_frames = spec_mag.shape[1]
+
+    # Map 16 kHz YIN estimates to native STFT frames by physical timestamp
+    t_stft = np.arange(n_frames, dtype=np.float64) * (hop_length / float(sr_int))
+    yin_dt = yin_hop / 16000.0
+    idx_map = np.clip(np.round(t_stft / yin_dt).astype(np.int64), 0, f0_yin.shape[0] - 1)
+    f0_stft = f0_yin[idx_map]
+    aper_stft = aper_yin[idx_map]
+
+    rms_p95 = float(np.percentile(rms_stft, 95)) if rms_stft.size > 0 else 0.0
+    rms_thresh = max(1e-4, 0.05 * rms_p95)
+    energy_mask = rms_stft > rms_thresh
+
+    low_mid_mask = (freqs >= 80.0) & (freqs <= 3800.0)
+    high_fric_mask = (freqs > 3800.0) & (freqs <= min(8000.0, sr_int / 2.0))
+    if np.any(high_fric_mask) and np.any(low_mid_mask):
+        e_lm = np.sum(spec_mag[low_mid_mask, :] ** 2, axis=0) + 1e-12
+        e_hf = np.sum(spec_mag[high_fric_mask, :] ** 2, axis=0) + 1e-12
+        tonal_band_mask = e_lm > e_hf
+    else:
+        tonal_band_mask = np.ones(n_frames, dtype=bool)
+
+    voiced_mask = (
+        energy_mask
+        & (aper_stft < 0.25)
+        & (f0_stft >= 55.0)
+        & (f0_stft <= 800.0)
+        & tonal_band_mask
+    )
+
+    active_count = int(np.sum(energy_mask))
+    voiced_count = int(np.sum(voiced_mask))
+    voiced_ratio = float(voiced_count) / float(active_count) if active_count > 0 else 0.0
+
+    if voiced_count >= 3:
+        f0_median = float(np.median(f0_stft[voiced_mask]))
+        use_mask = voiced_mask
+    else:
+        fallback_f0 = (f0_stft >= 55.0) & (f0_stft <= 800.0) & energy_mask
+        f0_median = float(np.median(f0_stft[fallback_f0])) if np.any(fallback_f0) else 0.0
+        use_mask = energy_mask if active_count > 0 else np.ones(n_frames, dtype=bool)
+
+    # Physical-time cepstral liftering (symmetric raised cosine)
+    tau_c = float(np.clip(0.65 / f0_median, 0.0012, 0.0022)) if f0_median > 0.0 else 0.0018
+    q_cut = max(8, min(n_fft // 4, int(round(tau_c * sr_int))))
+    q_pass = max(2, int(round(0.7 * q_cut)))
+
+    lifter = np.zeros(n_fft, dtype=np.float32)
+    lifter[: q_pass + 1] = 1.0
+    if q_cut > q_pass:
+        idx_t = np.arange(q_pass + 1, q_cut, dtype=np.float32)
+        taper = 0.5 * (1.0 + np.cos(math.pi * (idx_t - q_pass) / float(q_cut - q_pass)))
+        lifter[q_pass + 1 : q_cut] = taper
+    lifter[n_fft - q_cut + 1 :] = lifter[1:q_cut][::-1]
+
+    log_S = np.log(spec_mag[:, use_mask] + 1e-7)
+    cepstrum = np.fft.irfft(log_S, n=n_fft, axis=0)
+    log_env_frames = np.fft.rfft(cepstrum * lifter[:, np.newaxis], axis=0).real
+
+    core_mask = (freqs >= 150.0) & (freqs <= min(4500.0, 0.85 * sr_int / 2.0))
+    if not np.any(core_mask):
+        core_mask = slice(None)
+
+    frame_means = np.mean(log_env_frames[core_mask, :], axis=0, keepdims=True)
+    log_env_norm = log_env_frames - frame_means
+
+    weights = rms_stft[use_mask].astype(np.float64)
+    w_sum = float(np.sum(weights))
+    if w_sum > 1e-12:
+        mean_log_env = np.sum(log_env_norm * weights[np.newaxis, :], axis=1) / w_sum
+    else:
+        mean_log_env = np.mean(log_env_norm, axis=1)
+
+    mean_log_env = mean_log_env - np.mean(mean_log_env[core_mask])
+    envelope = np.exp(np.clip(mean_log_env, -10.0, 10.0)).astype(np.float32)
+
+    # SR-independent formant centroid in [200, min(4000, 0.9 * Nyquist)] Hz
+    cent_mask = (freqs >= 200.0) & (freqs <= min(4000.0, 0.9 * sr_int / 2.0))
+    if np.any(cent_mask):
+        cent_sum = float(np.sum(envelope[cent_mask]))
+        centroid = (
+            float(np.sum(envelope[cent_mask] * freqs[cent_mask]) / cent_sum)
+            if cent_sum > 1e-12
+            else 0.0
+        )
+    else:
+        centroid = 0.0
+
+    return {
+        "f0": f0_median,
+        "centroid": centroid,
+        "envelope": envelope,
+        "sr": sr_int,
+        "voiced_ratio": voiced_ratio,
+    }
+
+
+def _parse_envelope_to_log(env_raw: Any) -> Optional[np.ndarray]:
+    """Parse 1D envelope array (or legacy vowel-dict) into log-magnitude domain."""
+    if env_raw is None:
+        return None
+    if isinstance(env_raw, str):
+        env_raw = json.loads(env_raw)
+
+    if isinstance(env_raw, dict):
+        logs = []
+        for k in ("close", "open", "front"):
+            if k in env_raw:
+                parsed_k = _parse_envelope_to_log(env_raw[k])
+                if parsed_k is not None:
+                    logs.append(parsed_k)
+        if not logs:
+            return None
+        min_len = min(arr.shape[0] for arr in logs)
+        return np.mean([arr[:min_len] for arr in logs], axis=0)
+
+    arr = np.asarray(env_raw, dtype=np.float64)
+    if arr.ndim != 1 or arr.size < 2:
+        return None
+    if np.any(arr <= 0.0):
+        return arr
+    return np.log(np.maximum(arr, 1e-8))
+
+
+def compute_residual_match_eq_curve(
+    target_env: Any,
+    target_sr: int,
+    base_env: Any,
+    base_sr: int,
+    post_sr: int,
+    n_fft_design: int = 4096,
+    max_db: float = 6.0,
+) -> Tuple[np.ndarray, np.ndarray, float, float]:
+    """
+    Compute 1/3-octave smoothed, band-limited residual Match EQ log-response
+    delta_L(f) = log E_target(f) - log E_base(f) on post_sr grid.
+
+    Returns (delta_log_masked, log_base_centered, rms_residual_db, max_correction_db).
+    """
+    log_tgt_src = _parse_envelope_to_log(target_env)
+    log_base_src = _parse_envelope_to_log(base_env)
+    if log_tgt_src is None or log_base_src is None:
+        raise ValueError("Invalid target or baseline spectral envelope.")
+
+    f_tgt = np.linspace(0.0, float(target_sr) / 2.0, log_tgt_src.shape[0])
+    f_base = np.linspace(0.0, float(base_sr) / 2.0, log_base_src.shape[0])
+    f_out = np.linspace(0.0, float(post_sr) / 2.0, n_fft_design // 2 + 1)
+
+    log_tgt = np.interp(f_out, f_tgt, log_tgt_src)
+    log_base = np.interp(f_out, f_base, log_base_src)
+
+    nyq_common = min(float(post_sr) / 2.0, float(target_sr) / 2.0, float(base_sr) / 2.0)
+    f_high_pass = min(7500.0, 0.80 * nyq_common)
+    f_high_stop = min(9500.0, 0.92 * nyq_common)
+
+    core_mask = (f_out >= 150.0) & (f_out <= min(4500.0, max(300.0, f_high_pass)))
+    if not np.any(core_mask):
+        core_mask = f_out <= nyq_common
+
+    # Preserve genuine spectral tilt by subtracting only the core-band scalar mean
+    log_tgt_c = log_tgt - float(np.mean(log_tgt[core_mask]))
+    log_base_c = log_base - float(np.mean(log_base[core_mask]))
+    delta_log = log_tgt_c - log_base_c
+
+    # Log-frequency ~1/3-octave Gaussian smoothing
+    f_lo = 60.0
+    f_hi = max(120.0, nyq_common)
+    n_log = 256
+    f_log = np.geomspace(f_lo, f_hi, n_log)
+    delta_on_log = np.interp(f_log, f_out, delta_log)
+
+    octaves_span = math.log2(f_hi / f_lo)
+    d_oct = octaves_span / float(n_log - 1)
+    sigma_bins = 0.25 / max(d_oct, 1e-6)
+    half_k = max(1, int(math.ceil(3.0 * sigma_bins)))
+    kx = np.arange(-half_k, half_k + 1, dtype=np.float64)
+    gauss_k = np.exp(-0.5 * (kx / max(sigma_bins, 1e-6)) ** 2)
+    gauss_k /= np.sum(gauss_k)
+
+    padded = np.pad(delta_on_log, (half_k, half_k), mode="edge")
+    smoothed_on_log = np.convolve(padded, gauss_k, mode="valid")
+    delta_smooth = np.interp(
+        f_out, f_log, smoothed_on_log, left=smoothed_on_log[0], right=smoothed_on_log[-1]
+    )
+
+    max_ln = float(max_db) * math.log(10.0) / 20.0
+    delta_capped = np.clip(delta_smooth, -max_ln, max_ln)
+
+    # Raised-cosine band limits [60..100 Hz] -> [f_high_pass..f_high_stop]
+    band_mask = np.ones_like(f_out)
+    band_mask[f_out <= 60.0] = 0.0
+    low_trans = (f_out > 60.0) & (f_out < 100.0)
+    if np.any(low_trans):
+        band_mask[low_trans] = 0.5 * (
+            1.0 - np.cos(math.pi * (f_out[low_trans] - 60.0) / 40.0)
+        )
+    high_trans = (f_out > f_high_pass) & (f_out < f_high_stop)
+    if np.any(high_trans):
+        band_mask[high_trans] = 0.5 * (
+            1.0
+            + np.cos(
+                math.pi
+                * (f_out[high_trans] - f_high_pass)
+                / max(f_high_stop - f_high_pass, 1.0)
+            )
+        )
+    band_mask[f_out >= f_high_stop] = 0.0
+
+    delta_masked = (delta_capped * band_mask).astype(np.float32)
+
+    ln_to_db = 20.0 / math.log(10.0)
+    rms_residual_db = float(np.sqrt(np.mean(delta_masked[core_mask] ** 2)) * ln_to_db)
+    max_correction_db = float(np.max(np.abs(delta_masked)) * ln_to_db)
+
+    return delta_masked, log_base_c.astype(np.float32), rms_residual_db, max_correction_db
+
+
 class MinimumPhaseFormantFilter(nn.Module):
     """
-    Stateful vowel-aware minimum-phase FIR formant filter.
-    - Pre-filter operates at pre_sr (16 kHz) on each incoming non-overlapping block
-    - Post-filter operates at post_sr (output_sr) on the SOLA-stitched continuous output block
+    Stateful post-SOLA residual minimum-phase Match EQ filter.
+    - apply_pre is an explicit pass-through no-op so HuBERT/ContentVec and F0 extraction
+      receive unmodified dry input speech.
+    - apply_post applies a static (crossfade-on-change) minimum-phase FIR matching
+      the residual spectral difference between target reference and RVC model output,
+      with speech-weighted RMS energy conservation.
     """
 
     def __init__(
         self,
-        num_taps_pre: int = 256,
-        num_taps_post: int = 256,
-        n_fft_design: int = 2048,
-        n_fft_vowel: int = 1024,
+        num_taps_post: int = 512,
+        n_fft_design: int = 4096,
+        max_db: float = 6.0,
     ):
         super().__init__()
-        self.num_taps_pre = num_taps_pre
-        self.num_taps_post = num_taps_post
-        self.n_fft_design = n_fft_design
-        self.n_fft_vowel = n_fft_vowel
+        self.num_taps_post = int(num_taps_post)
+        self.n_fft_design = int(n_fft_design)
+        self.max_db = float(max_db)
 
         self.register_buffer(
-            "pre_history", torch.zeros(num_taps_pre - 1, dtype=torch.float32), persistent=False
-        )
-        self.register_buffer(
-            "post_history", torch.zeros(num_taps_post - 1, dtype=torch.float32), persistent=False
+            "post_history",
+            torch.zeros(self.num_taps_post - 1, dtype=torch.float32),
+            persistent=False,
         )
 
         self._causal_mask_cache: Dict[tuple, torch.Tensor] = {}
         self._cache_key: Any = None
         self._strength: float = 0.35
 
-        self._h_pre_conv: Optional[torch.Tensor] = None
         self._h_post_conv: Optional[torch.Tensor] = None
-        self._is_vowel_aware: bool = False
-
-        self._log_post_close: Optional[torch.Tensor] = None
-        self._log_post_open: Optional[torch.Tensor] = None
-        self._log_post_front: Optional[torch.Tensor] = None
-
-        self._vowel_win: Optional[torch.Tensor] = None
-        self._mask_f1: Optional[torch.Tensor] = None
-        self._mask_f2_mid: Optional[torch.Tensor] = None
-        self._mask_f2_high: Optional[torch.Tensor] = None
-
-        self._vowel_weights_ema: Optional[torch.Tensor] = None
-        self._h_post_prev: Optional[torch.Tensor] = None
+        self._h_post_xfade_from: Optional[torch.Tensor] = None
 
     def reset(self) -> None:
-        if self.pre_history.numel() > 0:
-            self.pre_history.zero_()
         if self.post_history.numel() > 0:
             self.post_history.zero_()
-        self._vowel_weights_ema = None
-        self._h_post_prev = None
+        self._h_post_xfade_from = None
 
     def _clear_filters(self) -> None:
-        self._h_pre_conv = None
         self._h_post_conv = None
-        self._is_vowel_aware = False
-        self._log_post_close = None
-        self._log_post_open = None
-        self._log_post_front = None
-        self._vowel_weights_ema = None
-        self._h_post_prev = None
-
-    def _build_log_norm(
-        self, env_raw: Any, src_sr: int, domain_sr: int, device: torch.device
-    ) -> Optional[torch.Tensor]:
-        if env_raw is None:
-            return None
-        env_arr = np.asarray(env_raw, dtype=np.float32)
-        if env_arr.ndim != 1 or env_arr.size < 2:
-            return None
-
-        # Support both legacy log-domain envelopes (contain <= 0 values) and linear envelopes
-        if np.any(env_arr <= 0.0):
-            log_src = env_arr
-        else:
-            log_src = np.log(np.maximum(env_arr, 1e-8))
-
-        f_src = np.linspace(0.0, src_sr / 2.0, len(log_src))
-        f_out = np.linspace(0.0, domain_sr / 2.0, self.n_fft_design // 2 + 1)
-        log_env = np.interp(f_out, f_src, log_src)
-
-        # Fit spectral tilt within the shared valid frequency band
-        nyq_common = min(domain_sr / 2.0, src_sr / 2.0)
-        valid_mask = f_out <= nyq_common
-        x_all = np.arange(len(log_env), dtype=np.float32)
-        if np.sum(valid_mask) >= 4:
-            x_fit = x_all[valid_mask]
-            s_p, i_p = np.polyfit(x_fit, log_env[valid_mask], 1)
-        else:
-            s_p, i_p = np.polyfit(x_all, log_env, 1)
-
-        log_norm = log_env - (s_p * x_all + i_p)
-        log_norm = np.clip(log_norm, -3.0, 3.0)
-
-        # Roll off gracefully above source Nyquist when domain_sr > src_sr
-        if domain_sr > src_sr:
-            roll_start = 0.9 * (src_sr / 2.0)
-            roll_end = src_sr / 2.0
-            taper_mask = f_out > roll_start
-            if np.any(taper_mask):
-                alpha = np.clip(
-                    1.0 - (f_out[taper_mask] - roll_start) / max(roll_end - roll_start, 1.0),
-                    0.0,
-                    1.0,
-                )
-                log_norm[taper_mask] *= alpha
-
-        return torch.tensor(log_norm, dtype=torch.float32, device=device)
+        self._h_post_xfade_from = None
+        if self.post_history.numel() > 0:
+            self.post_history.zero_()
 
     def update_config(
         self,
@@ -309,6 +634,7 @@ class MinimumPhaseFormantFilter(nn.Module):
         post_sr: int,
         device: torch.device,
     ) -> None:
+        del pre_sr  # Pre-filter removed: Match EQ operates exclusively post-RVC
         cache_key = (
             bool(active),
             target_env,
@@ -316,7 +642,6 @@ class MinimumPhaseFormantFilter(nn.Module):
             input_env,
             int(input_sr),
             float(strength),
-            int(pre_sr),
             int(post_sr),
             str(device),
         )
@@ -326,96 +651,63 @@ class MinimumPhaseFormantFilter(nn.Module):
         self._cache_key = cache_key
         self._strength = float(strength)
 
-        if self.pre_history.device != device or self.post_history.device != device:
+        if self.post_history.device != device:
             self.to(device)
 
-        if not (active and target_env and input_env and target_sr > 0 and input_sr > 0):
+        if not (
+            active
+            and target_env
+            and input_env
+            and target_sr > 0
+            and input_sr > 0
+            and post_sr > 0
+            and self._strength > 1e-4
+        ):
             self._clear_filters()
             return
 
         try:
             parsed_tgt = json.loads(target_env) if isinstance(target_env, str) else target_env
-            parsed_in = json.loads(input_env) if isinstance(input_env, str) else input_env
+            parsed_base = json.loads(input_env) if isinstance(input_env, str) else input_env
 
-            # 1. Pre-filter (input whitening at pre_sr = 16000 Hz)
-            if isinstance(parsed_in, dict) and any(k in parsed_in for k in ("open", "front", "close")):
-                logs_in = []
-                for k in ("close", "open", "front"):
-                    if k in parsed_in:
-                        t_k = self._build_log_norm(parsed_in[k], input_sr, pre_sr, device)
-                        if t_k is not None:
-                            logs_in.append(t_k)
-                log_pre = torch.stack(logs_in, dim=0).mean(dim=0) if logs_in else None
-            else:
-                log_pre = self._build_log_norm(parsed_in, input_sr, pre_sr, device)
-
-            self._h_pre_conv = (
-                compute_minimum_phase_fir(
-                    log_pre, -0.5 * self._strength, self.num_taps_pre, self._causal_mask_cache
-                )
-                if log_pre is not None
-                else None
+            delta_masked, log_base_c, _, _ = compute_residual_match_eq_curve(
+                parsed_tgt,
+                int(target_sr),
+                parsed_base,
+                int(input_sr),
+                int(post_sr),
+                n_fft_design=self.n_fft_design,
+                max_db=self.max_db,
             )
 
-            # 2. Post-filter (target coloring at post_sr = output_sr)
-            if (
-                isinstance(parsed_tgt, dict)
-                and "open" in parsed_tgt
-                and "front" in parsed_tgt
-                and "close" in parsed_tgt
-            ):
-                log_c = self._build_log_norm(parsed_tgt["close"], target_sr, post_sr, device)
-                log_o = self._build_log_norm(parsed_tgt["open"], target_sr, post_sr, device)
-                log_f = self._build_log_norm(parsed_tgt["front"], target_sr, post_sr, device)
-                if log_c is not None and log_o is not None and log_f is not None:
-                    self._is_vowel_aware = True
-                    self._log_post_close = log_c
-                    self._log_post_open = log_o
-                    self._log_post_front = log_f
-                    self._h_post_conv = compute_minimum_phase_fir(
-                        log_o, self._strength, self.num_taps_post, self._causal_mask_cache
-                    )
+            delta_t = torch.tensor(delta_masked, dtype=torch.float32, device=device)
+            h_new = compute_minimum_phase_fir(
+                delta_t, self._strength, self.num_taps_post, self._causal_mask_cache
+            )
 
-                    # Precompute physical frequency band masks for 1024-pt rFFT at post_sr
-                    freqs = torch.linspace(
-                        0.0, post_sr / 2.0, self.n_fft_vowel // 2 + 1, device=device, dtype=torch.float32
-                    )
-                    self._mask_f1 = (freqs >= 200.0) & (freqs < 900.0)
-                    self._mask_f2_mid = (freqs >= 900.0) & (freqs < 2200.0)
-                    self._mask_f2_high = (freqs >= 2200.0) & (freqs <= 4500.0)
-                    self._vowel_win = torch.hann_window(
-                        self.n_fft_vowel, device=device, dtype=torch.float32
-                    )
-                    self._vowel_weights_ema = None
-                    self._h_post_prev = None
-                else:
-                    self._is_vowel_aware = False
-                    self._h_post_conv = None
-            else:
-                self._is_vowel_aware = False
-                log_post = self._build_log_norm(parsed_tgt, target_sr, post_sr, device)
-                self._h_post_conv = (
-                    compute_minimum_phase_fir(
-                        log_post, self._strength, self.num_taps_post, self._causal_mask_cache
-                    )
-                    if log_post is not None
-                    else None
-                )
+            # Speech-weighted RMS energy conservation across full speech passband
+            f_out = np.linspace(0.0, float(post_sr) / 2.0, self.n_fft_design // 2 + 1)
+            nyq_common = min(float(post_sr) / 2.0, float(target_sr) / 2.0, float(input_sr) / 2.0)
+            rms_mask = (f_out >= 100.0) & (f_out <= min(7500.0, 0.80 * nyq_common))
+            if not np.any(rms_mask):
+                rms_mask = f_out <= nyq_common
+            p_base = np.exp(np.clip(2.0 * log_base_c[rms_mask], -20.0, 20.0))
+            p_gain = np.exp(2.0 * self._strength * delta_masked[rms_mask])
+            denom_p = max(float(np.sum(p_base)), 1e-12)
+            rms_ratio = math.sqrt(float(np.sum(p_base * p_gain)) / denom_p)
+            h_new = h_new / float(np.clip(rms_ratio, 0.5, 2.0))
+
+            self._h_post_xfade_from = (
+                self._h_post_conv.detach() if self._h_post_conv is not None else None
+            )
+            self._h_post_conv = h_new
         except Exception:
             self._clear_filters()
 
     @torch.no_grad()
     def apply_pre(self, x: torch.Tensor) -> torch.Tensor:
-        if self._h_pre_conv is None or x.numel() == 0:
-            return x
-        orig_dtype = x.dtype
-        x_f32 = x.reshape(-1).to(dtype=torch.float32)
-        if self.pre_history.device != x_f32.device:
-            self.to(x_f32.device)
-        buf = torch.cat([self.pre_history, x_f32], dim=0)
-        y = F.conv1d(buf.view(1, 1, -1), self._h_pre_conv.view(1, 1, -1)).view(-1)
-        self.pre_history = buf[-(self.num_taps_pre - 1) :].detach().clone()
-        return y.to(dtype=orig_dtype)
+        """Pass-through no-op: input audio to HuBERT and F0 extractor is never altered."""
+        return x
 
     @torch.no_grad()
     def apply_post(self, x: torch.Tensor) -> torch.Tensor:
@@ -431,60 +723,26 @@ class MinimumPhaseFormantFilter(nn.Module):
         hist_len = self.num_taps_post - 1
         buf = torch.cat([self.post_history, x_f32], dim=0)
 
-        if (
-            self._is_vowel_aware
-            and self._log_post_close is not None
-            and self._log_post_open is not None
-            and self._log_post_front is not None
-            and self._mask_f1 is not None
-        ):
-            # Analyze spectral band energy in physical Hz
-            if n >= self.n_fft_vowel:
-                frames = x_f32.unfold(0, self.n_fft_vowel, self.n_fft_vowel // 2)
-                spec_mag = torch.abs(torch.fft.rfft(frames * self._vowel_win, dim=-1)).mean(dim=0)
-            else:
-                padded = F.pad(x_f32, (0, self.n_fft_vowel - n))
-                spec_mag = torch.abs(torch.fft.rfft(padded * self._vowel_win, dim=-1))
+        y = F.conv1d(buf.view(1, 1, -1), self._h_post_conv.view(1, 1, -1)).view(-1)
 
-            e_close = spec_mag[self._mask_f1].sum() + 1e-8
-            e_open = spec_mag[self._mask_f2_mid].sum() + 1e-8
-            e_front = spec_mag[self._mask_f2_high].sum() + 1e-8
-            weights = torch.stack([e_close, e_open, e_front])
-            weights = weights / weights.sum()
-
-            if self._vowel_weights_ema is None:
-                self._vowel_weights_ema = weights
-            else:
-                self._vowel_weights_ema = 0.65 * weights + 0.35 * self._vowel_weights_ema
-
-            w_c, w_o, w_f = self._vowel_weights_ema[0], self._vowel_weights_ema[1], self._vowel_weights_ema[2]
-            log_dyn = (
-                w_c * self._log_post_close
-                + w_o * self._log_post_open
-                + w_f * self._log_post_front
-            )
-            h_curr = compute_minimum_phase_fir(
-                log_dyn, self._strength, self.num_taps_post, self._causal_mask_cache
-            )
-            y = F.conv1d(buf.view(1, 1, -1), h_curr.view(1, 1, -1)).view(-1)
-
-            # Smooth crossfade on leading boundary if filter response changed
-            if self._h_post_prev is not None:
-                xfade_len = min(64, n)
-                if xfade_len > 1:
-                    prev_slice = buf[: hist_len + xfade_len]
-                    y_prev = F.conv1d(
-                        prev_slice.view(1, 1, -1), self._h_post_prev.view(1, 1, -1)
-                    ).view(-1)
-                    alpha = torch.linspace(0.0, 1.0, xfade_len, device=x_f32.device, dtype=torch.float32)
-                    y[:xfade_len] = y[:xfade_len] * alpha + y_prev[:xfade_len] * (1.0 - alpha)
-
-            self._h_post_prev = h_curr.detach()
-        else:
-            y = F.conv1d(buf.view(1, 1, -1), self._h_post_conv.view(1, 1, -1)).view(-1)
+        if self._h_post_xfade_from is not None:
+            xfade_len = min(64, n)
+            if xfade_len > 1:
+                prev_slice = buf[: hist_len + xfade_len]
+                y_prev = F.conv1d(
+                    prev_slice.view(1, 1, -1), self._h_post_xfade_from.view(1, 1, -1)
+                ).view(-1)
+                alpha = torch.linspace(
+                    0.0, 1.0, xfade_len, device=x_f32.device, dtype=torch.float32
+                )
+                y[:xfade_len] = y[:xfade_len] * alpha + y_prev[:xfade_len] * (1.0 - alpha)
+            self._h_post_xfade_from = None
 
         self.post_history = buf[-hist_len:].detach().clone()
         return y.to(dtype=orig_dtype)
+
+
+MinimumPhaseMatchEQ = MinimumPhaseFormantFilter
 
 
 class StatefulPeakLimiter:

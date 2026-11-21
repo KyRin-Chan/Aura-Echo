@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { fetchNoCache } from "../utils/cacheBuster"
 
 export type AppGuiSetting = {
     version: string,
@@ -33,8 +34,8 @@ export const useAppGuiSetting = (): AppGuiSettingState => {
         const getServerInfo = async () => {
             try {
                 const [versionRes, editionRes] = await Promise.all([
-                    fetch('/version'),
-                    fetch('/edition')
+                    fetchNoCache('/version'),
+                    fetchNoCache('/edition')
                 ]);
                 const version = await versionRes.text();
                 const edition = await editionRes.text();
@@ -50,7 +51,7 @@ export const useAppGuiSetting = (): AppGuiSettingState => {
 
     // Fetch app GUI settings from server
     const getAppGuiSetting = async (url: string) => {
-        const res = await fetch(`${url}`, {
+        const res = await fetchNoCache(url, {
             method: "GET",
         });
         const appSetting = await res.json() as AppGuiSetting;

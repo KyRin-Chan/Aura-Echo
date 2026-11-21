@@ -1,5 +1,6 @@
 import socketio
 import logging
+from webserver.restapi.mods.CacheControl import CacheControlMiddleware
 from webserver.restapi.mods.Origins import compute_local_origins, normalize_origins
 
 from settings import get_settings
@@ -43,7 +44,7 @@ class MMVC_SocketIOApp:
                 },
             )
 
-            cls._instance = app_socketio
+            cls._instance = CacheControlMiddleware(app_socketio)
             logger.info("Initialized.")
             return cls._instance
 

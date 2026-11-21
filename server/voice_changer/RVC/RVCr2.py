@@ -15,7 +15,12 @@ from const import EnumInferenceTypes, HUBERT_SAMPLE_RATE, WINDOW_SIZE
 from data.ModelSlot import RVCModelSlot, saveSlotInfo
 from Exceptions import PipelineNotInitializedException
 from settings import get_settings
-from voice_changer.common.AudioDSP import CausalPolyphaseResampler, MinimumPhaseFormantFilter
+from voice_changer.common.AudioDSP import (
+    CausalPolyphaseResampler,
+    MinimumPhaseFormantFilter,
+    _select_highest_energy_segment,
+    _to_mono_float32,
+)
 from voice_changer.common.TorchUtils import circular_write
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.embedder.EmbedderManager import EmbedderManager
@@ -330,7 +335,6 @@ class RVCr2(VoiceChangerModel):
         audio_in_t = torch.as_tensor(audio_in, dtype=torch.float32, device=self.device_manager.device)
         audio_in_16k = self.resampler_in(audio_in_t)
         self._sync_formant_filter()
-        audio_in_16k = self.formant_filter.apply_pre(audio_in_16k)
 
         self._pitch_sample_acc += int(audio_in_16k.shape[0])
         pitch_hop_frames = self._pitch_sample_acc // WINDOW_SIZE
@@ -347,49 +351,181 @@ class RVCr2(VoiceChangerModel):
         circular_write(audio_in_16k, self.convert_buffer, scratch=self._convert_scratch)
         self._shift_pitch_buffers_zero(pitch_hop_frames)
 
-    def convert(self, audio_in: AudioInOutFloat, sample_rate: int) -> torch.Tensor:
+    @torch.no_grad()
+    def convert_offline(
+        self,
+        audio_in: AudioInOutFloat,
+        sample_rate: int,
+        max_duration_sec: float = 12.0,
+    ) -> tuple[np.ndarray, int]:
+        """
+        Convert an offline dry vocal sample through the active RVC pipeline using
+        streaming-aligned chunk shapes (preserving TensorRT/ONNX/JIT shape caches
+        and leaving live streaming buffers untouched).
+        """
         if self.pipeline is None:
             raise PipelineNotInitializedException()
 
-        audio_in_t = torch.as_tensor(audio_in, dtype=torch.float32, device=self.device_manager.device)
-        if self.is_half:
-            audio_in_t = audio_in_t.half()
+        sr_in = max(1, int(sample_rate))
+        if isinstance(audio_in, torch.Tensor):
+            audio_np = audio_in.detach().cpu().numpy()
+        else:
+            audio_np = np.asarray(audio_in, dtype=np.float32)
+        audio_np = _to_mono_float32(audio_np)
 
-        convert_feature_size_16k = audio_in_t.shape[0] // WINDOW_SIZE
+        out_sr = int(self.output_sample_rate or self.slotInfo.samplingRate or 48000)
+        if audio_np.size == 0:
+            return np.empty(0, dtype=np.float32), out_sr
 
-        resampler_temp = tat.Resample(
-            orig_freq=sample_rate,
-            new_freq=HUBERT_SAMPLE_RATE,
-            lowpass_filter_width=16,
-            rolloff=0.94,
-            resampling_method="kaiser_window",
-            dtype=self.dtype
-        ).to(self.device_manager.device)
-        audio_in_16k = resampler_temp(audio_in_t)
+        audio_np = _select_highest_energy_segment(audio_np, sr_in, max_duration_sec)
+        dev = self.device_manager.device
 
-        vol_t = torch.sqrt(
-            torch.square(audio_in_16k).mean()
-        )
+        audio_t = torch.as_tensor(audio_np, dtype=torch.float32, device=dev)
+        if sr_in != HUBERT_SAMPLE_RATE:
+            resampler_temp = tat.Resample(
+                orig_freq=sr_in,
+                new_freq=HUBERT_SAMPLE_RATE,
+                lowpass_filter_width=16,
+                rolloff=0.94,
+                resampling_method="sinc_interp_kaiser",
+                dtype=torch.float32,
+            ).to(dev)
+            audio_16k = resampler_temp(audio_t)
+        else:
+            audio_16k = audio_t
 
-        audio_model = self.pipeline.exec(
-            self.settings.dstId,
-            audio_in_16k,
-            None,
-            None,
-            self.settings.tran,
-            self.settings.indexRatio,
-            convert_feature_size_16k,
-            0,
-            self.slotInfo.embOutputLayer,
-            self.slotInfo.useFinalProj,
-            0,
-            convert_feature_size_16k,
-            self.settings.protect,
-            formant_shift=float(getattr(self.settings, "formantShift", 0.0)),
-        )
+        n_16k = int(audio_16k.shape[0])
+        if n_16k == 0:
+            return np.empty(0, dtype=np.float32), out_sr
 
-        audio_out: torch.Tensor = self.resampler_out(audio_model * torch.sqrt(vol_t))
-        return audio_out
+        if (
+            self.convert_buffer is not None
+            and getattr(self, "convert_feature_size_16k", 0) > 0
+            and self.return_length > 0
+        ):
+            feats_len = int(self.convert_feature_size_16k)
+            skip_head = int(self.skip_head)
+            return_length = int(self.return_length)
+            silence_front = int(self.silence_front)
+        else:
+            feats_len = 100
+            skip_head = 20
+            return_length = 80
+            silence_front = 0
+
+        overlap_frames = min(4, max(0, return_length // 4))
+        step_frames = max(1, return_length - overlap_frames)
+        step_16k = step_frames * WINDOW_SIZE
+        left_pad_16k = skip_head * WINDOW_SIZE
+        win_16k = feats_len * WINDOW_SIZE
+
+        padded_16k = F.pad(audio_16k, (left_pad_16k, win_16k))
+        n_chunks = (n_16k + step_16k - 1) // step_16k
+
+        out_per_frame = out_sr * (WINDOW_SIZE / float(HUBERT_SAMPLE_RATE))
+        expected_chunk_len = max(1, int(round(return_length * out_per_frame)))
+        step_out = max(1, int(round(step_frames * out_per_frame)))
+        overlap_out = max(0, expected_chunk_len - step_out)
+        target_out_len = max(1, int(round(n_16k * (out_sr / float(HUBERT_SAMPLE_RATE)))))
+
+        out_buf_len = max(target_out_len, (n_chunks - 1) * step_out + expected_chunk_len)
+        out_buf = torch.zeros(out_buf_len, dtype=torch.float32, device=dev)
+
+        if overlap_out > 0:
+            lin = torch.linspace(0.0, 1.0, steps=overlap_out, device=dev, dtype=torch.float32)
+            fade_in = torch.sin(0.5 * np.pi * lin) ** 2
+            fade_out = torch.cos(0.5 * np.pi * lin) ** 2
+        else:
+            fade_in = None
+            fade_out = None
+
+        tmp_pitch = torch.zeros(feats_len + 1, dtype=torch.int64, device=dev)
+        tmp_pitchf = torch.zeros(feats_len + 1, dtype=self.dtype, device=dev)
+        formant_shift = float(getattr(self.settings, "formantShift", 0.0))
+
+        saved_last_f0 = self.pipeline.last_f0_smoothed
+        self.pipeline.last_f0_smoothed = None
+        try:
+            for k in range(n_chunks):
+                pos_16k = k * step_16k
+                chunk_16k = padded_16k[pos_16k : pos_16k + win_16k]
+                tmp_pitch.zero_()
+                tmp_pitchf.zero_()
+
+                audio_model = self.pipeline.exec(
+                    self.settings.dstId,
+                    chunk_16k,
+                    tmp_pitch,
+                    tmp_pitchf,
+                    self.settings.tran,
+                    self.settings.indexRatio,
+                    feats_len,
+                    silence_front,
+                    self.slotInfo.embOutputLayer,
+                    self.slotInfo.useFinalProj,
+                    skip_head,
+                    return_length,
+                    self.settings.protect,
+                    formant_shift=formant_shift,
+                )
+
+                uses_standalone = getattr(
+                    self.pipeline.inferencer, "uses_standalone_vocoder", lambda: False
+                )()
+                if uses_standalone:
+                    try:
+                        VocoderManager.get_instance().update_target_sr(out_sr)
+                    except Exception:
+                        pass
+                    chunk_out = audio_model.float()
+                elif self.resampler_out is not None:
+                    chunk_out = self.resampler_out(audio_model.float())
+                else:
+                    chunk_out = audio_model.float()
+
+                chunk_out = chunk_out.reshape(-1)
+                if chunk_out.shape[0] > expected_chunk_len:
+                    chunk_out = chunk_out[:expected_chunk_len]
+                elif chunk_out.shape[0] < expected_chunk_len:
+                    chunk_out = F.pad(chunk_out, (0, expected_chunk_len - chunk_out.shape[0]))
+
+                out_pos = k * step_out
+                has_next = k + 1 < n_chunks
+
+                if k == 0 or overlap_out <= 0:
+                    if has_next and overlap_out > 0 and fade_out is not None:
+                        out_buf[out_pos : out_pos + step_out] = chunk_out[:step_out]
+                        out_buf[out_pos + step_out : out_pos + expected_chunk_len] = (
+                            chunk_out[step_out:] * fade_out
+                        )
+                    else:
+                        out_buf[out_pos : out_pos + expected_chunk_len] = chunk_out
+                else:
+                    if fade_in is not None:
+                        out_buf[out_pos : out_pos + overlap_out] += (
+                            chunk_out[:overlap_out] * fade_in
+                        )
+                    if has_next and overlap_out > 0 and fade_out is not None:
+                        if step_out > overlap_out:
+                            out_buf[out_pos + overlap_out : out_pos + step_out] = chunk_out[
+                                overlap_out:step_out
+                            ]
+                        out_buf[out_pos + step_out : out_pos + expected_chunk_len] = (
+                            chunk_out[step_out:] * fade_out
+                        )
+                    else:
+                        out_buf[out_pos + overlap_out : out_pos + expected_chunk_len] = (
+                            chunk_out[overlap_out:]
+                        )
+        finally:
+            self.pipeline.last_f0_smoothed = saved_last_f0
+
+        out_np = out_buf[:target_out_len].detach().cpu().numpy().astype(np.float32, copy=False)
+        return out_np, out_sr
+
+    def convert(self, audio_in: AudioInOutFloat, sample_rate: int) -> torch.Tensor:
+        out_np, _ = self.convert_offline(audio_in, sample_rate)
+        return torch.as_tensor(out_np, dtype=torch.float32, device=self.device_manager.device)
 
     def inference(self, audio_in: AudioInOutFloat, bypass_silence_gate: bool = False):
         if self.pipeline is None:

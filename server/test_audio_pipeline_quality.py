@@ -15,19 +15,111 @@ SERVER_DIR = Path(__file__).resolve().parent
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
+import json
+from scipy import signal as scipy_signal
+
 from data.ModelSlot import RVCModelSlot
 from voice_changer.common.AudioDSP import (
     CausalPolyphaseResampler,
+    MinimumPhaseFormantFilter,
     StatefulPeakLimiter,
+    analyze_voice_acoustics,
+    compute_residual_match_eq_curve,
     soft_knee_limit_np,
 )
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.Local.ServerAudio import Float32RingBuffer, ServerAudio
 from voice_changer.RVC.pipeline.Pipeline import Pipeline
 from voice_changer.RVC.RVCr2 import BypassResampler, RVCr2
+from voice_changer.vocoder.RefineGANVocoder import _RefineGANGenerator
 from voice_changer.VoiceChangerSettings import VoiceChangerSettings
 from voice_changer.VoiceChangerV2 import VoiceChangerV2
 from webserver.sio.MMVC_Namespace import MMVC_Namespace
+
+
+def _run_coro(coro):
+    """Run an async coroutine using a socket-free minimal asyncio event loop."""
+    class _LocalLoop(asyncio.AbstractEventLoop):
+        """Socket-free minimal asyncio loop for deterministic coroutine testing."""
+
+        def __init__(self):
+            self._ready = collections.deque()
+            self._scheduled = []
+            self._closed = False
+
+        def is_running(self):
+            return not self._closed
+
+        def is_closed(self):
+            return self._closed
+
+        def close(self):
+            self._closed = True
+
+        def time(self):
+            return time.monotonic()
+
+        def get_debug(self):
+            return False
+
+        def create_future(self):
+            return asyncio.Future(loop=self)
+
+        def create_task(self, c, *, name=None, context=None):
+            return asyncio.Task(c, loop=self, name=name, context=context)
+
+        def call_soon(self, cb, *args, context=None):
+            h = asyncio.Handle(cb, args, self, context)
+            self._ready.append(h)
+            return h
+
+        def call_later(self, delay, cb, *args, context=None):
+            return self.call_at(self.time() + delay, cb, *args, context=context)
+
+        def call_at(self, when, cb, *args, context=None):
+            th = asyncio.TimerHandle(when, cb, args, self, context)
+            heapq.heappush(self._scheduled, th)
+            return th
+
+        def _timer_handle_cancelled(self, handle):
+            pass
+
+        def call_exception_handler(self, ctx):
+            if "exception" in ctx:
+                raise ctx["exception"]
+
+        def run_until_complete(self, fut):
+            asyncio._set_running_loop(self)
+            try:
+                task = asyncio.ensure_future(fut, loop=self)
+                while not task.done():
+                    now = self.time()
+                    while self._scheduled and self._scheduled[0]._when <= now:
+                        th = heapq.heappop(self._scheduled)
+                        if not th._cancelled:
+                            self._ready.append(th)
+                    if not self._ready and self._scheduled:
+                        dt = max(0.0, self._scheduled[0]._when - self.time())
+                        if dt > 0:
+                            time.sleep(dt)
+                        now = self.time()
+                        while self._scheduled and self._scheduled[0]._when <= now:
+                            th = heapq.heappop(self._scheduled)
+                            if not th._cancelled:
+                                self._ready.append(th)
+                    for _ in range(len(self._ready)):
+                        h = self._ready.popleft()
+                        if not h._cancelled:
+                            h._run()
+                return task.result()
+            finally:
+                asyncio._set_running_loop(None)
+
+    loop = _LocalLoop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def _compute_thd(signal: np.ndarray, fundamental_hz: float, sr: int) -> float:
@@ -364,87 +456,7 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 self.assertEqual(call_order, [("change", 10), ("skip", 20)])
                 self.assertEqual(skipped_tags, [20])
 
-        class _LocalLoop(asyncio.AbstractEventLoop):
-            """Socket-free minimal asyncio loop for deterministic coroutine testing."""
-
-            def __init__(self):
-                self._ready = collections.deque()
-                self._scheduled = []
-                self._closed = False
-
-            def is_running(self):
-                return not self._closed
-
-            def is_closed(self):
-                return self._closed
-
-            def close(self):
-                self._closed = True
-
-            def time(self):
-                return time.monotonic()
-
-            def get_debug(self):
-                return False
-
-            def create_future(self):
-                return asyncio.Future(loop=self)
-
-            def create_task(self, coro, *, name=None, context=None):
-                return asyncio.Task(coro, loop=self, name=name, context=context)
-
-            def call_soon(self, cb, *args, context=None):
-                h = asyncio.Handle(cb, args, self, context)
-                self._ready.append(h)
-                return h
-
-            def call_later(self, delay, cb, *args, context=None):
-                return self.call_at(self.time() + delay, cb, *args, context=context)
-
-            def call_at(self, when, cb, *args, context=None):
-                th = asyncio.TimerHandle(when, cb, args, self, context)
-                heapq.heappush(self._scheduled, th)
-                return th
-
-            def _timer_handle_cancelled(self, handle):
-                pass
-
-            def call_exception_handler(self, ctx):
-                if "exception" in ctx:
-                    raise ctx["exception"]
-
-            def run_until_complete(self, fut):
-                asyncio._set_running_loop(self)
-                try:
-                    task = asyncio.ensure_future(fut, loop=self)
-                    while not task.done():
-                        now = self.time()
-                        while self._scheduled and self._scheduled[0]._when <= now:
-                            th = heapq.heappop(self._scheduled)
-                            if not th._cancelled:
-                                self._ready.append(th)
-                        if not self._ready and self._scheduled:
-                            dt = max(0.0, self._scheduled[0]._when - self.time())
-                            if dt > 0:
-                                time.sleep(dt)
-                            now = self.time()
-                            while self._scheduled and self._scheduled[0]._when <= now:
-                                th = heapq.heappop(self._scheduled)
-                                if not th._cancelled:
-                                    self._ready.append(th)
-                        for _ in range(len(self._ready)):
-                            h = self._ready.popleft()
-                            if not h._cancelled:
-                                h._run()
-                    return task.result()
-                finally:
-                    asyncio._set_running_loop(None)
-
-        loop = _LocalLoop()
-        try:
-            loop.run_until_complete(_run())
-        finally:
-            loop.close()
+        _run_coro(_run())
 
     def test_server_audio_backlog_drop_feeds_context(self):
         settings = VoiceChangerSettings()
@@ -835,6 +847,390 @@ class TestAudioPipelineQuality(unittest.TestCase):
         expected_block_frame = vc._compute_block_frame()  # round(48*128/48000*44100) == 5645 (vs int() == 5644)
         self.assertEqual(captured_frames[0], expected_block_frame)
         self.assertEqual(captured_frames[0], 5645)
+
+    def test_cache_control_middleware_headers_and_passthrough(self):
+        from webserver.restapi.mods.CacheControl import CacheControlMiddleware
+
+        async def _run():
+            seen_scopes = []
+            response_status = 200
+            response_headers = []
+
+            async def inner_app(scope, receive, send):
+                seen_scopes.append(scope)
+                if scope["type"] == "http":
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": response_status,
+                            "headers": list(response_headers),
+                        }
+                    )
+                    await send({"type": "http.response.body", "body": b"ok"})
+
+            mw = CacheControlMiddleware(inner_app)
+
+            async def _invoke(scope):
+                sent = []
+
+                async def receive():
+                    return {"type": "http.request", "body": b""}
+
+                async def send(msg):
+                    sent.append(msg)
+
+                await mw(scope, receive, send)
+                return sent
+
+            # 1. Non-hashed routes strip conditional request headers and ETag/Last-Modified, and emit strict no-store
+            for path in (
+                "/",
+                "/index.html",
+                "/info",
+                "/assets/gui_settings/GUI.json",
+                "/model_dir/0/thumbnail.png",
+                "/tmp/merged.pth",
+            ):
+                seen_scopes.clear()
+                response_status = 200
+                response_headers = [
+                    (b"content-type", b"application/octet-stream"),
+                    (b"etag", b'"abc123"'),
+                    (b"last-modified", b"Sat, 21 Nov 2026 00:00:00 GMT"),
+                    (b"cache-control", b"public, max-age=60"),
+                ]
+                msgs = await _invoke(
+                    {
+                        "type": "http",
+                        "path": path,
+                        "headers": [
+                            (b"host", b"127.0.0.1"),
+                            (b"if-none-match", b'"abc123"'),
+                            (b"if-modified-since", b"Sat, 21 Nov 2026 00:00:00 GMT"),
+                        ],
+                    }
+                )
+                req_hdrs = {k.lower() for k, _ in seen_scopes[-1]["headers"]}
+                self.assertNotIn(b"if-none-match", req_hdrs, path)
+                self.assertNotIn(b"if-modified-since", req_hdrs, path)
+                self.assertIn(b"host", req_hdrs, path)
+
+                resp_hdrs = {k.lower(): v for k, v in msgs[0]["headers"]}
+                self.assertNotIn(b"etag", resp_hdrs, path)
+                self.assertNotIn(b"last-modified", resp_hdrs, path)
+                self.assertEqual(
+                    resp_hdrs[b"cache-control"],
+                    b"no-store, no-cache, must-revalidate, max-age=0",
+                    path,
+                )
+                self.assertEqual(resp_hdrs[b"pragma"], b"no-cache", path)
+                self.assertEqual(resp_hdrs[b"expires"], b"0", path)
+
+            # 2. Content-hashed top-level assets get immutable on 200 and no-store on 404
+            for path in ("/index.a1b2c3d4.js", "/0cf801b9e5b16f080bb9.ico"):
+                response_status = 200
+                response_headers = [(b"content-type", b"application/javascript")]
+                msgs = await _invoke({"type": "http", "path": path, "headers": []})
+                resp_hdrs = {k.lower(): v for k, v in msgs[0]["headers"]}
+                self.assertEqual(resp_hdrs[b"cache-control"], b"public, max-age=31536000, immutable", path)
+
+                response_status = 404
+                msgs_404 = await _invoke({"type": "http", "path": path, "headers": []})
+                resp_404_hdrs = {k.lower(): v for k, v in msgs_404[0]["headers"]}
+                self.assertEqual(
+                    resp_404_hdrs[b"cache-control"],
+                    b"no-store, no-cache, must-revalidate, max-age=0",
+                    path,
+                )
+
+            # 3. WebSocket and lifespan scopes pass through untouched
+            for scope_type in ("websocket", "lifespan"):
+                seen_scopes.clear()
+                orig = {"type": scope_type, "path": "/ws/voice"}
+                await _invoke(orig)
+                self.assertIs(seen_scopes[-1], orig)
+
+        _run_coro(_run())
+
+    def test_analyze_voice_acoustics_sr_invariance_and_voicing(self):
+        sr_48 = 48000
+        # 1.0 s voiced vowel at 200 Hz with vocal-tract resonances at F1=600 Hz, F2=1600 Hz
+        t_v = np.arange(sr_48, dtype=np.float32) / float(sr_48)
+        f0_true = 200.0
+        harmonics = sum(
+            (1.0 / k) * np.sin(2.0 * math.pi * (k * f0_true) * t_v)
+            for k in range(1, 20)
+        ).astype(np.float32)
+
+        def _resonator(x, fc_hz, bw_hz, sr):
+            r = math.exp(-math.pi * bw_hz / sr)
+            w0 = 2.0 * math.pi * fc_hz / sr
+            b = np.array([1.0 - r], dtype=np.float64)
+            a = np.array([1.0, -2.0 * r * math.cos(w0), r * r], dtype=np.float64)
+            return scipy_signal.lfilter(b, a, x).astype(np.float32)
+
+        voiced_seg = _resonator(harmonics, 600.0, 90.0, sr_48) + 0.7 * _resonator(
+            harmonics, 1600.0, 120.0, sr_48
+        )
+        voiced_seg *= 0.2 / max(float(np.std(voiced_seg)), 1e-6)
+
+        # 0.6 s loud unvoiced fricative (> 4.2 kHz white noise)
+        rng = np.random.default_rng(42)
+        noise = rng.normal(0.0, 1.0, int(0.6 * sr_48)).astype(np.float32)
+        sos_hp = scipy_signal.butter(4, 4200.0, btype="highpass", fs=sr_48, output="sos")
+        fric_seg = scipy_signal.sosfilt(sos_hp, noise).astype(np.float32)
+        fric_seg *= 0.2 / max(float(np.std(fric_seg)), 1e-6)
+
+        silence_seg = np.zeros(int(0.4 * sr_48), dtype=np.float32)
+        y_48 = np.concatenate([voiced_seg, fric_seg, silence_seg])
+        y_16 = scipy_signal.resample_poly(y_48, 1, 3).astype(np.float32)
+
+        res_48 = analyze_voice_acoustics(y_48, sr_48)
+        res_16 = analyze_voice_acoustics(y_16, 16000)
+
+        self.assertAlmostEqual(res_48["f0"], f0_true, delta=f0_true * 0.02)
+        self.assertAlmostEqual(res_16["f0"], f0_true, delta=f0_true * 0.02)
+        self.assertGreater(res_48["voiced_ratio"], 0.35)
+        self.assertLess(res_48["voiced_ratio"], 0.80)
+        self.assertGreater(res_16["voiced_ratio"], 0.35)
+        self.assertLess(res_16["voiced_ratio"], 0.80)
+
+        rel_cent_diff = abs(res_48["centroid"] - res_16["centroid"]) / max(res_48["centroid"], 1.0)
+        self.assertLess(
+            rel_cent_diff,
+            0.06,
+            f"Formant centroid drifted across SR: 48k={res_48['centroid']:.1f}, 16k={res_16['centroid']:.1f}",
+        )
+
+    def test_residual_match_eq_identity_cap_and_rms(self):
+        sr = 48000
+        filt = MinimumPhaseFormantFilter()
+        dev = torch.device("cpu")
+
+        # 1. Pre-filter is an exact pass-through
+        x_pre = torch.linspace(-0.5, 0.5, 640, dtype=torch.float32)
+        self.assertTrue(torch.equal(filt.apply_pre(x_pre), x_pre))
+
+        # 2. Identity response when target_env == base_env (no double coloring)
+        n_bins = 1025
+        freqs = np.linspace(0.0, sr / 2.0, n_bins)
+        base_env = 1.0 + 1.5 * np.exp(-0.5 * ((freqs - 650.0) / 180.0) ** 2) + 0.8 * np.exp(
+            -0.5 * ((freqs - 2100.0) / 300.0) ** 2
+        )
+        base_json = json.dumps(base_env.tolist())
+        filt.update_config(
+            active=True,
+            target_env=base_json,
+            target_sr=sr,
+            input_env=base_json,
+            input_sr=sr,
+            strength=1.0,
+            pre_sr=16000,
+            post_sr=sr,
+            device=dev,
+        )
+        t = np.arange(4096, dtype=np.float32) / float(sr)
+        sig = (
+            0.25 * np.sin(2.0 * math.pi * 300.0 * t)
+            + 0.20 * np.sin(2.0 * math.pi * 1200.0 * t)
+            + 0.15 * np.sin(2.0 * math.pi * 3500.0 * t)
+        ).astype(np.float32)
+        out_id = torch.cat(
+            [filt.apply_post(torch.from_numpy(sig[i : i + 1024])) for i in range(0, len(sig), 1024)]
+        ).numpy()
+        self.assertLess(float(np.max(np.abs(out_id - sig))), 1e-4)
+
+        # 3. Extreme +/-20 dB gap is capped at <= 6 dB and rolled off at DC & ultrasonic edges
+        extreme_tgt = np.ones_like(freqs)
+        extreme_tgt += 9.0 * np.exp(-0.5 * ((freqs - 2200.0) / 250.0) ** 2)  # +20 dB
+        extreme_tgt *= np.where(freqs < 55.0, 10.0, 1.0)
+        extreme_tgt *= np.where(freqs > 14000.0, 10.0, 1.0)
+        delta_extreme, _, _, max_db = compute_residual_match_eq_curve(
+            extreme_tgt.tolist(), sr, np.ones_like(freqs).tolist(), sr, post_sr=sr, max_db=6.0
+        )
+        self.assertLessEqual(max_db, 6.05)
+        f_grid = np.linspace(0.0, sr / 2.0, delta_extreme.shape[0])
+        ln_to_db = 20.0 / math.log(10.0)
+        self.assertLess(float(np.max(np.abs(delta_extreme[f_grid <= 55.0])) * ln_to_db), 0.05)
+        self.assertLess(float(np.max(np.abs(delta_extreme[f_grid >= 10000.0])) * ln_to_db), 0.05)
+
+        # 4. +4 dB high-shelf target tilt boosts high/low ratio & preserves overall RMS within +/-0.5 dB
+        t_long = np.arange(16384, dtype=np.float32) / float(sr)
+        speech_like = sum(
+            (1.0 / k) * np.sin(2.0 * math.pi * (k * 200.0) * t_long) for k in range(1, 22)
+        ).astype(np.float32)
+        speech_like *= 0.25 / max(float(np.std(speech_like)), 1e-6)
+        speech_env = analyze_voice_acoustics(speech_like, sr)["envelope"]
+        speech_freqs = np.linspace(0.0, sr / 2.0, speech_env.shape[0])
+        tilt_db = 4.0 * (1.0 / (1.0 + np.exp(-(speech_freqs - 1500.0) / 350.0)) - 0.5)
+        tilt_tgt = speech_env * (10.0 ** (tilt_db / 20.0))
+        speech_env_json = json.dumps(speech_env.tolist())
+        filt.reset()
+        filt.update_config(
+            active=True,
+            target_env=json.dumps(tilt_tgt.tolist()),
+            target_sr=sr,
+            input_env=speech_env_json,
+            input_sr=sr,
+            strength=1.0,
+            pre_sr=16000,
+            post_sr=sr,
+            device=dev,
+        )
+        out_tilt = torch.cat(
+            [
+                filt.apply_post(torch.from_numpy(speech_like[i : i + 1024]))
+                for i in range(0, len(speech_like), 1024)
+            ]
+        ).numpy()
+        tail_in = speech_like[4096:]
+        tail_out = out_tilt[4096:]
+        rms_diff_db = abs(
+            20.0
+            * math.log10(
+                max(float(np.sqrt(np.mean(tail_out ** 2))), 1e-8)
+                / max(float(np.sqrt(np.mean(tail_in ** 2))), 1e-8)
+            )
+        )
+        self.assertLess(rms_diff_db, 0.5, f"RMS drift too large: {rms_diff_db:.3f} dB")
+
+        spec_in = np.abs(np.fft.rfft(tail_in * np.hanning(len(tail_in))))
+        spec_out = np.abs(np.fft.rfft(tail_out * np.hanning(len(tail_out))))
+        f_spec = np.fft.rfftfreq(len(tail_in), d=1.0 / sr)
+        low_b = (f_spec >= 200.0) & (f_spec <= 800.0)
+        high_b = (f_spec >= 2000.0) & (f_spec <= 4500.0)
+        ratio_in = float(np.sum(spec_in[high_b] ** 2) / max(np.sum(spec_in[low_b] ** 2), 1e-12))
+        ratio_out = float(np.sum(spec_out[high_b] ** 2) / max(np.sum(spec_out[low_b] ** 2), 1e-12))
+        self.assertGreater(ratio_out, ratio_in * 1.15)
+
+        # 5. Legacy vowel-dict envelope & mid-stream strength updates remain finite
+        legacy_json = json.dumps(
+            {"close": tilt_tgt.tolist(), "open": tilt_tgt.tolist(), "front": tilt_tgt.tolist()}
+        )
+        for s_val in (0.4, 0.85, 0.0):
+            filt.update_config(
+                active=True,
+                target_env=legacy_json,
+                target_sr=sr,
+                input_env=base_json,
+                input_sr=sr,
+                strength=s_val,
+                pre_sr=16000,
+                post_sr=sr,
+                device=dev,
+            )
+            chunk_out = filt.apply_post(torch.from_numpy(speech_like[:1024])).numpy()
+            self.assertTrue(np.all(np.isfinite(chunk_out)))
+
+    def test_refinegan_formant_shift_pitch_invariance(self):
+        gen = _RefineGANGenerator(
+            sample_rate=40000,
+            upsample_rates=(10, 10, 2, 2),
+            num_mels=16,
+            gin_channels=0,
+        )
+        gen.eval()
+        captured_f0 = []
+        orig_m_source = gen.m_source
+
+        class _SpySource(torch.nn.Module):
+            def forward(self, f0_up):
+                captured_f0.append(f0_up.detach().clone())
+                return orig_m_source(f0_up)
+
+        gen.m_source = _SpySource()
+
+        mel = torch.randn(1, 16, 20, dtype=torch.float32)
+        f0 = torch.full((1, 20), 200.0, dtype=torch.float32)
+
+        with torch.no_grad():
+            out_scaled = gen(mel, f0, g=None, n_res=25)
+        self.assertEqual(out_scaled.shape[-1], 25 * gen.upp)
+        self.assertAlmostEqual(float(captured_f0[-1].mean().item()), 200.0 * (20.0 / 25.0), delta=0.5)
+
+        captured_f0.clear()
+        with torch.no_grad():
+            out_same = gen(mel, f0, g=None, n_res=20)
+        self.assertEqual(out_same.shape[-1], 20 * gen.upp)
+        self.assertAlmostEqual(float(captured_f0[-1].mean().item()), 200.0, delta=0.5)
+
+        # Verify TorchScript compatibility after removing weight_norm
+        gen.m_source = orig_m_source
+        gen.remove_weight_norm()
+        scripted = torch.jit.script(gen)
+        with torch.no_grad():
+            jit_out = scripted(mel, f0, None, 25)
+        self.assertEqual(jit_out.shape[-1], 25 * gen.upp)
+
+    def test_rvc_convert_offline_matches_streaming_shape(self):
+        settings = VoiceChangerSettings()
+        settings.inputSampleRate = 48000
+        settings.outputSampleRate = 48000
+        settings.crossFadeOverlapSize = 0.04
+        settings.extraConvertSize = 0.1
+        settings.serverReadChunkSize = 24
+
+        slot = RVCModelSlot(samplingRate=48000, f0=True)
+        rvc = RVCr2(slot, settings)
+        recorded_calls = []
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.last_f0_smoothed = 123.45
+
+        def _fake_exec(
+            sid,
+            audio,
+            pitch,
+            pitchf,
+            f0_up_key,
+            index_rate,
+            audio_feats_len,
+            silence_front,
+            embOutputLayer,
+            useFinalProj,
+            skip_head,
+            return_length,
+            protect,
+            formant_shift=0.0,
+        ):
+            recorded_calls.append(
+                {
+                    "audio_len": int(audio.shape[0]),
+                    "pitch_len": int(pitch.shape[0]),
+                    "pitchf_len": int(pitchf.shape[0]),
+                    "feats_len": int(audio_feats_len),
+                    "skip_head": int(skip_head),
+                    "return_length": int(return_length),
+                }
+            )
+            return torch.ones(return_length * 480, dtype=torch.float32, device=audio.device) * 0.25
+
+        mock_pipeline.exec.side_effect = _fake_exec
+        rvc.pipeline = mock_pipeline
+        rvc.resampler_in = CausalPolyphaseResampler(48000, 16000)
+        rvc.resampler_out = BypassResampler()
+        rvc.realloc(3072, int(0.1 * 48000), int(0.04 * 48000), int(0.012 * 48000))
+        rvc.convert_buffer.zero_()
+
+        t = np.arange(72000, dtype=np.float32) / 48000.0  # 1.5 s @ 48 kHz
+        audio_in = (0.3 * np.sin(2.0 * math.pi * 220.0 * t)).astype(np.float32)
+
+        out_np, out_sr = rvc.convert_offline(audio_in, 48000)
+        self.assertEqual(out_sr, 48000)
+        self.assertEqual(out_np.shape[0], 72000)
+        self.assertGreater(len(recorded_calls), 0)
+
+        for call_info in recorded_calls:
+            self.assertEqual(call_info["audio_len"], rvc.convert_feature_size_16k * 160)
+            self.assertEqual(call_info["pitch_len"], rvc.convert_feature_size_16k + 1)
+            self.assertEqual(call_info["pitchf_len"], rvc.convert_feature_size_16k + 1)
+            self.assertEqual(call_info["feats_len"], rvc.convert_feature_size_16k)
+            self.assertEqual(call_info["skip_head"], rvc.skip_head)
+            self.assertEqual(call_info["return_length"], rvc.return_length)
+
+        # Live streaming state and buffers remain untouched
+        self.assertEqual(float(rvc.convert_buffer.abs().max().item()), 0.0)
+        self.assertEqual(mock_pipeline.last_f0_smoothed, 123.45)
 
 
 if __name__ == "__main__":

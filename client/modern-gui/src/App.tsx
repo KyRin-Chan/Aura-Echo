@@ -7,7 +7,7 @@ import { RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import MainContent from './components/MainContent';
 import { useAppState } from './context/AppContext';
 import { useUIContext } from './context/UIContext';
-import { getFormantBinding, getFormantProfile } from './utils/formantStorage';
+import { getFormantBinding, getFormantProfile, serializeProfileEnvelope, syncBindingsFromServer, syncProfilesFromServer } from './utils/formantStorage';
 
 function App(): JSX.Element {
   // ---------------- State ----------------
@@ -24,51 +24,67 @@ function App(): JSX.Element {
     }
   }, [appState.errorMessage, showError, appState]);
 
-  // Auto-restore formant profile when model slot changes
+  // Auto-restore formant profile when model slot changes (server-authoritative first)
   useEffect(() => {
     const slotIndex = appState.serverSetting?.serverSetting?.modelSlotIndex;
     if (slotIndex === undefined || slotIndex === -1) return;
 
-    try {
-      const binding = getFormantBinding(slotIndex);
+    let cancelled = false;
+    const restoreFormantProfile = async () => {
+      try {
+        const [syncedProfiles, syncedBindings] = await Promise.all([
+          syncProfilesFromServer(),
+          syncBindingsFromServer()
+        ]);
+        if (cancelled) return;
 
-      if (binding && binding.targetProfileId && binding.inputProfileId) {
-        const targetProfile = getFormantProfile(binding.targetProfileId);
-        const inputProfile = getFormantProfile(binding.inputProfileId);
+        const binding =
+          syncedBindings[slotIndex] ??
+          syncedBindings[String(slotIndex)] ??
+          getFormantBinding(slotIndex);
 
-        if (targetProfile && inputProfile) {
-          const isActive = binding.active !== undefined ? Boolean(binding.active) : true;
-          appState.serverSetting.updateServerSettings({
-            ...appState.serverSetting.serverSetting,
-            tran: binding.recommendedPitch !== undefined ? binding.recommendedPitch : appState.serverSetting.serverSetting.tran,
-            formantShift: binding.recommendedFormantShift !== undefined ? binding.recommendedFormantShift : appState.serverSetting.serverSetting.formantShift,
-            formantProfileActive: isActive,
-            formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelopes || targetProfile.envelope),
-            formantProfileTargetSr: targetProfile.sr,
-            formantProfileInputEnvelope: JSON.stringify(inputProfile.envelopes || inputProfile.envelope),
-            formantProfileInputSr: inputProfile.sr,
-            formantProfileStrength: binding.strength !== undefined ? binding.strength : (appState.serverSetting.serverSetting.formantProfileStrength ?? 0.35)
-          });
-          console.log(`Auto-loaded formant profiles for model slot ${slotIndex}, active: ${isActive}`);
-        } else {
-          if (appState.serverSetting?.serverSetting?.formantProfileActive) {
+        if (binding && binding.targetProfileId && binding.inputProfileId) {
+          const targetProfile =
+            syncedProfiles.find((p) => p.id === binding.targetProfileId) ??
+            getFormantProfile(binding.targetProfileId);
+          const inputProfile =
+            syncedProfiles.find((p) => p.id === binding.inputProfileId) ??
+            getFormantProfile(binding.inputProfileId);
+
+          if (targetProfile && inputProfile) {
+            const isActive = binding.active !== undefined ? Boolean(binding.active) : true;
+            const currentSetting = appState.serverSetting.serverSetting;
+            appState.serverSetting.updateServerSettings({
+              ...currentSetting,
+              formantProfileActive: isActive,
+              formantProfileTargetEnvelope: serializeProfileEnvelope(targetProfile),
+              formantProfileTargetSr: targetProfile.sr,
+              formantProfileInputEnvelope: serializeProfileEnvelope(inputProfile),
+              formantProfileInputSr: inputProfile.sr,
+              formantProfileStrength: binding.strength !== undefined ? binding.strength : (currentSetting.formantProfileStrength ?? 0.35)
+            });
+            console.log(`Auto-loaded Match EQ profiles for model slot ${slotIndex}, active: ${isActive}`);
+          } else if (appState.serverSetting?.serverSetting?.formantProfileActive) {
             appState.serverSetting.updateServerSettings({
               ...appState.serverSetting.serverSetting,
               formantProfileActive: false
             });
           }
-        }
-      } else {
-        if (appState.serverSetting?.serverSetting?.formantProfileActive) {
+        } else if (appState.serverSetting?.serverSetting?.formantProfileActive) {
           appState.serverSetting.updateServerSettings({
             ...appState.serverSetting.serverSetting,
             formantProfileActive: false
           });
         }
+      } catch (e) {
+        console.error('Error auto-restoring formant profile:', e);
       }
-    } catch (e) {
-      console.error('Error auto-restoring formant profile:', e);
-    }
+    };
+
+    restoreFormantProfile();
+    return () => {
+      cancelled = true;
+    };
   }, [appState.serverSetting?.serverSetting?.modelSlotIndex]);
 
   // ---------------- Render ----------------

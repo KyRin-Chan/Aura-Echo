@@ -7,6 +7,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTrash } from '@fortawesome/free-solid-svg-icons';
 import { useInitialPlaceholder } from '../../../scripts/usePlaceholder';
 import { t } from '../../../locales';
+import { withCacheBuster } from '../../../utils/cacheBuster';
 
 interface DeleteModelModalProps {
   model: RVCModelSlot;
@@ -22,7 +23,7 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
 
   const icon =
     model.iconFile.length > 0
-      ? '/model_dir/' + model.slotIndex + '/' + model.iconFile.split(/[\/\\]/).pop()
+      ? withCacheBuster('/model_dir/' + model.slotIndex + '/' + model.iconFile.split(/[\/\\]/).pop(), guiState.assetVersion)
       : '';
   const placeholder = useInitialPlaceholder(model.name);
 

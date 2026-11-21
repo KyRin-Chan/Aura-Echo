@@ -13,11 +13,18 @@ export class ServerRestClient {
         this.serverUrl = serverUrl;
     }
 
+    private buildCacheBustedUrl = (path: string): string => {
+        const base = this.serverUrl + path;
+        const sep = base.includes("?") ? "&" : "?";
+        return `${base}${sep}_cb=${Date.now()}`;
+    };
+
     getSettings = async () => {
-        const url = this.serverUrl + "/info";
+        const url = this.buildCacheBustedUrl("/info");
         const info = await new Promise<ServerInfo>((resolve) => {
             const request = new Request(url, {
                 method: "GET",
+                cache: "no-store",
             });
             fetch(request).then(async (response) => {
                 const json = (await response.json()) as ServerInfo;
@@ -28,10 +35,11 @@ export class ServerRestClient {
     };
 
     getPerformance = async () => {
-        const url = this.serverUrl + "/performance";
+        const url = this.buildCacheBustedUrl("/performance");
         const info = await new Promise<number[]>((resolve) => {
             const request = new Request(url, {
                 method: "GET",
+                cache: "no-store",
             });
             fetch(request).then(async (response) => {
                 const json = (await response.json()) as number[];
@@ -193,10 +201,11 @@ export class ServerRestClient {
     };
 
     getModelType = async () => {
-        const url = this.serverUrl + "/model_type";
-        const info = new Promise<ServerInfo>(async (resolve) => {
+        const url = this.buildCacheBustedUrl("/model_type");
+        const info = await new Promise<ServerInfo>(async (resolve) => {
             const request = new Request(url, {
                 method: "GET",
+                cache: "no-store",
             });
             const res = (await (await fetch(request)).json()) as ServerInfo;
             resolve(res);
@@ -205,10 +214,11 @@ export class ServerRestClient {
     };
 
     export2onnx = async () => {
-        const url = this.serverUrl + "/onnx";
-        const info = new Promise<OnnxExporterInfo>(async (resolve) => {
+        const url = this.buildCacheBustedUrl("/onnx");
+        const info = await new Promise<OnnxExporterInfo>(async (resolve) => {
             const request = new Request(url, {
                 method: "GET",
+                cache: "no-store",
             });
             const res = (await (await fetch(request)).json()) as OnnxExporterInfo;
             resolve(res);

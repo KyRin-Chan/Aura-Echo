@@ -3,6 +3,8 @@ import { RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import MD3Checkbox from '../../../Helpers/MD3Checkbox';
 import MD3Slider from '../../../Helpers/MD3Slider';
 import { t } from '../../../../locales';
+import { useUIContext } from '../../../../context/UIContext';
+import { withCacheBuster } from '../../../../utils/cacheBuster';
 
 interface ModelMergeInfo {
   slot: RVCModelSlot;
@@ -24,6 +26,8 @@ function MergeModelList({
   onPercentageChange,
   modelDir
 }: MergeModelListProps): JSX.Element {
+  const { assetVersion } = useUIContext();
+
   // ---------------- Functions ----------------
 
   // Check if a model is selected
@@ -91,7 +95,7 @@ function MergeModelList({
             const percentage = getModelPercentage(model);
             const icon =
               model.iconFile.length > 0
-                ? '/model_dir/' + model.slotIndex + '/' + model.iconFile.split(/[\/\\]/).pop()
+                ? withCacheBuster('/model_dir/' + model.slotIndex + '/' + model.iconFile.split(/[\/\\]/).pop(), assetVersion)
                 : '';
             const placeholder = generatePlaceholder(model.name);
 

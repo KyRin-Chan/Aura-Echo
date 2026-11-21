@@ -1,7 +1,10 @@
+import { fetchNoCache } from './cacheBuster';
+
 export interface FormantProfile {
   id: string;
   name: string;
   type: 'input' | 'target';
+  mode?: 'rvc_output' | 'target' | 'legacy_input';
   envelope: number[];
   envelopes?: {
     open: number[];
@@ -11,7 +14,18 @@ export interface FormantProfile {
   sr: number;
   f0?: number;
   centroid?: number;
+  modelSlotIndex?: number;
+  calibratedTran?: number;
+  calibratedFormantShift?: number;
+  rmsResidualDb?: number;
 }
+
+export const serializeProfileEnvelope = (profile: FormantProfile): string => {
+  if (Array.isArray(profile.envelope) && profile.envelope.length > 0) {
+    return JSON.stringify(profile.envelope);
+  }
+  return JSON.stringify(profile.envelopes ?? []);
+};
 
 export interface ModelFormantBinding {
   slotIndex: number | string;
@@ -62,15 +76,26 @@ export const getAllFormantProfiles = (): FormantProfile[] => {
 
 export const syncProfilesFromServer = async (): Promise<FormantProfile[]> => {
   try {
-    const res = await fetch('/formant_profiles');
+    const res = await fetchNoCache('/formant_profiles');
     if (res.ok) {
       const serverProfiles: FormantProfile[] = await res.json();
       if (Array.isArray(serverProfiles)) {
         const ids: string[] = [];
+        const validIds = new Set<string>();
         for (const p of serverProfiles) {
           if (p && p.id) {
             localStorage.setItem(`${PROFILE_KEY_PREFIX}${p.id}`, JSON.stringify(p));
             ids.push(p.id);
+            validIds.add(p.id);
+          }
+        }
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(PROFILE_KEY_PREFIX)) {
+            const id = key.slice(PROFILE_KEY_PREFIX.length);
+            if (!validIds.has(id)) {
+              localStorage.removeItem(key);
+            }
           }
         }
         localStorage.setItem(PROFILE_LIST_KEY, JSON.stringify(ids));
@@ -151,15 +176,26 @@ export const getAllFormantBindings = (): Record<string | number, ModelFormantBin
 
 export const syncBindingsFromServer = async (): Promise<Record<string | number, ModelFormantBinding>> => {
   try {
-    const res = await fetch('/formant_bindings');
+    const res = await fetchNoCache('/formant_bindings');
     if (res.ok) {
       const serverBindings: Record<string, ModelFormantBinding> = await res.json();
       if (serverBindings && typeof serverBindings === 'object') {
         const slots: (string | number)[] = [];
+        const validSlots = new Set<string>();
         for (const [slotKey, b] of Object.entries(serverBindings)) {
           if (b && b.slotIndex !== undefined) {
             localStorage.setItem(`${BINDING_KEY_PREFIX}${b.slotIndex}`, JSON.stringify(b));
             slots.push(b.slotIndex);
+            validSlots.add(String(b.slotIndex));
+          }
+        }
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(BINDING_KEY_PREFIX)) {
+            const slotStr = key.slice(BINDING_KEY_PREFIX.length);
+            if (!validSlots.has(slotStr)) {
+              localStorage.removeItem(key);
+            }
           }
         }
         localStorage.setItem(BINDING_LIST_KEY, JSON.stringify(slots));
@@ -170,6 +206,24 @@ export const syncBindingsFromServer = async (): Promise<Record<string | number, 
     console.warn('Failed to sync formant bindings from server:', e);
   }
   return getAllFormantBindings();
+};
+
+export const clearLocalFormantCache = (): void => {
+  try {
+    localStorage.removeItem(PROFILE_LIST_KEY);
+    localStorage.removeItem(BINDING_LIST_KEY);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (
+        key &&
+        (key.startsWith(PROFILE_KEY_PREFIX) || key.startsWith(BINDING_KEY_PREFIX))
+      ) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch (e) {
+    console.error('Error clearing formant cache:', e);
+  }
 };
 
 export const saveFormantBinding = (

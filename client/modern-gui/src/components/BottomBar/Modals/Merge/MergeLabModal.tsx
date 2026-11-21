@@ -7,6 +7,7 @@ import MergeFilter from './MergeFilter';
 import { t } from '../../../../locales';
 import MergeModelList from './MergeModelList';
 import MergeConfiguration from './MergeConfiguration';
+import { fetchNoCache } from '../../../../utils/cacheBuster';
 
 interface ModelMergeInfo {
   slot: RVCModelSlot;
@@ -136,7 +137,7 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
         guiState.showError(t('modelsMergedSuccess'), 'Confirm');
 
         // Fetch the merged model file once
-        const response = await fetch("/tmp/merged.pth");
+        const response = await fetchNoCache("/tmp/merged.pth");
         mergedModelBlob = await response.blob();
 
         // Download to local drive if requested

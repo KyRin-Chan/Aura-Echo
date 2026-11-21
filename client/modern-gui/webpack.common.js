@@ -41,8 +41,10 @@ module.exports = {
         ],
     },
     output: {
-        filename: "index.js",
+        filename: "index.[contenthash:8].js",
+        chunkFilename: "[name].[contenthash:8].js",
         path: path.resolve(__dirname, "dist"),
+        clean: true,
     },
     plugins: [
         new webpack.ProvidePlugin({

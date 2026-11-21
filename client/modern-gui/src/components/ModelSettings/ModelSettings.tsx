@@ -13,12 +13,14 @@ import {
   getAllFormantBindings,
   saveFormantBinding,
   syncProfilesFromServer,
-  syncBindingsFromServer
+  syncBindingsFromServer,
+  serializeProfileEnvelope
 } from "../../utils/formantStorage";
 
 interface ModelSettingsProps {
   model: RVCModelSlot;
   handlePitchChange: (val: number) => void;
+  handleFormantShiftChange: (val: number) => void;
   handleIndexRatioChange: (val: number) => void;
   handleSpeakerChange: (val: number) => void;
   setModel: (model: RVCModelSlot) => void;
@@ -27,6 +29,7 @@ interface ModelSettingsProps {
 function ModelSettings({
   model,
   handlePitchChange,
+  handleFormantShiftChange,
   handleIndexRatioChange,
   handleSpeakerChange,
   setModel
@@ -36,6 +39,9 @@ function ModelSettings({
   // ---------------- State ----------------
   const [immediatePitch, setImmediatePitch] = useState<number>(
     appState.serverSetting?.serverSetting?.tran ?? 0
+  );
+  const [immediateFormantShift, setImmediateFormantShift] = useState<number>(
+    appState.serverSetting?.serverSetting?.formantShift ?? 0
   );
   const [immediateIndexRatio, setImmediateIndexRatio] = useState<number>(
     appState.serverSetting?.serverSetting?.indexRatio ?? 0.5
@@ -65,17 +71,21 @@ function ModelSettings({
     loadProfilesAndBindings();
   }, [
     appState.serverSetting?.serverSetting?.modelSlotIndex,
-    appState.serverSetting?.serverSetting?.formantProfileActive
+    appState.serverSetting?.serverSetting?.formantProfileActive,
+    appState.serverSetting?.serverSetting?.formantProfileInputEnvelope,
+    appState.serverSetting?.serverSetting?.formantProfileTargetEnvelope
   ]);
 
   useEffect(() => {
     if (appState.serverSetting?.serverSetting) {
       setImmediatePitch(appState.serverSetting.serverSetting.tran);
+      setImmediateFormantShift(appState.serverSetting.serverSetting.formantShift ?? 0);
       setImmediateIndexRatio(appState.serverSetting.serverSetting.indexRatio);
       setImmediateStrength(appState.serverSetting.serverSetting.formantProfileStrength ?? 0.35);
     }
   }, [
     appState.serverSetting?.serverSetting?.tran,
+    appState.serverSetting?.serverSetting?.formantShift,
     appState.serverSetting?.serverSetting?.indexRatio,
     appState.serverSetting?.serverSetting?.formantProfileStrength
   ]);
@@ -94,9 +104,9 @@ function ModelSettings({
           const targetProfile = profiles.find((p) => p.id === currentBinding.targetProfileId);
           if (inputProfile && targetProfile) {
             extraSettings = {
-              formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelopes || targetProfile.envelope),
+              formantProfileTargetEnvelope: serializeProfileEnvelope(targetProfile),
               formantProfileTargetSr: targetProfile.sr,
-              formantProfileInputEnvelope: JSON.stringify(inputProfile.envelopes || inputProfile.envelope),
+              formantProfileInputEnvelope: serializeProfileEnvelope(inputProfile),
               formantProfileInputSr: inputProfile.sr
             };
           }
@@ -134,7 +144,7 @@ function ModelSettings({
       if (inputProfile) {
         appState.serverSetting.updateServerSettings({
           ...appState.serverSetting.serverSetting,
-          formantProfileInputEnvelope: JSON.stringify(inputProfile.envelopes || inputProfile.envelope),
+          formantProfileInputEnvelope: serializeProfileEnvelope(inputProfile),
           formantProfileInputSr: inputProfile.sr
         });
       }
@@ -164,7 +174,7 @@ function ModelSettings({
       if (targetProfile) {
         appState.serverSetting.updateServerSettings({
           ...appState.serverSetting.serverSetting,
-          formantProfileTargetEnvelope: JSON.stringify(targetProfile.envelopes || targetProfile.envelope),
+          formantProfileTargetEnvelope: serializeProfileEnvelope(targetProfile),
           formantProfileTargetSr: targetProfile.sr
         });
       }
@@ -213,6 +223,23 @@ function ModelSettings({
           valueFormatter={(val) => `${val > 0 ? '+' : ''}${val}`}
         />
       </div>
+      <div>
+        <label htmlFor="formantShift" className={CSS_CLASSES.label}>
+          {t('formantShiftLabel')}
+        </label>
+        <MD3Slider
+          id="formantShift"
+          min={-6}
+          max={6}
+          step={0.1}
+          value={appState.serverSetting?.serverSetting?.formantShift ?? 0}
+          onChange={handleFormantShiftChange}
+          onImmediateChange={setImmediateFormantShift}
+          disabled={!model}
+          showValue={true}
+          valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(1)}`}
+        />
+      </div>
       <div className="flex items-center space-x-3 py-1">
         <MD3Switch
           checked={appState.serverSetting?.serverSetting?.formantProfileActive ?? false}
@@ -222,7 +249,7 @@ function ModelSettings({
       </div>
       {appState.serverSetting?.serverSetting?.formantProfileActive && (
         <div className="space-y-3 animate-fadeIn border-l-2 border-primary/20 pl-3">
-          {/* Input Profile Dropdown */}
+          {/* Baseline (Model Output) Profile Dropdown */}
           <div>
             <label className={CSS_CLASSES.label}>
               {t('voiceAnalyzerInputProfileDropdown')}
@@ -232,7 +259,7 @@ function ModelSettings({
                 { value: "", label: t('voiceAnalyzerNoneOption') },
                 ...profiles.filter(p => p.type === 'input').map((p) => ({
                   value: p.id,
-                  label: p.name
+                  label: !p.mode || p.mode === 'legacy_input' ? `${p.name} (${t('matchEqLegacyTag')})` : p.name
                 }))
               ]}
               value={bindings[appState.serverSetting?.serverSetting?.modelSlotIndex]?.inputProfileId || ""}

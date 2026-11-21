@@ -2,6 +2,7 @@ import { MergeModelRequest, OnnxExporterInfo, ServerInfo, ServerSettingKey } fro
 export declare class ServerRestClient {
     private serverUrl;
     constructor(serverUrl: string);
+    private buildCacheBustedUrl;
     getSettings: () => Promise<ServerInfo>;
     getPerformance: () => Promise<number[]>;
     updateSettings: (key: ServerSettingKey, val: string) => Promise<ServerInfo>;

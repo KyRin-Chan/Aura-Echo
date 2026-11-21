@@ -175,7 +175,7 @@ function AudioPlayer({
   // Handle download
   const handleDownload = async () => {
     try {
-      const response = await fetch(src);
+      const response = await fetch(src, { cache: 'no-store' });
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
 

@@ -6,6 +6,7 @@ import { useAppState } from '../../../context/AppContext';
 import { useUIContext } from '../../../context/UIContext';
 import MD3Select from '../../Helpers/MD3Select';
 import { t } from '../../../locales';
+import { withCacheBuster } from '../../../utils/cacheBuster';
 
 type EditFormState = {
   modelName: string;
@@ -48,10 +49,10 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
     let currentIcon = icon || '';
     if (!currentIcon && model.iconFile && model.iconFile.length > 0) {
       const last = model.iconFile.split(/[\\/\\]/).pop() as string;
-      currentIcon = `/model_dir/${model.slotIndex}/${last}`;
+      currentIcon = withCacheBuster(`/model_dir/${model.slotIndex}/${last}`, guiState.assetVersion);
     }
     setThumbnailPreview(currentIcon || null);
-  }, [showModal, icon, model.iconFile, model.slotIndex]);
+  }, [showModal, icon, model.iconFile, model.slotIndex, guiState.assetVersion]);
 
   // ---------------- Handlers ----------------
   const handleCancel = () => {
@@ -108,6 +109,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
     }
 
     await appState.serverSetting.reloadServerInfo();
+    guiState.bumpAssetVersion();
     guiState.showError(t('modelUpdateSuccess'), 'Confirm');
     setShowEdit(false);
   };

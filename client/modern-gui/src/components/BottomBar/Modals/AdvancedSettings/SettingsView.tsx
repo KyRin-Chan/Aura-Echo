@@ -10,6 +10,7 @@ import { faExclamationTriangle } from '@fortawesome/free-solid-svg-icons';
 import { Protocol, useIndexedDB } from '@dannadori/voice-changer-client-js';
 import { CSS_CLASSES } from '../../../../styles/constants';
 import { t, currentLang, setLang, LangType } from '../../../../locales';
+import { clearLocalFormantCache } from '../../../../utils/formantStorage';
 
 function SettingsView(): JSX.Element {
   // ---------------- States ----------------
@@ -157,6 +158,9 @@ function SettingsView(): JSX.Element {
     await removeItem('INDEXEDDB_KEY_AUDIO_OUTPUT');
     await removeItem('INDEXEDDB_KEY_AUDIO_MONITOR');
     localStorage.removeItem('app_language');
+    localStorage.removeItem('aura_card_order');
+    clearLocalFormantCache();
+    sessionStorage.clear();
     window.location.reload();
   };
 

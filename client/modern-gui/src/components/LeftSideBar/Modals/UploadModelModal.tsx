@@ -228,6 +228,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
           console.log('Icon uploaded.');
         }
 
+        guiState.bumpAssetVersion();
         guiState.showError(t('modelUploadSuccess'), 'Confirm');
 
         if (autoSelectModel) {

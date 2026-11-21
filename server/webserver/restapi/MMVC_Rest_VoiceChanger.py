@@ -10,6 +10,10 @@ from fastapi.encoders import jsonable_encoder
 from const import get_edition, get_version
 from voice_changer.VoiceChangerManager import VoiceChangerManager
 from voice_changer.FormantProfileManager import FormantProfileManager
+from voice_changer.common.AudioDSP import (
+    analyze_voice_acoustics,
+    compute_residual_match_eq_curve,
+)
 from webserver.restapi.mods.FileUploader import upload_file
 
 from const import UPLOAD_DIR
@@ -29,6 +33,7 @@ class MMVC_Rest_VoiceChanger:
         self.router.add_api_route("/update_settings", self.post_update_settings, methods=["POST"])
         self.router.add_api_route("/upload_file", self.post_upload_file, methods=["POST"])
         self.router.add_api_route("/analyze_voice", self.post_analyze_voice, methods=["POST"])
+        self.router.add_api_route("/calibrate_match_eq", self.post_calibrate_match_eq, methods=["POST"])
 
         # Formant Profile & Binding API routes
         self.router.add_api_route("/formant_profiles", self.get_formant_profiles, methods=["GET"])
@@ -123,45 +128,54 @@ class MMVC_Rest_VoiceChanger:
         except Exception as e:
             logger.exception(e)
 
+    def _load_and_analyze_file(self, path: str):
+        import librosa
+
+        y, sr = librosa.load(path, sr=None, mono=True)
+        res = analyze_voice_acoustics(y, sr)
+        return y, int(sr), res
+
     async def post_analyze_voice(self, target_file: UploadFile, input_file: UploadFile = None):
         import uuid
         import os
         from const import TMP_DIR
-        import librosa
-        import numpy as np
 
-        target_ext = os.path.splitext(target_file.filename)[1] or ".wav"
+        os.makedirs(TMP_DIR, exist_ok=True)
+        target_ext = os.path.splitext(target_file.filename or "")[1] or ".wav"
         target_path = os.path.join(TMP_DIR, f"target_{uuid.uuid4().hex}{target_ext}")
         input_path = None
-        
+
         try:
-            # Save uploaded target file temporarily
             with open(target_path, "wb") as f:
                 f.write(await target_file.read())
-                
-            # Load target audio using librosa
-            y_tgt, sr_tgt = librosa.load(target_path, sr=None)
-            f0_tgt, cent_tgt, env_tgt, vowel_envs_tgt = self._analyze_audio(y_tgt, sr_tgt)
-            
+
+            _, sr_tgt, tgt_res = await asyncio.to_thread(self._load_and_analyze_file, target_path)
+            f0_tgt = tgt_res["f0"]
+            cent_tgt = tgt_res["centroid"]
+            env_tgt = tgt_res["envelope"]
+
             if input_file is not None:
-                input_ext = os.path.splitext(input_file.filename)[1] or ".wav"
+                input_ext = os.path.splitext(input_file.filename or "")[1] or ".wav"
                 input_path = os.path.join(TMP_DIR, f"input_{uuid.uuid4().hex}{input_ext}")
                 with open(input_path, "wb") as f:
                     f.write(await input_file.read())
-                y_in, sr_in = librosa.load(input_path, sr=None)
-                f0_in, cent_in, env_in, vowel_envs_in = self._analyze_audio(y_in, sr_in)
-                
+
+                _, sr_in, in_res = await asyncio.to_thread(self._load_and_analyze_file, input_path)
+                f0_in = in_res["f0"]
+                cent_in = in_res["centroid"]
+                env_in = in_res["envelope"]
+
                 recommended_pitch = 0.0
                 if f0_tgt > 0 and f0_in > 0:
-                    recommended_pitch = 12 * np.log2(f0_tgt / f0_in)
-                    recommended_pitch = round(recommended_pitch * 2) / 2
-                    
+                    recommended_pitch = 12.0 * float(np.log2(f0_tgt / f0_in))
+                    recommended_pitch = round(recommended_pitch * 2.0) / 2.0
+
                 recommended_formant = 0.0
                 if cent_tgt > 0 and cent_in > 0:
                     leakage_coefficient = 0.35
-                    recommended_formant = leakage_coefficient * 12 * np.log2(cent_tgt / cent_in)
-                    recommended_formant = round(recommended_formant, 2)
-                    
+                    raw_shift = leakage_coefficient * 12.0 * float(np.log2(cent_tgt / cent_in))
+                    recommended_formant = round(float(np.clip(raw_shift, -4.0, 4.0)), 1)
+
                 return JSONResponse({
                     "success": True,
                     "target_f0": round(float(f0_tgt), 1),
@@ -171,11 +185,11 @@ class MMVC_Rest_VoiceChanger:
                     "recommended_pitch": recommended_pitch,
                     "recommended_formant_shift": recommended_formant,
                     "target_envelope": env_tgt.tolist(),
-                    "target_envelopes": vowel_envs_tgt,
                     "target_sr": int(sr_tgt),
+                    "target_voiced_ratio": round(float(tgt_res["voiced_ratio"]), 3),
                     "input_envelope": env_in.tolist(),
-                    "input_envelopes": vowel_envs_in,
-                    "input_sr": int(sr_in)
+                    "input_sr": int(sr_in),
+                    "input_voiced_ratio": round(float(in_res["voiced_ratio"]), 3),
                 })
             else:
                 return JSONResponse({
@@ -183,10 +197,10 @@ class MMVC_Rest_VoiceChanger:
                     "target_f0": round(float(f0_tgt), 1),
                     "target_centroid": round(float(cent_tgt), 1),
                     "target_envelope": env_tgt.tolist(),
-                    "target_envelopes": vowel_envs_tgt,
-                    "target_sr": int(sr_tgt)
+                    "target_sr": int(sr_tgt),
+                    "target_voiced_ratio": round(float(tgt_res["voiced_ratio"]), 3),
                 })
-            
+
         except Exception as e:
             logger.exception(e)
             error_msg = str(e)
@@ -194,11 +208,10 @@ class MMVC_Rest_VoiceChanger:
                 error_msg = "No audio decoding backend found (FFmpeg is required to load compressed formats like .m4a on Windows). Please install FFmpeg and add it to your system PATH, or convert your audio file to .wav format before uploading."
             return JSONResponse({
                 "success": False,
-                "error": error_msg
+                "error": error_msg,
             }, status_code=500)
-            
+
         finally:
-            # Cleanup temporary files
             if os.path.exists(target_path):
                 try:
                     os.remove(target_path)
@@ -210,109 +223,108 @@ class MMVC_Rest_VoiceChanger:
                 except Exception as ex:
                     logger.warning(f"Failed to remove temp file {input_path}: {ex}")
 
-    def _analyze_audio(self, y, sr):
+    async def post_calibrate_match_eq(
+        self,
+        target_file: UploadFile,
+        input_file: UploadFile,
+        run_rvc: bool = Form(True),
+    ):
+        import uuid
+        import os
+        from const import TMP_DIR
         import librosa
-        import numpy as np
-        
-        # 1. Pitch F0 extraction (using YIN)
-        f0 = librosa.yin(y, fmin=50, fmax=800, sr=sr)
-        rms = librosa.feature.rms(y=y)
-        threshold = 0.05 * np.max(rms) if np.max(rms) > 0 else 1e-4
-        voiced_frames = rms[0] > threshold
-        voiced_f0 = f0[voiced_frames] if np.any(voiced_frames) else f0
-        voiced_f0 = voiced_f0[voiced_f0 > 0]
-        
-        f0_median = np.median(voiced_f0) if len(voiced_f0) > 0 else 0.0
-        
-        # 2. Cepstral Envelope Centroid extraction (pitch-decoupled formant proxy)
-        # Compute STFT magnitude spectrogram
-        S = np.abs(librosa.stft(y))
-        log_S = np.log(S + 1e-8)
-        
-        # Compute real inverse FFT along frequency bins (axis 0) to get cepstrum
-        cepstrum = np.fft.irfft(log_S, axis=0)
-        n_fft_samples = cepstrum.shape[0]
-        
-        # Keep only the lower quefrency coefficients (first 20 coefficients) representing vocal tract shape (formants),
-        # and zero out the high quefrency components representing fundamental pitch harmonics.
-        quefrency_cutoff = 20
-        if n_fft_samples > 2 * quefrency_cutoff:
-            cepstrum[quefrency_cutoff : -quefrency_cutoff, :] = 0
-            
-        # Compute forward real FFT back to frequency domain to get the smoothed log envelope
-        # Take the real part of the envelope to keep it real-valued and avoid imaginary warnings/errors
-        log_envelope = np.fft.rfft(cepstrum, axis=0).real
-        # Handle shape mismatch if any
-        if log_envelope.shape[0] > log_S.shape[0]:
-            log_envelope = log_envelope[:log_S.shape[0], :]
-        elif log_envelope.shape[0] < log_S.shape[0]:
-            pass
-        envelope = np.exp(log_envelope)
-        
-        # Spectral Centroid of the smoothed envelope
-        frequencies = librosa.fft_frequencies(sr=sr, n_fft=2 * (S.shape[0] - 1))
-        
-        # Compute centroid for each frame using the pitch-independent envelope
-        sum_envelope = np.sum(envelope, axis=0)
-        sum_envelope[sum_envelope == 0] = 1e-8
-        centroid_frames = np.sum(envelope * frequencies[:, np.newaxis], axis=0) / sum_envelope
-        
-        voiced_cent = centroid_frames[voiced_frames] if np.any(voiced_frames) else centroid_frames
-        cent_median = np.median(voiced_cent) if len(voiced_cent) > 0 else 0.0
-        
-        # Compute mean log envelope across voiced frames
-        voiced_log_envelope = log_envelope[:, voiced_frames] if np.any(voiced_frames) else log_envelope
-        mean_log_envelope = np.mean(voiced_log_envelope, axis=1)
 
-        # Automatic Vowel Envelope Clustering (Pure NumPy 3-Cluster K-Means to avoid sklearn threadpoolctl warnings)
-        vowel_envelopes = {}
-        if voiced_log_envelope.shape[1] >= 6:
-            try:
-                cep_feat = cepstrum[:5, voiced_frames].T if np.any(voiced_frames) else cepstrum[:5, :].T
-                
-                # Pure NumPy 3-Cluster K-Means
-                N_samples = cep_feat.shape[0]
-                idx = np.linspace(0, N_samples - 1, 3, dtype=int)
-                centroids = cep_feat[idx].copy()
-                labels = np.zeros(N_samples, dtype=int)
-                for _ in range(10):
-                    dists = np.sum((cep_feat[:, np.newaxis, :] - centroids[np.newaxis, :, :]) ** 2, axis=2)
-                    new_labels = np.argmin(dists, axis=1)
-                    if np.array_equal(labels, new_labels):
-                        break
-                    labels = new_labels
-                    for k in range(3):
-                        k_mask = (labels == k)
-                        if np.any(k_mask):
-                            centroids[k] = np.mean(cep_feat[k_mask], axis=0)
-                
-                c_envs = []
-                for k in range(3):
-                    k_mask = (labels == k)
-                    if np.any(k_mask):
-                        c_envs.append(np.mean(voiced_log_envelope[:, k_mask], axis=1))
-                    else:
-                        c_envs.append(mean_log_envelope)
-                
-                # Sort cluster centroids by physical F1 low-frequency energy (< 1000 Hz)
-                low_band_mask = frequencies < 1000.0
-                if not np.any(low_band_mask):
-                    low_band_mask = slice(None, max(1, len(frequencies) // 8))
-                c_envs.sort(key=lambda env: np.mean(env[low_band_mask]))
-                vowel_envelopes = {
-                    "close": np.exp(c_envs[0]).tolist(),
-                    "open": np.exp(c_envs[1]).tolist(),
-                    "front": np.exp(c_envs[2]).tolist()
-                }
-            except Exception as ex:
-                logger.warning(f"Failed to cluster vowel envelopes: {ex}")
-                exp_env = np.exp(mean_log_envelope).tolist()
-                vowel_envelopes = {"close": exp_env, "open": exp_env, "front": exp_env}
-        else:
-            exp_env = np.exp(mean_log_envelope).tolist()
-            vowel_envelopes = {"close": exp_env, "open": exp_env, "front": exp_env}
+        os.makedirs(TMP_DIR, exist_ok=True)
+        target_ext = os.path.splitext(target_file.filename or "")[1] or ".wav"
+        input_ext = os.path.splitext(input_file.filename or "")[1] or ".wav"
+        target_path = os.path.join(TMP_DIR, f"cal_tgt_{uuid.uuid4().hex}{target_ext}")
+        input_path = os.path.join(TMP_DIR, f"cal_in_{uuid.uuid4().hex}{input_ext}")
 
-        return f0_median, cent_median, np.exp(mean_log_envelope), vowel_envelopes
+        try:
+            with open(target_path, "wb") as f:
+                f.write(await target_file.read())
+            with open(input_path, "wb") as f:
+                f.write(await input_file.read())
+
+            _, sr_tgt, tgt_res = await asyncio.to_thread(self._load_and_analyze_file, target_path)
+            y_in, sr_in = await asyncio.to_thread(lambda p: librosa.load(p, sr=None, mono=True), input_path)
+
+            if run_rvc:
+                vcmodel = getattr(self.voiceChangerManager.vc, "vcmodel", None)
+                if (
+                    vcmodel is None
+                    or not hasattr(vcmodel, "convert_offline")
+                    or getattr(vcmodel, "pipeline", None) is None
+                ):
+                    return JSONResponse({
+                        "success": False,
+                        "error": "No active RVC model loaded. Please select an RVC model first, or disable RVC conversion to supply an already-converted sample.",
+                    }, status_code=400)
+
+                def _run_offline():
+                    with self.voiceChangerManager.device_manager.lock:
+                        return vcmodel.convert_offline(y_in, int(sr_in))
+
+                y_base, sr_base = await asyncio.to_thread(_run_offline)
+                if y_base is None or y_base.size == 0:
+                    return JSONResponse({
+                        "success": False,
+                        "error": "Offline RVC conversion returned empty audio.",
+                    }, status_code=400)
+            else:
+                y_base, sr_base = y_in, int(sr_in)
+
+            base_res = await asyncio.to_thread(analyze_voice_acoustics, y_base, int(sr_base))
+
+            settings = self.voiceChangerManager.settings
+            post_sr = int(getattr(settings, "outputSampleRate", 48000) or 48000)
+            _, _, rms_residual_db, max_correction_db = compute_residual_match_eq_curve(
+                tgt_res["envelope"],
+                int(tgt_res["sr"]),
+                base_res["envelope"],
+                int(base_res["sr"]),
+                post_sr=post_sr,
+            )
+
+            return JSONResponse({
+                "success": True,
+                "calibrated_with_rvc": bool(run_rvc),
+                "model_slot_index": int(getattr(settings, "modelSlotIndex", -1)),
+                "calibrated_tran": float(getattr(settings, "tran", 0.0)),
+                "calibrated_formant_shift": float(getattr(settings, "formantShift", 0.0)),
+                "target_f0": round(float(tgt_res["f0"]), 1),
+                "target_centroid": round(float(tgt_res["centroid"]), 1),
+                "target_envelope": tgt_res["envelope"].tolist(),
+                "target_sr": int(tgt_res["sr"]),
+                "baseline_f0": round(float(base_res["f0"]), 1),
+                "baseline_centroid": round(float(base_res["centroid"]), 1),
+                "baseline_envelope": base_res["envelope"].tolist(),
+                "baseline_sr": int(base_res["sr"]),
+                "rms_residual_db": round(float(rms_residual_db), 2),
+                "max_correction_db": round(float(max_correction_db), 2),
+            })
+
+        except Exception as e:
+            logger.exception(e)
+            error_msg = str(e)
+            if "NoBackendError" in type(e).__name__ or "NoBackendError" in error_msg:
+                error_msg = "No audio decoding backend found (FFmpeg is required to load compressed formats like .m4a on Windows). Please install FFmpeg and add it to your system PATH, or convert your audio file to .wav format before uploading."
+            return JSONResponse({
+                "success": False,
+                "error": error_msg,
+            }, status_code=500)
+
+        finally:
+            for p in (target_path, input_path):
+                if p and os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception as ex:
+                        logger.warning(f"Failed to remove temp file {p}: {ex}")
+
+    def _analyze_audio(self, y, sr):
+        res = analyze_voice_acoustics(y, sr)
+        return res["f0"], res["centroid"], res["envelope"]
 
     # Formant Profile & Binding API handlers
     async def get_formant_profiles(self):

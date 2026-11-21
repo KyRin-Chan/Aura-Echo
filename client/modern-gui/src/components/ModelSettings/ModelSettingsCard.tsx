@@ -10,6 +10,7 @@ import { useInitialPlaceholder } from '../../scripts/usePlaceholder';
 import ModelInfo from './ModelInfo';
 import ModelSettings from './ModelSettings';
 import { t } from '../../locales';
+import { withCacheBuster } from '../../utils/cacheBuster';
 
 interface ModelSettingsCardProps {
   dndAttributes?: Record<string, any>;
@@ -23,7 +24,7 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [model, setModel] = useState<RVCModelSlot>();
 
-  const icon = (model?.iconFile && model?.iconFile.length > 0) ? "/model_dir/" + model.slotIndex + "/" + model.iconFile.split(/[\/\\]/).pop() : "";
+  const icon = (model?.iconFile && model?.iconFile.length > 0) ? withCacheBuster("/model_dir/" + model.slotIndex + "/" + model.iconFile.split(/[\/\\]/).pop(), uiContext.assetVersion) : "";
   const placeholder = useInitialPlaceholder(model?.name || "");
 
   // ---------------- Hooks ----------------
@@ -40,6 +41,14 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       tran: val
+    });
+  };
+
+  // Handle physical formant shift change
+  const handleFormantShiftChange = (val: number) => {
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      formantShift: val
     });
   };
 
@@ -98,6 +107,7 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
                 <ModelSettings
                   model={model}
                   handlePitchChange={handlePitchChange}
+                  handleFormantShiftChange={handleFormantShiftChange}
                   handleIndexRatioChange={handleIndexRatioChange}
                   handleSpeakerChange={handleSpeakerChange}
                   setModel={setModel}

@@ -512,7 +512,11 @@ class _RefineGANGenerator(nn.Module):
             if n_res != mel.shape[-1]:
                 mel = F.interpolate(mel, size=n_res, mode="linear")
             if n_res != f0.shape[-1]:
-                f0 = F.interpolate(f0.unsqueeze(1), size=n_res, mode="linear").squeeze(1)
+                orig_f0_len = f0.shape[-1]
+                f0 = (
+                    F.interpolate(f0.unsqueeze(1), size=n_res, mode="linear").squeeze(1)
+                    * (orig_f0_len / float(n_res))
+                )
 
         f0_frames = mel.shape[-1]
 

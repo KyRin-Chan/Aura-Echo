@@ -117,15 +117,27 @@ export const useClient = (props: UseClientProps): ClientState => {
         }
         const loadSettings = async () => {
             const server = await serverSetting.reloadServerInfo();
-            const _setting = (await getItem("clientSetting")) as ClientSetting;
-            if (_setting) {
-                // Modify cached settings with the server's setting
-                _setting.workletNodeSetting.inputChunkNum = server.serverReadChunkSize
-                setSetting(_setting);
-            } else {
-                // Modify default settings with the server's setting
-                setSetting({ ...setting, workletNodeSetting: { ...setting.workletNodeSetting, inputChunkNum: server.serverReadChunkSize } });
-            }
+            const _setting = (await getItem("clientSetting")) as Partial<ClientSetting> | null;
+            const serverChunk =
+                typeof server?.serverReadChunkSize === "number"
+                    ? server.serverReadChunkSize
+                    : DefaultClientSettng.workletNodeSetting.inputChunkNum;
+            const mergedSetting: ClientSetting = {
+                workletSetting: {
+                    ...DefaultClientSettng.workletSetting,
+                    ...(_setting?.workletSetting || {}),
+                },
+                workletNodeSetting: {
+                    ...DefaultClientSettng.workletNodeSetting,
+                    ...(_setting?.workletNodeSetting || {}),
+                    inputChunkNum: serverChunk,
+                },
+                voiceChangerClientSetting: {
+                    ...DefaultClientSettng.voiceChangerClientSetting,
+                    ...(_setting?.voiceChangerClientSetting || {}),
+                },
+            };
+            setSetting(mergedSetting);
         };
         loadSettings();
     }, [voiceChangerClient]);
@@ -223,24 +235,33 @@ export const useClient = (props: UseClientProps): ClientState => {
 
     // 設定変更
     const setVoiceChangerClientSetting = (_voiceChangerClientSetting: VoiceChangerClientSetting) => {
-        setting.voiceChangerClientSetting = _voiceChangerClientSetting;
-        console.log("setting.voiceChangerClientSetting", setting.voiceChangerClientSetting);
+        const nextSetting: ClientSetting = {
+            ...setting,
+            voiceChangerClientSetting: _voiceChangerClientSetting,
+        };
+        console.log("setting.voiceChangerClientSetting", nextSetting.voiceChangerClientSetting);
         // workletSettingIF.setSetting(_workletSetting)
-        _setSetting({ ...setting });
+        _setSetting(nextSetting);
     };
 
     const setWorkletNodeSetting = (_workletNodeSetting: WorkletNodeSetting) => {
-        setting.workletNodeSetting = _workletNodeSetting;
-        console.log("setting.workletNodeSetting", setting.workletNodeSetting);
+        const nextSetting: ClientSetting = {
+            ...setting,
+            workletNodeSetting: _workletNodeSetting,
+        };
+        console.log("setting.workletNodeSetting", nextSetting.workletNodeSetting);
         // workletSettingIF.setSetting(_workletSetting)
-        _setSetting({ ...setting });
+        _setSetting(nextSetting);
     };
 
     const setWorkletSetting = (_workletSetting: WorkletSetting) => {
-        setting.workletSetting = _workletSetting;
-        console.log("setting.workletSetting", setting.workletSetting);
+        const nextSetting: ClientSetting = {
+            ...setting,
+            workletSetting: _workletSetting,
+        };
+        console.log("setting.workletSetting", nextSetting.workletSetting);
         // workletSettingIF.setSetting(_workletSetting)
-        _setSetting({ ...setting });
+        _setSetting(nextSetting);
     };
 
     const stop = useMemo(() => {
