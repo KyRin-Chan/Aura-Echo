@@ -123,6 +123,9 @@ const DownloaderView = (props: DownloaderViewProps) => {
   const isPitchExtractorInUse = (pitchExtractorId: string): boolean => {
     try {
       const f0Detector = (appState.serverSetting.serverSetting as any).f0Detector;
+      if (f0Detector === 'rmvpe_fcpe' && (pitchExtractorId === 'rmvpe' || pitchExtractorId === 'fcpe')) {
+        return true;
+      }
       return f0Detector === pitchExtractorId;
     } catch (e) {
       console.error('Error checking pitch extractor usage:', e);

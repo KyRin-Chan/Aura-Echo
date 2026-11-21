@@ -36,6 +36,7 @@ export const F0Detector = {
     rmvpe_onnx: "rmvpe_onnx",
     fcpe: "fcpe",
     fcpe_onnx: "fcpe_onnx",
+    rmvpe_fcpe: "rmvpe_fcpe",
 } as const;
 export type F0Detector = (typeof F0Detector)[keyof typeof F0Detector];
 

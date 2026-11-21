@@ -7,6 +7,7 @@ from voice_changer.pitch_extractor.RMVPEOnnxPitchExtractor import RMVPEOnnxPitch
 from voice_changer.pitch_extractor.RMVPEPitchExtractor import RMVPEPitchExtractor
 from voice_changer.pitch_extractor.FcpePitchExtractor import FcpePitchExtractor
 from voice_changer.pitch_extractor.FcpeOnnxPitchExtractor import FcpeOnnxPitchExtractor
+from voice_changer.pitch_extractor.RMVPEFcpePitchExtractor import RMVPEFcpePitchExtractor
 from downloader.PretrainList import pitch_extractors
 from settings import ServerSettings, get_settings
 import logging
@@ -78,17 +79,25 @@ class PitchExtractorManager(Protocol):
                 'path': pitch_extractors['fcpe_onnx']['saveTo'],
                 'args': [pitch_extractors['fcpe_onnx']['saveTo']]
             },
+            'rmvpe_fcpe': {
+                'class': RMVPEFcpePitchExtractor,
+                'paths': [pitch_extractors['rmvpe']['saveTo'], pitch_extractors['fcpe']['saveTo']],
+                'args': [pitch_extractors['rmvpe']['saveTo'], pitch_extractors['fcpe']['saveTo']]
+            },
         }
                 
-        # Check if the requested extractor exists and has a valid model file
+        # Check if the requested extractor exists and has valid model file(s)
         extractor_info = PITCH_EXTRACTOR_MAP.get(pitch_extractor)
-        if extractor_info and os.path.exists(extractor_info['path']):
-            try:
-                return extractor_info['class'](*extractor_info['args'])
-            except Exception as e:
-                logger.warning(f"Failed to load {pitch_extractor}: {str(e)}")
-        elif extractor_info:
-            logger.warning(f"Model file not found for {pitch_extractor} at {extractor_info['path']}")
+        if extractor_info:
+            required_paths = extractor_info.get('paths') or [extractor_info['path']]
+            missing_paths = [p for p in required_paths if not os.path.exists(p)]
+            if not missing_paths:
+                try:
+                    return extractor_info['class'](*extractor_info['args'])
+                except Exception as e:
+                    logger.warning(f"Failed to load {pitch_extractor}: {str(e)}")
+            else:
+                logger.warning(f"Model file(s) not found for {pitch_extractor}: {missing_paths}")
         else:
             logger.warning(f"PitchExtractor {pitch_extractor} not found")
         

@@ -35,8 +35,7 @@ class ModelManager:
         Returns:
             Dictionary with model IDs as keys and model info as values.
         """
-        all_models = {**pitch_extractors, **embedders}
-        return ModelManager._add_download_status(all_models)
+        return {**ModelManager.get_pitch_extractors(), **ModelManager.get_embedders()}
     
     @staticmethod
     def get_pitch_extractors() -> Dict[str, Dict[str, Any]]:
@@ -45,7 +44,19 @@ class ModelManager:
         Returns:
             Dictionary with pitch extractor model IDs as keys and model info as values.
         """
-        return ModelManager._add_download_status(dict(pitch_extractors))
+        result = ModelManager._add_download_status(dict(pitch_extractors))
+        from settings import get_settings
+        settings = get_settings()
+        if settings.edition.lower() != 'directml':
+            rmvpe_downloaded = result.get('rmvpe', {}).get('downloaded', False)
+            fcpe_downloaded = result.get('fcpe', {}).get('downloaded', False)
+            result['rmvpe_fcpe'] = {
+                'name': 'RMVPE + FCPE (Hybrid)',
+                'type': 'pytorch',
+                'mandatory': False,
+                'downloaded': rmvpe_downloaded and fcpe_downloaded,
+            }
+        return result
     
     @staticmethod
     def get_embedders() -> Dict[str, Dict[str, Any]]:
@@ -167,6 +178,19 @@ class ModelManager:
         Returns:
             The model information with required fields, or None if not found.
         """
+        if model_key == 'rmvpe_fcpe':
+            return {
+                'name': 'RMVPE + FCPE (Hybrid)',
+                'type': 'pytorch',
+                'mandatory': False,
+                'downloaded': (
+                    os.path.exists(pitch_extractors['rmvpe']['saveTo'])
+                    and os.path.exists(pitch_extractors['fcpe']['saveTo'])
+                ),
+                'path': pitch_extractors['fcpe']['saveTo'],
+                'model_type': 'pitch_extractor'
+            }
+
         model, model_type = ModelManager._get_model_dict(model_key)
         if not model:
             return None
@@ -190,6 +214,15 @@ class ModelManager:
         Returns:
             Dictionary with status and message
         """
+        if model_key == 'rmvpe_fcpe':
+            await ModelManager.download_model('rmvpe')
+            await ModelManager.download_model('fcpe')
+            return {
+                'status': 'success',
+                'message': "Successfully downloaded and verified rmvpe_fcpe dependencies",
+                'path': pitch_extractors['fcpe']['saveTo']
+            }
+
         model_dict, _ = ModelManager._get_model_dict(model_key)
         if not model_dict:
             raise ValueError(f"Model {model_key} not found")
@@ -287,6 +320,9 @@ class ModelManager:
         Returns:
             Dictionary with status and message
         """
+        if model_key == 'rmvpe_fcpe':
+            return ModelManager.delete_model('fcpe')
+
         model = ModelManager.get_model(model_key)
         if not model:
             raise ValueError(f"Model {model_key} not found")

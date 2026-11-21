@@ -66,6 +66,7 @@ PitchExtractorType: TypeAlias = Literal[
     "rmvpe_onnx",
     "fcpe",
     "fcpe_onnx",
+    "rmvpe_fcpe",
 ]
 
 ServerAudioDeviceType: TypeAlias = Literal["audioinput", "audiooutput"]

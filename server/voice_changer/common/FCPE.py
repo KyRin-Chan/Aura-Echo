@@ -35,6 +35,20 @@ class InferCFNaiveMelPE(torch.nn.Module):
         """
         return self.model.infer(mel, decoder=decoder_mode, threshold=threshold)  # (B, T, 1)
 
+    @torch.no_grad()
+    def infer_with_confidence(
+        self,
+        mel: torch.Tensor,
+        threshold: float = 0.006,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Infer F0 and per-frame peak confidence in a single forward pass."""
+        latent = self.model(mel)  # [B, T, 360]
+        confident, _ = torch.max(latent, dim=-1, keepdim=True)  # [B, T, 1]
+        cents = self.model.latent2cents_local_decoder(latent, threshold=threshold, mask=False)
+        f0 = self.model.cent_to_f0(cents)
+        f0 = f0 * (confident > threshold)
+        return f0.squeeze(-1), confident.squeeze(-1)  # ([B, T], [B, T])
+
 
 def spawn_infer_model_from_pt(pt_path: str, is_half: bool = False, device: torch.device = torch.device('cpu'), bundled_model: bool = False) -> InferCFNaiveMelPE:
     """

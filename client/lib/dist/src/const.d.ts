@@ -25,6 +25,7 @@ export declare const F0Detector: {
     readonly rmvpe_onnx: "rmvpe_onnx";
     readonly fcpe: "fcpe";
     readonly fcpe_onnx: "fcpe_onnx";
+    readonly rmvpe_fcpe: "rmvpe_fcpe";
 };
 export type F0Detector = (typeof F0Detector)[keyof typeof F0Detector];
 export declare const DiffMethod: {
