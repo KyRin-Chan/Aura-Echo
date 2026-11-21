@@ -31,6 +31,9 @@ class ServerAudioCallbacks(Protocol):
     def on_audio(self, unpackedData: AudioInOutFloat) -> tuple[AudioInOutFloat, float, list[Union[int, float]], tuple | None]:
         ...
 
+    def on_skip_audio(self, unpackedData: AudioInOutFloat) -> tuple[AudioInOutFloat, float, list[Union[int, float]], tuple | None]:
+        ...
+
     def emit_to(self, volume: float, performance: list[float], err: tuple[str, str] | None):
         ...
 
@@ -155,6 +158,7 @@ class ServerAudio:
         self._state_lock = threading.RLock()
 
         self._block_frame = 2048
+        self._out_sr = 48000
         self._mon_sr = 48000
         self._has_monitor = False
 
@@ -169,13 +173,27 @@ class ServerAudio:
         # Preallocated scratch arrays for callbacks & worker
         self._cb_out_buf = np.zeros(16384, dtype=np.float32)
         self._mon_out_buf = np.zeros(16384, dtype=np.float32)
+        self._out_xfade_scratch = np.zeros(128, dtype=np.float32)
         self._mon_xfade_scratch = np.zeros(128, dtype=np.float32)
         self._worker_in_buf = np.zeros(2048, dtype=np.float32)
+        self._worker_skip_buf = np.zeros(2048, dtype=np.float32)
 
         self._fade_in_64 = np.linspace(0.0, 1.0, 64, dtype=np.float32)
         self._fade_out_128 = np.linspace(1.0, 0.0, 128, dtype=np.float32)
+        self._xfade_alpha_128 = np.linspace(0.0, 1.0, 128, dtype=np.float32)
         self._out_underrun = True
         self._out_last_sample = 0.0
+        self._out_has_started = False
+        self._out_target_cushion = 0
+        self._out_cushion_step = 2048
+        self._out_max_cushion = 4096
+        self._out_stable_callbacks = 0
+        self._out_decay_threshold = 234
+        self._out_trim_pending = False
+        self._out_underrun_count = 0
+        self._last_logged_underruns = 0
+        self._dropped_input_chunks = 0
+        self._last_diag_log_ts = 0.0
         self._mon_underrun = True
         self._mon_last_sample = 0.0
 
@@ -196,6 +214,24 @@ class ServerAudio:
     ###########################################
     # Inference Worker Section
     ###########################################
+
+    def _maybe_log_diagnostics(self, now: float) -> None:
+        if now - self._last_diag_log_ts < 3.0:
+            return
+        cur_underruns = self._out_underrun_count
+        new_underruns = cur_underruns - self._last_logged_underruns
+        dropped = self._dropped_input_chunks
+        if new_underruns > 0 or dropped > 0:
+            cushion = self._out_target_cushion
+            cushion_ms = (cushion / float(max(1, self._out_sr))) * 1000.0
+            logger.warning(
+                f"[ServerAudio] Performance fluctuation detected: "
+                f"{new_underruns} output underrun(s), {dropped} stale input chunk(s) skipped; "
+                f"adaptive output cushion={cushion} samples ({cushion_ms:.1f}ms)."
+            )
+            self._last_logged_underruns = cur_underruns
+            self._dropped_input_chunks = 0
+            self._last_diag_log_ts = now
 
     def _inference_worker_loop(self) -> None:
         try:
@@ -219,11 +255,23 @@ class ServerAudio:
                 if avail < block_frame:
                     break
 
-                # Keep latency bounded if producer outpaces GPU inference
+                # Keep latency bounded if producer outpaces GPU inference while preserving context continuity
                 if avail > block_frame * 2:
                     drop_chunks = (avail - block_frame) // block_frame
-                    if drop_chunks > 0:
-                        in_ring.drop_oldest(drop_chunks * block_frame)
+                    skip_cb = getattr(self.callbacks, "on_skip_audio", None)
+                    for _ in range(drop_chunks):
+                        if self._stop_event.is_set():
+                            break
+                        if not in_ring.read_exact_into(self._worker_skip_buf):
+                            break
+                        if skip_cb is not None:
+                            try:
+                                skip_cb(self._worker_skip_buf)
+                            except Exception as skip_err:
+                                logger.debug(f"on_skip_audio error: {skip_err}")
+                        self._dropped_input_chunks += 1
+                    if self._stop_event.is_set():
+                        break
 
                 if not in_ring.read_exact_into(self._worker_in_buf):
                     break
@@ -253,6 +301,7 @@ class ServerAudio:
                         self.performance,
                         ('ERR_GENERIC_SERVER_AUDIO_ERROR', ERR_GENERIC_SERVER_AUDIO_ERROR),
                     )
+                self._maybe_log_diagnostics(monotonic())
 
     ###########################################
     # Callback Section (Lock-free / Zero-Alloc)
@@ -284,21 +333,76 @@ class ServerAudio:
                 self._cb_out_buf = np.zeros(frames, dtype=np.float32)
 
             buf = self._cb_out_buf[:frames]
-            got = self.out_ring.read_into(buf) if self.out_ring is not None else 0
+            out_ring = self.out_ring
+            avail = out_ring.available() if out_ring is not None else 0
 
-            if got == frames:
-                if self._out_underrun:
-                    fi_len = min(64, frames)
-                    buf[:fi_len] *= self._fade_in_64[:fi_len]
-                    self._out_underrun = False
-                self._out_last_sample = float(buf[frames - 1])
+            if self._out_underrun:
+                needed = frames + self._out_target_cushion
+                if out_ring is None or avail < needed:
+                    buf.fill(0.0)
+                    self._out_last_sample = 0.0
+                else:
+                    got = out_ring.read_into(buf)
+                    if got == frames:
+                        fi_len = min(64, frames)
+                        buf[:fi_len] *= self._fade_in_64[:fi_len]
+                        self._out_underrun = False
+                        self._out_has_started = True
+                        self._out_stable_callbacks = 0
+                        self._out_trim_pending = False
+                        self._out_last_sample = float(buf[frames - 1])
+                    else:
+                        if got > 0:
+                            fi_len = min(64, got)
+                            buf[:fi_len] *= self._fade_in_64[:fi_len]
+                        self._fill_underrun_tail(buf, got, frames, self._out_last_sample)
+                        self._out_last_sample = 0.0
             else:
-                if got > 0 and self._out_underrun:
-                    fi_len = min(64, got)
-                    buf[:fi_len] *= self._fade_in_64[:fi_len]
-                self._fill_underrun_tail(buf, got, frames, self._out_last_sample)
-                self._out_underrun = True
-                self._out_last_sample = 0.0
+                target_avail = frames + self._out_target_cushion
+                high_water = target_avail + max(frames * 2, self._block_frame * 2, int(self._out_sr * 0.08))
+                xfade_copied = 0
+                if out_ring is not None and (
+                    avail > high_water or (self._out_trim_pending and avail > target_avail)
+                ):
+                    drop_n = avail - target_avail
+                    xfade_copied = out_ring.drop_with_crossfade(drop_n, self._out_xfade_scratch)
+                self._out_trim_pending = False
+
+                got = out_ring.read_into(buf) if out_ring is not None else 0
+                if xfade_copied > 0 and got > 0:
+                    blend_len = min(xfade_copied, got, 128)
+                    alpha = (
+                        self._xfade_alpha_128
+                        if blend_len == 128
+                        else np.linspace(0.0, 1.0, blend_len, dtype=np.float32)
+                    )
+                    buf[:blend_len] = (
+                        buf[:blend_len] * alpha + self._out_xfade_scratch[:blend_len] * (1.0 - alpha)
+                    )
+
+                if got == frames:
+                    self._out_last_sample = float(buf[frames - 1])
+                    self._out_stable_callbacks += 1
+                    if (
+                        self._out_target_cushion > 0
+                        and self._out_stable_callbacks >= self._out_decay_threshold
+                        and float(np.max(np.abs(buf))) < 1e-3
+                    ):
+                        self._out_target_cushion = max(0, self._out_target_cushion - self._out_cushion_step)
+                        self._out_stable_callbacks = 0
+                        self._out_trim_pending = True
+                else:
+                    self._fill_underrun_tail(buf, got, frames, self._out_last_sample)
+                    self._out_underrun = True
+                    self._out_last_sample = 0.0
+                    self._out_stable_callbacks = 0
+                    self._out_trim_pending = False
+                    if self._out_has_started:
+                        self._out_underrun_count += 1
+                        self._out_target_cushion = min(
+                            self._out_max_cushion,
+                            self._out_target_cushion + self._out_cushion_step,
+                        )
 
             outdata[:] = buf[:, None] * np.float32(self.settings.serverOutputAudioGain)
         except Exception as e:
@@ -356,13 +460,30 @@ class ServerAudio:
     # Main Loop Section
     ###########################################
 
-    def _start_worker_and_rings(self, block_frame: int, has_monitor: bool) -> None:
+    def _start_worker_and_rings(
+        self,
+        block_frame: int,
+        has_monitor: bool,
+        sample_rate: Optional[int] = None,
+        mon_sample_rate: Optional[int] = None,
+    ) -> None:
         self._block_frame = block_frame
         self._has_monitor = has_monitor
-        self._mon_sr = int(getattr(self.settings, 'serverMonitorAudioSampleRate', 48000) or 48000)
+        self._out_sr = int(
+            sample_rate
+            if sample_rate is not None
+            else (getattr(self.settings, 'serverOutputAudioSampleRate', 48000) or 48000)
+        )
+        self._mon_sr = int(
+            mon_sample_rate
+            if mon_sample_rate is not None
+            else (getattr(self.settings, 'serverMonitorAudioSampleRate', 48000) or 48000)
+        )
 
         if self._worker_in_buf.shape[0] != block_frame:
             self._worker_in_buf = np.zeros(block_frame, dtype=np.float32)
+        if self._worker_skip_buf.shape[0] != block_frame:
+            self._worker_skip_buf = np.zeros(block_frame, dtype=np.float32)
 
         self.in_ring = Float32RingBuffer(max(block_frame * 8, 32768))
         self.out_ring = Float32RingBuffer(max(block_frame * 8, 32768))
@@ -370,6 +491,17 @@ class ServerAudio:
 
         self._out_underrun = True
         self._out_last_sample = 0.0
+        self._out_has_started = False
+        self._out_target_cushion = 0
+        self._out_cushion_step = block_frame
+        self._out_max_cushion = min(block_frame * 2, max(block_frame, int(self._out_sr * 0.12)))
+        self._out_stable_callbacks = 0
+        self._out_decay_threshold = max(1, int(round(10.0 * self._out_sr / max(1, block_frame))))
+        self._out_trim_pending = False
+        self._out_underrun_count = 0
+        self._last_logged_underruns = 0
+        self._dropped_input_chunks = 0
+        self._last_diag_log_ts = 0.0
         self._mon_underrun = True
         self._mon_last_sample = 0.0
 
@@ -396,7 +528,7 @@ class ServerAudio:
         in_dev = self.settings.serverInputDeviceId if inputDeviceId is None else inputDeviceId
         out_dev = self.settings.serverOutputDeviceId if outputDeviceId is None else outputDeviceId
         sr = self.settings.serverInputAudioSampleRate if sampleRate is None else sampleRate
-        self._start_worker_and_rings(block_frame, has_monitor=False)
+        self._start_worker_and_rings(block_frame, has_monitor=False, sample_rate=sr)
         with PORTAUDIO_LOCK:
             self.stream = sd.Stream(
                 callback=self.audio_stream_callback,
@@ -429,7 +561,7 @@ class ServerAudio:
         mon_dev = self.settings.serverMonitorDeviceId if monitorDeviceId is None else monitorDeviceId
         sr = self.settings.serverInputAudioSampleRate if sampleRate is None else sampleRate
         mon_sr = self.settings.serverMonitorAudioSampleRate if sampleRate is None else sampleRate
-        self._start_worker_and_rings(block_frame, has_monitor=True)
+        self._start_worker_and_rings(block_frame, has_monitor=True, sample_rate=sr, mon_sample_rate=mon_sr)
         with PORTAUDIO_LOCK:
             self.stream = sd.Stream(
                 callback=self.audio_stream_callback,

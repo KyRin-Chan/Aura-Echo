@@ -47,6 +47,9 @@ class VoiceChangerManager(ServerAudioCallbacks):
     def on_audio(self, unpackedData: AudioInOutFloat):
         return self.change_voice(unpackedData)
 
+    def on_skip_audio(self, unpackedData: AudioInOutFloat):
+        return self.skip_voice(unpackedData)
+
     def emit_to(self, volume: float, performance: list[float], err):
         for func in self.emitToFuncs:
             try:

@@ -22,6 +22,7 @@ from voice_changer.common.AudioDSP import (
     soft_knee_limit_np,
 )
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
+from voice_changer.Local.ServerAudio import Float32RingBuffer, ServerAudio
 from voice_changer.RVC.pipeline.Pipeline import Pipeline
 from voice_changer.RVC.RVCr2 import BypassResampler, RVCr2
 from voice_changer.VoiceChangerSettings import VoiceChangerSettings
@@ -444,6 +445,162 @@ class TestAudioPipelineQuality(unittest.TestCase):
             loop.run_until_complete(_run())
         finally:
             loop.close()
+
+    def test_server_audio_backlog_drop_feeds_context(self):
+        settings = VoiceChangerSettings()
+        block_frame = 512
+        skip_tags = []
+        audio_tags = []
+
+        sa = ServerAudio(MagicMock(), settings)
+        sa._block_frame = block_frame
+        sa._out_sr = 48000
+        sa._last_diag_log_ts = -10.0
+        sa._worker_in_buf = np.zeros(block_frame, dtype=np.float32)
+        sa._worker_skip_buf = np.zeros(block_frame, dtype=np.float32)
+        sa.in_ring = Float32RingBuffer(block_frame * 8)
+        sa.out_ring = Float32RingBuffer(block_frame * 8)
+
+        def _on_skip(buf):
+            skip_tags.append(float(buf[0]))
+            return np.zeros_like(buf), 0.0, [0.0, 0.0, 0.0], None
+
+        def _on_audio(buf):
+            tag = float(buf[0])
+            audio_tags.append(tag)
+            return np.full(block_frame, tag, dtype=np.float32), 0.2, [0.0, 0.01, 0.0], None
+
+        def _emit_to(_vol, _perf, _err):
+            sa._stop_event.set()
+
+        sa.callbacks.on_skip_audio = _on_skip
+        sa.callbacks.on_audio = _on_audio
+        sa.callbacks.emit_to = _emit_to
+
+        for tag in (1.0, 2.0, 3.0):
+            sa.in_ring.write(np.full(block_frame, tag, dtype=np.float32))
+
+        sa._stop_event.clear()
+        sa._in_event.set()
+        with self.assertLogs("voice_changer.Local.ServerAudio", level="WARNING") as cm:
+            sa._inference_worker_loop()
+
+        self.assertEqual(skip_tags, [1.0, 2.0])
+        self.assertEqual(audio_tags, [3.0])
+        self.assertEqual(sa.out_ring.available(), block_frame)
+        out_probe = np.zeros(block_frame, dtype=np.float32)
+        sa.out_ring.read_into(out_probe)
+        self.assertTrue(np.allclose(out_probe, 3.0))
+        self.assertTrue(any("2 stale input chunk(s) skipped" in msg for msg in cm.output))
+
+    def test_server_audio_adaptive_jitter_cushion_and_decay(self):
+        settings = VoiceChangerSettings()
+        settings.serverInputAudioGain = 1.0
+        settings.serverOutputAudioGain = 1.0
+        block_frame = 2048
+
+        sa = ServerAudio(MagicMock(), settings)
+        sa._start_worker_and_rings(block_frame, has_monitor=False, sample_rate=48000)
+        sa._stop_event.set()
+        sa._in_event.set()
+        sa._worker_thread.join(timeout=2.0)
+
+        self.assertEqual(sa._out_sr, 48000)
+        self.assertEqual(sa._out_target_cushion, 0)
+        self.assertEqual(sa._out_max_cushion, 4096)
+        self.assertEqual(sa._out_decay_threshold, max(1, int(round(10.0 * 48000 / block_frame))))
+
+        indata = np.zeros((block_frame, 1), dtype=np.float32)
+        outdata = np.zeros((block_frame, 1), dtype=np.float32)
+        voiced_block = np.full(block_frame, 0.5, dtype=np.float32)
+        quiet_block = np.full(block_frame, 1e-4, dtype=np.float32)
+
+        # Startup silence before first output block should not count as an underrun
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertEqual(sa._out_underrun_count, 0)
+        self.assertEqual(sa._out_target_cushion, 0)
+        self.assertFalse(sa._out_has_started)
+        self.assertTrue(np.allclose(outdata, 0.0))
+
+        # Normal playback starts once 1 block arrives
+        sa.out_ring.write(voiced_block)
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertTrue(sa._out_has_started)
+        self.assertFalse(sa._out_underrun)
+        self.assertEqual(sa._out_target_cushion, 0)
+        self.assertGreater(float(np.max(np.abs(outdata))), 0.4)
+
+        # Forced underrun increases adaptive cushion by 1 block
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertTrue(sa._out_underrun)
+        self.assertEqual(sa._out_underrun_count, 1)
+        self.assertEqual(sa._out_target_cushion, block_frame)
+
+        # Recovery holds silence until frames + block_frame (4096) samples accumulate
+        sa.out_ring.write(voiced_block)
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertTrue(sa._out_underrun)
+        self.assertEqual(sa.out_ring.available(), block_frame)
+        self.assertTrue(np.allclose(outdata, 0.0))
+
+        sa.out_ring.write(voiced_block)
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertFalse(sa._out_underrun)
+        self.assertEqual(sa.out_ring.available(), block_frame)
+
+        # One late inference cycle (no new block written) is absorbed by the cushion without underrun
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertFalse(sa._out_underrun)
+        self.assertEqual(sa._out_underrun_count, 1)
+        self.assertEqual(sa.out_ring.available(), 0)
+
+        # Producer catches up with 2 blocks -> cushion restored
+        sa.out_ring.write(voiced_block)
+        sa.out_ring.write(voiced_block)
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertEqual(sa.out_ring.available(), block_frame)
+
+        # Decay back to 0 after _out_decay_threshold stable callbacks on quiet audio
+        for _ in range(sa._out_decay_threshold):
+            sa.out_ring.write(quiet_block)
+            sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+
+        self.assertEqual(sa._out_target_cushion, 0)
+        self.assertFalse(sa._out_underrun)
+
+        # Next callback trims excess cushion cleanly via crossfade so latency drops to baseline
+        sa.out_ring.write(quiet_block)
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertEqual(sa.out_ring.available(), 0)
+        self.assertTrue(np.all(np.isfinite(outdata)))
+
+    def test_server_audio_out_ring_high_water_crossfade(self):
+        settings = VoiceChangerSettings()
+        settings.serverInputAudioGain = 1.0
+        settings.serverOutputAudioGain = 1.0
+        block_frame = 2048
+
+        sa = ServerAudio(MagicMock(), settings)
+        sa._start_worker_and_rings(block_frame, has_monitor=False, sample_rate=48000)
+        sa._stop_event.set()
+        sa._in_event.set()
+        sa._worker_thread.join(timeout=2.0)
+
+        indata = np.zeros((block_frame, 1), dtype=np.float32)
+        outdata = np.zeros((block_frame, 1), dtype=np.float32)
+
+        sa._out_underrun = False
+        sa._out_has_started = True
+        sa._out_target_cushion = block_frame
+
+        t = np.arange(block_frame * 7, dtype=np.float32)
+        sine = 0.4 * np.sin(2.0 * math.pi * 220.0 * t / 48000.0)
+        sa.out_ring.write(sine)
+
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertTrue(np.all(np.isfinite(outdata)))
+        self.assertFalse(sa._out_underrun)
+        self.assertEqual(sa.out_ring.available(), block_frame)
 
 
 if __name__ == "__main__":
