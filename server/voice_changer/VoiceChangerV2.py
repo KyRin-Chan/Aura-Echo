@@ -45,6 +45,13 @@ class VoiceChangerV2:
         # Optional background audio mixer & shared audio effects manager
         self.audio_mixer = None
         self.audio_effects_manager = None
+        self._suppress_warmup: int = 0
+
+    def begin_batch_update(self) -> None:
+        self._suppress_warmup += 1
+
+    def end_batch_update(self) -> None:
+        self._suppress_warmup = max(0, self._suppress_warmup - 1)
 
     def _compute_block_frame(self) -> int:
         return max(
@@ -60,6 +67,49 @@ class VoiceChangerV2:
         if self.vcmodel is not None and hasattr(self.vcmodel, "set_audio_effects_manager"):
             self.vcmodel.set_audio_effects_manager(manager)
 
+    def _warmup_post_sola(self, audio: torch.Tensor) -> None:
+        """Warm up SOLA conv1d kernels and GPU post-formant filter without touching CPU effects/mixer."""
+        if audio is None or audio.numel() == 0:
+            return
+        needed_conv = self.crossfade_frame + self.sola_search_frame
+        if self.sola_buffer is not None and self.sola_ones is not None and needed_conv > 0:
+            if audio.shape[0] < needed_conv:
+                conv_in_1d = F.pad(audio, (0, needed_conv - audio.shape[0]))
+            else:
+                conv_in_1d = audio[:needed_conv]
+            conv_input = conv_in_1d[None, None, :]
+            cor_nom = F.conv1d(conv_input, self.sola_buffer[None, None, :])
+            cor_den = torch.sqrt(F.conv1d(conv_input ** 2, self.sola_ones) + 1e-8)
+            _ = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
+
+        needed_out = self.block_frame + self.crossfade_frame
+        if audio.shape[0] < needed_out:
+            mixed = F.pad(audio, (0, needed_out - audio.shape[0]))[: self.block_frame]
+        else:
+            mixed = audio[: self.block_frame]
+        if self.vcmodel is not None and hasattr(self.vcmodel, "formant_filter") and self.vcmodel.formant_filter is not None:
+            _ = self.vcmodel.formant_filter.apply_post(mixed)
+
+    def warmup(self, step: int = 5, total: int = 5) -> None:
+        if self._suppress_warmup > 0 or self.vcmodel is None:
+            return
+        if getattr(type(self.vcmodel), "warmup", None) is None:
+            return
+        if not getattr(self.vcmodel, "_init_succeeded", True):
+            return
+        try:
+            self.vcmodel.warmup(
+                block_frame=self.block_frame,
+                on_audio_out=self._warmup_post_sola,
+                step=step,
+                total=total,
+            )
+        finally:
+            self._was_voiced = False
+            self._peak_limiter.reset()
+            if self.sola_buffer is not None:
+                self.sola_buffer.zero_()
+
     def initialize(self, vcmodel: VoiceChangerModel):
         self.vcmodel = vcmodel
         if self.audio_effects_manager is not None and hasattr(self.vcmodel, "set_audio_effects_manager"):
@@ -70,6 +120,7 @@ class VoiceChangerV2:
         self._peak_limiter.reset()
         if self.sola_buffer is not None:
             self.sola_buffer.zero_()
+        self.warmup(step=5, total=5)
 
     def set_slot_info(self, slot_info: ModelSlots):
         self.vcmodel.set_slot_info(slot_info)
@@ -81,6 +132,7 @@ class VoiceChangerV2:
         self._peak_limiter.reset()
         if self.sola_buffer is not None:
             self.sola_buffer.zero_()
+        self.warmup(step=5, total=5)
 
     def get_type(self) -> VoiceChangerType:
         if self.vcmodel is None:
@@ -98,8 +150,9 @@ class VoiceChangerV2:
         self._generate_strength()
         self._peak_limiter.reset()
 
-        self.vcmodel.set_sampling_rate(self.settings.inputSampleRate, self.settings.outputSampleRate)
-        self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
+        if self.vcmodel is not None:
+            self.vcmodel.set_sampling_rate(self.settings.inputSampleRate, self.settings.outputSampleRate)
+            self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
 
     def set_output_sample_rate(self):
         if self.settings.recordIO:
@@ -107,7 +160,8 @@ class VoiceChangerV2:
 
         self._generate_strength()
         self._peak_limiter.reset()
-        self.vcmodel.set_sampling_rate(self.settings.inputSampleRate, self.settings.outputSampleRate)
+        if self.vcmodel is not None:
+            self.vcmodel.set_sampling_rate(self.settings.inputSampleRate, self.settings.outputSampleRate)
 
     def get_info(self):
         if self.vcmodel is not None:
@@ -136,13 +190,21 @@ class VoiceChangerV2:
                 self.io_recorder.close()
 
         if self.vcmodel is not None:
-            self.vcmodel.update_settings(key, val, old_val)
             if key in {'gpu', 'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'forceFp32'}:
                 self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
                 self._was_voiced = False
                 self._peak_limiter.reset()
                 if self.sola_buffer is not None:
                     self.sola_buffer.zero_()
+
+            self.vcmodel.update_settings(key, val, old_val)
+
+            if key in {'gpu', 'forceFp32', 'disableJit', 'useTensorRT', 'useONNX'}:
+                self.warmup(step=5, total=5)
+            elif key == 'f0Detector':
+                self.warmup(step=2, total=2)
+            elif key in {'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'inputSampleRate', 'outputSampleRate'}:
+                self.warmup(step=1, total=1)
 
     def _generate_strength(self):
         linspace = torch.linspace(

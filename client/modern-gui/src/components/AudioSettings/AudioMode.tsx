@@ -71,23 +71,37 @@ function AudioMode({ audioState, setAudioState }: AudioModeProps): JSX.Element {
   // ---------------- Handlers ----------------
 
   // Handle Client Select
-  const selectClientMode = () => {
+  const selectClientMode = async () => {
     if (!isClientAudioAvailable || uiContext.isConverting) return;
-    appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      enableServerAudio: 0
-    });
+    const srvSetting = appState.serverSetting.serverSetting;
+    const needsWarmup = (srvSetting?.modelSlotIndex ?? -1) !== -1 && srvSetting?.serverAudioSampleRate !== 48000;
     setAudioState("client");
+    if (needsWarmup) uiContext.startLoading(t('warmingUpPipeline'));
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...srvSetting,
+        enableServerAudio: 0
+      });
+    } finally {
+      if (needsWarmup) uiContext.stopLoading();
+    }
   };
 
   // Handle Server Select
-  const selectServerMode = () => {
+  const selectServerMode = async () => {
     if (!isServerAudioAvailable || uiContext.isConverting) return;
-    appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      enableServerAudio: 1
-    });
+    const srvSetting = appState.serverSetting.serverSetting;
+    const needsWarmup = (srvSetting?.modelSlotIndex ?? -1) !== -1 && srvSetting?.serverAudioSampleRate !== 48000;
     setAudioState("server");
+    if (needsWarmup) uiContext.startLoading(t('warmingUpPipeline'));
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...srvSetting,
+        enableServerAudio: 1
+      });
+    } finally {
+      if (needsWarmup) uiContext.stopLoading();
+    }
   };
 
   // ---------------- Render ----------------

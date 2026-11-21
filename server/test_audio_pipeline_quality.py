@@ -602,6 +602,240 @@ class TestAudioPipelineQuality(unittest.TestCase):
         self.assertFalse(sa._out_underrun)
         self.assertEqual(sa.out_ring.available(), block_frame)
 
+    def _make_stub_pipeline(self, model_sr: int = 48000):
+        pipeline = MagicMock()
+        pipeline.last_f0_smoothed = 180.0
+        pipeline.inferencer = MagicMock()
+        pipeline.inferencer.uses_standalone_vocoder.return_value = False
+
+        def _exec(
+            sid,
+            audio,
+            pitch,
+            pitchf,
+            f0_up_key,
+            index_rate,
+            audio_feats_len,
+            silence_front,
+            embOutputLayer,
+            useFinalProj,
+            skip_head,
+            return_length,
+            protect,
+            **kwargs,
+        ):
+            out_len = max(1, int(return_length) * (model_sr // 100))
+            t = torch.arange(out_len, dtype=torch.float32, device=audio.device)
+            return 0.25 * torch.sin(2.0 * math.pi * 220.0 * t / float(model_sr))
+
+        pipeline.exec.side_effect = _exec
+        return pipeline
+
+    def test_warmup_on_initialize_bypasses_silence_gate_and_resets_state(self):
+        settings = VoiceChangerSettings()
+        settings.inputSampleRate = 48000
+        settings.outputSampleRate = 48000
+        settings.serverReadChunkSize = 24  # 3072 samples
+        settings.extraConvertSize = 0.1
+        settings.crossFadeOverlapSize = 0.04
+        settings.silentThreshold = 0  # High gate (inputSensitivity=1.0) > dummy RMS
+
+        slot = RVCModelSlot(samplingRate=48000, f0=True)
+        rvc = RVCr2(slot, settings)
+        progress_events = []
+        rvc.set_progress_callback(lambda step, total, label: progress_events.append((step, total, label)))
+
+        stub_pipeline = self._make_stub_pipeline(48000)
+
+        def _fake_create_pipeline(*args, progress_callback=None, **kwargs):
+            if progress_callback:
+                for step, lbl in (
+                    (1, "Loading voice model..."),
+                    (2, "Loading embedder..."),
+                    (3, "Loading pitch extractor..."),
+                    (4, "Loading FAISS index..."),
+                ):
+                    progress_callback(step, 5, lbl)
+            return stub_pipeline
+
+        vc = VoiceChangerV2(settings)
+        with patch("voice_changer.RVC.RVCr2.createPipeline", side_effect=_fake_create_pipeline):
+            vc.initialize(rvc)
+
+        self.assertEqual([e[:2] for e in progress_events], [(1, 5), (2, 5), (3, 5), (4, 5), (5, 5)])
+        self.assertEqual(progress_events[-1][2], "Compiling & warming up...")
+        self.assertEqual(stub_pipeline.exec.call_count, 1)
+
+        # All streaming buffers & filter states must be cleanly reset after warmup
+        self.assertFalse(vc._was_voiced)
+        self.assertIsNone(rvc._rms_gain_ema_t)
+        self.assertEqual(rvc._pitch_sample_acc, 0)
+        self.assertEqual(rvc._gate_hangover_chunks, 0)
+        self.assertIsNone(stub_pipeline.last_f0_smoothed)
+        for buf in (rvc.audio_buffer, rvc.convert_buffer, rvc.pitch_buffer, rvc.pitchf_buffer, vc.sola_buffer):
+            self.assertEqual(float(buf.abs().max().item()), 0.0)
+        self.assertEqual(float(rvc.resampler_in.history.abs().max().item()), 0.0)
+
+    def test_update_settings_realloc_order_and_warmup_triggers(self):
+        settings = VoiceChangerSettings()
+        settings.inputSampleRate = 48000
+        settings.outputSampleRate = 48000
+        settings.serverReadChunkSize = 24
+        settings.extraConvertSize = 0.1
+        settings.crossFadeOverlapSize = 0.04
+
+        slot = RVCModelSlot(samplingRate=48000, f0=True)
+        rvc = RVCr2(slot, settings)
+        progress_events = []
+        rvc.set_progress_callback(lambda step, total, label: progress_events.append((step, total, label)))
+
+        stub_pipeline = self._make_stub_pipeline(48000)
+        vc = VoiceChangerV2(settings)
+        with patch("voice_changer.RVC.RVCr2.createPipeline", return_value=stub_pipeline):
+            vc.initialize(rvc)
+
+        # 1. forceFp32 must reallocate buffers BEFORE RVCr2.initialize(True) and warmup at 5/5
+        call_order = []
+        orig_realloc = rvc.realloc
+        orig_init = rvc.initialize
+        orig_warmup = rvc.warmup
+
+        def _spy_realloc(*a, **kw):
+            call_order.append("realloc")
+            return orig_realloc(*a, **kw)
+
+        def _spy_init(*a, **kw):
+            call_order.append("initialize")
+            return orig_init(*a, **kw)
+
+        def _spy_warmup(*a, **kw):
+            call_order.append(("warmup", kw.get("step"), kw.get("total")))
+            return orig_warmup(*a, **kw)
+
+        progress_events.clear()
+        stub_pipeline.exec.reset_mock()
+        with (
+            patch.object(rvc, "realloc", side_effect=_spy_realloc),
+            patch.object(rvc, "initialize", side_effect=_spy_init),
+            patch.object(rvc, "warmup", side_effect=_spy_warmup),
+            patch("voice_changer.RVC.RVCr2.createPipeline", return_value=stub_pipeline),
+        ):
+            settings.forceFp32 = 1
+            vc.update_settings("forceFp32", 1, 0)
+
+        self.assertEqual(call_order, ["realloc", "initialize", ("warmup", 5, 5)])
+        self.assertEqual(progress_events[-1][:2], (5, 5))
+        self.assertEqual(stub_pipeline.exec.call_count, 1)
+
+        # 2. f0Detector emits 1/2 (pitch extractor) and 2/2 (warmup)
+        progress_events.clear()
+        stub_pipeline.exec.reset_mock()
+        with patch("voice_changer.RVC.RVCr2.PitchExtractorManager.getPitchExtractor", return_value=MagicMock()):
+            settings.f0Detector = "fcpe"
+            vc.update_settings("f0Detector", "fcpe", "rmvpe_onnx")
+
+        self.assertEqual(
+            progress_events,
+            [(1, 2, "Loading pitch extractor..."), (2, 2, "Compiling & warming up...")],
+        )
+        self.assertEqual(stub_pipeline.exec.call_count, 1)
+
+        # 3. serverReadChunkSize reallocates and warms up with 1/1
+        progress_events.clear()
+        stub_pipeline.exec.reset_mock()
+        settings.serverReadChunkSize = 48
+        vc.update_settings("serverReadChunkSize", 48, 24)
+        self.assertEqual(vc.block_frame, 6144)
+        self.assertEqual(progress_events, [(1, 1, "Compiling & warming up...")])
+        self.assertEqual(stub_pipeline.exec.call_count, 1)
+
+    def test_batch_update_single_warmup_and_server_audio_rounding(self):
+        from voice_changer.VoiceChangerManager import VoiceChangerManager
+
+        settings = VoiceChangerSettings()
+        settings.inputSampleRate = 48000
+        settings.outputSampleRate = 48000
+        settings.serverAudioSampleRate = 44100
+        settings.serverReadChunkSize = 48
+
+        class _StubModel:
+            voiceChangerType = "RVC"
+            _init_succeeded = True
+            formant_filter = None
+
+            def __init__(self):
+                self.warmup_calls = []
+
+            def set_sampling_rate(self, in_sr, out_sr):
+                pass
+
+            def realloc(self, *args):
+                pass
+
+            def update_settings(self, *args):
+                pass
+
+            def warmup(self, **kwargs):
+                self.warmup_calls.append(kwargs)
+
+        vc = VoiceChangerV2(settings)
+        stub_model = _StubModel()
+        vc.vcmodel = stub_model
+
+        mgr = VoiceChangerManager.__new__(VoiceChangerManager)
+        mgr.settings = settings
+        mgr.device_manager = DeviceManager.get_instance()
+        mgr.vc = vc
+        mgr.server_audio = MagicMock()
+        mgr.audio_effects_manager = None
+        mgr.audio_mixer = None
+        mgr.emitToFuncs = []
+        mgr.progressEmitFuncs = []
+        mgr.store_setting = MagicMock()
+        mgr.get_info = MagicMock(return_value={})
+
+        # Batching inside VoiceChangerV2 suppresses intermediate warmups
+        vc.begin_batch_update()
+        try:
+            vc.warmup(step=1, total=1)
+        finally:
+            vc.end_batch_update()
+        self.assertEqual(len(stub_model.warmup_calls), 0)
+
+        # Compound enableServerAudio change warms up exactly once at the end
+        mgr.update_settings("enableServerAudio", 1)
+        self.assertEqual(settings.inputSampleRate, 44100)
+        self.assertEqual(settings.outputSampleRate, 44100)
+        self.assertEqual(len(stub_model.warmup_calls), 1)
+        self.assertEqual(stub_model.warmup_calls[0]["step"], 1)
+        self.assertEqual(stub_model.warmup_calls[0]["total"], 1)
+
+        # ServerAudio block_frame rounding matches VoiceChangerV2._compute_block_frame() at 44100 Hz
+        settings.serverInputDeviceId = 0
+        settings.serverOutputDeviceId = 1
+        settings.serverMonitorDeviceId = -1
+        captured_frames = []
+
+        sa = ServerAudio(MagicMock(), settings)
+        fake_dev = MagicMock()
+        fake_dev.hostAPI = "MME"
+        fake_dev.maxInputChannels = 1
+        fake_dev.maxOutputChannels = 2
+
+        with (
+            patch("voice_changer.Local.ServerAudio.reinitialize_portaudio"),
+            patch.object(sa, "getServerInputAudioDevice", return_value=fake_dev),
+            patch.object(sa, "getServerOutputAudioDevice", side_effect=[fake_dev, None]),
+            patch("voice_changer.Local.ServerAudio.checkSamplingRate", return_value=True),
+            patch.object(sa, "run_no_monitor", side_effect=lambda bf, *a, **kw: captured_frames.append(bf)),
+        ):
+            sa.start()
+
+        self.assertEqual(len(captured_frames), 1)
+        expected_block_frame = vc._compute_block_frame()  # round(48*128/48000*44100) == 5645 (vs int() == 5644)
+        self.assertEqual(captured_frames[0], expected_block_frame)
+        self.assertEqual(captured_frames[0], 5645)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

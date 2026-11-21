@@ -53,23 +53,35 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
   // ---------------- Handlers ----------------
 
   // Handle chunk size change
-  const handleChangeChunkSize = (value: number) => {
+  const handleChangeChunkSize = async (value: number) => {
     setLocalChunkSize(value);
     appState.setWorkletNodeSetting({ ...appState.setting.workletNodeSetting, inputChunkNum: Number(value) });
     appState.trancateBuffer();
-    appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting?.serverSetting,
-      serverReadChunkSize: value
-    });
+    const hasModel = (appState.serverSetting?.serverSetting?.modelSlotIndex ?? -1) !== -1;
+    if (hasModel) uiState.startLoading(t('warmingUpPipeline'));
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting?.serverSetting,
+        serverReadChunkSize: value
+      });
+    } finally {
+      if (hasModel) uiState.stopLoading();
+    }
   };
 
   // Handle extra size change
-  const handleChangeExtraSize = (value: number) => {
+  const handleChangeExtraSize = async (value: number) => {
     setLocalExtraSize(value);
-    appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting?.serverSetting,
-      extraConvertSize: value
-    });
+    const hasModel = (appState.serverSetting?.serverSetting?.modelSlotIndex ?? -1) !== -1;
+    if (hasModel) uiState.startLoading(t('warmingUpPipeline'));
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting?.serverSetting,
+        extraConvertSize: value
+      });
+    } finally {
+      if (hasModel) uiState.stopLoading();
+    }
   };
 
   // Handle safety cushion change

@@ -17,7 +17,7 @@ from settings import get_settings
 import logging
 logger = logging.getLogger(__name__)
 
-_TOTAL_STEPS = 4
+_TOTAL_STEPS = 5
 
 def createPipeline(
     modelSlot: RVCModelSlot,
@@ -26,11 +26,12 @@ def createPipeline(
     force_reload: bool,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     audio_effects_manager: Optional[AudioEffectsManager] = None,
+    total_steps: int = _TOTAL_STEPS,
 ):
     def _report(step: int, label: str):
         if progress_callback:
             try:
-                progress_callback(step, _TOTAL_STEPS, label)
+                progress_callback(step, total_steps, label)
             except Exception:
                 pass
 

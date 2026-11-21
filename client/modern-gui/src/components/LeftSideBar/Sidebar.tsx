@@ -25,8 +25,11 @@ function LeftSidebar(): JSX.Element | null {
   // Handles model selection and server state update
   const handleSelectModel = async (slot: RVCModelSlot) => {
     guiState.startLoading(`${t('loadingSwappingModel')}${slot.name}`);
-    await appState.serverSetting.updateServerSettings({ ...appState.serverSetting.serverSetting, modelSlotIndex: slot.slotIndex });
-    guiState.stopLoading();
+    try {
+      await appState.serverSetting.updateServerSettings({ ...appState.serverSetting.serverSetting, modelSlotIndex: slot.slotIndex });
+    } finally {
+      guiState.stopLoading();
+    }
   };
 
   // ---------------- Render ----------------

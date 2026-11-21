@@ -194,6 +194,14 @@ class ServerAudio:
         self._last_logged_underruns = 0
         self._dropped_input_chunks = 0
         self._last_diag_log_ts = 0.0
+        self._last_cb_frames = 0
+        self._cb_in_overflows = 0
+        self._cb_out_underflows = 0
+        self._last_logged_in_overflows = 0
+        self._last_logged_out_underflows = 0
+        self._max_infer_ms = 0.0
+        self._max_worker_gap_ms = 0.0
+        self._last_worker_iter_ts = 0.0
         self._mon_underrun = True
         self._mon_last_sample = 0.0
 
@@ -221,16 +229,34 @@ class ServerAudio:
         cur_underruns = self._out_underrun_count
         new_underruns = cur_underruns - self._last_logged_underruns
         dropped = self._dropped_input_chunks
-        if new_underruns > 0 or dropped > 0:
+        cur_in_ovf = self._cb_in_overflows
+        new_in_ovf = cur_in_ovf - self._last_logged_in_overflows
+        cur_out_udf = self._cb_out_underflows
+        new_out_udf = cur_out_udf - self._last_logged_out_underflows
+
+        has_event = new_underruns > 0 or dropped > 0 or new_in_ovf > 0 or new_out_udf > 0
+        if has_event:
             cushion = self._out_target_cushion
             cushion_ms = (cushion / float(max(1, self._out_sr))) * 1000.0
+            in_avail = self.in_ring.available() if self.in_ring is not None else 0
+            out_avail = self.out_ring.available() if self.out_ring is not None else 0
             logger.warning(
                 f"[ServerAudio] Performance fluctuation detected: "
                 f"{new_underruns} output underrun(s), {dropped} stale input chunk(s) skipped; "
-                f"adaptive output cushion={cushion} samples ({cushion_ms:.1f}ms)."
+                f"adaptive output cushion={cushion} samples ({cushion_ms:.1f}ms), "
+                f"max_infer={self._max_infer_ms:.1f}ms, max_worker_gap={self._max_worker_gap_ms:.1f}ms, "
+                f"cb_frames={self._last_cb_frames}/{self._block_frame}, pa_ovf={new_in_ovf}, "
+                f"pa_udf={new_out_udf}, in_avail={in_avail}, out_avail={out_avail}, "
+                f"out_underrun={self._out_underrun}."
             )
             self._last_logged_underruns = cur_underruns
+            self._last_logged_in_overflows = cur_in_ovf
+            self._last_logged_out_underflows = cur_out_udf
             self._dropped_input_chunks = 0
+
+        if has_event or self._last_diag_log_ts > 0.0:
+            self._max_infer_ms = 0.0
+            self._max_worker_gap_ms = 0.0
             self._last_diag_log_ts = now
 
     def _inference_worker_loop(self) -> None:
@@ -254,6 +280,13 @@ class ServerAudio:
                 avail = in_ring.available()
                 if avail < block_frame:
                     break
+
+                iter_ts = monotonic()
+                if self._last_worker_iter_ts > 0.0:
+                    self._max_worker_gap_ms = max(
+                        self._max_worker_gap_ms, (iter_ts - self._last_worker_iter_ts) * 1000.0
+                    )
+                self._last_worker_iter_ts = iter_ts
 
                 # Keep latency bounded if producer outpaces GPU inference while preserving context continuity
                 if avail > block_frame * 2:
@@ -281,6 +314,8 @@ class ServerAudio:
                     if self._stop_event.is_set():
                         break
                     self.performance = perf
+                    infer_ms = float(perf[1]) * 1000.0 if (perf and len(perf) > 1) else 0.0
+                    self._max_infer_ms = max(self._max_infer_ms, infer_ms)
 
                     if out_wav is not None and out_wav.size > 0:
                         if self.out_ring is not None:
@@ -319,6 +354,13 @@ class ServerAudio:
 
     def audio_stream_callback(self, indata: np.ndarray, outdata: np.ndarray, frames, times, status):
         try:
+            self._last_cb_frames = int(frames)
+            if status:
+                if getattr(status, "input_overflow", False):
+                    self._cb_in_overflows += 1
+                if getattr(status, "output_underflow", False):
+                    self._cb_out_underflows += 1
+
             # Fast mono mixdown without librosa overhead
             mono = indata[:, 0] if indata.shape[1] == 1 else indata.mean(axis=1)
             in_gain = float(self.settings.serverInputAudioGain)
@@ -502,6 +544,14 @@ class ServerAudio:
         self._last_logged_underruns = 0
         self._dropped_input_chunks = 0
         self._last_diag_log_ts = 0.0
+        self._last_cb_frames = 0
+        self._cb_in_overflows = 0
+        self._cb_out_underflows = 0
+        self._last_logged_in_overflows = 0
+        self._last_logged_out_underflows = 0
+        self._max_infer_ms = 0.0
+        self._max_worker_gap_ms = 0.0
+        self._last_worker_iter_ts = 0.0
         self._mon_underrun = True
         self._mon_last_sample = 0.0
 
@@ -709,7 +759,10 @@ class ServerAudio:
                         logger.error(err)
                         return
 
-                block_frame = int((self.settings.serverReadChunkSize * 128 / 48000) * sample_rate)
+                block_frame = max(
+                    128,
+                    int(round((self.settings.serverReadChunkSize * 128 / 48000.0) * sample_rate)),
+                )
 
                 try:
                     if serverMonitorAudioDevice is None:

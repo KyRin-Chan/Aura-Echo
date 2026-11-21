@@ -3,6 +3,7 @@ VoiceChangerV2向け
 """
 import logging
 import os
+from time import perf_counter
 from typing import Callable, Optional
 
 import numpy as np
@@ -79,6 +80,8 @@ class RVCr2(VoiceChangerModel):
         self._pitch_sample_acc: int = 0
         self._rms_gain_ema_t: torch.Tensor | None = None
         self._gate_hangover_chunks: int = 0
+        self._last_block_frame: int = 0
+        self._init_succeeded: bool = False
 
     def set_audio_effects_manager(self, manager) -> None:
         self._audio_effects_manager = manager
@@ -89,8 +92,23 @@ class RVCr2(VoiceChangerModel):
         """Register a callback to receive model loading progress updates."""
         self._progress_callback = callback
 
+    def _emit_progress(
+        self,
+        step: int,
+        total: int,
+        label: str,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> None:
+        cb = progress_callback if progress_callback is not None else self._progress_callback
+        if cb is not None:
+            try:
+                cb(step, total, label)
+            except Exception:
+                pass
+
     def initialize(self, force_reload: bool = False, progress_callback: Optional[Callable[[int, int, str], None]] = None):
         logger.info("Initializing...")
+        self._init_succeeded = False
 
         if self.settings.useONNX and not self.slotInfo.modelFileOnnx:
             self.export2onnx()
@@ -148,6 +166,7 @@ class RVCr2(VoiceChangerModel):
         except Exception as _e:
             logger.warning(f"Could not check model vocoder: {_e}")
 
+        self._init_succeeded = True
         logger.info("Initialized.")
 
     def set_sampling_rate(self, input_sample_rate: int, output_sample_rate: int):
@@ -174,6 +193,7 @@ class RVCr2(VoiceChangerModel):
             self.formant_filter.reset()
 
     def change_pitch_extractor(self):
+        self._emit_progress(1, 2, "Loading pitch extractor...")
         pitchExtractor = PitchExtractorManager.getPitchExtractor(
             self.settings.f0Detector, False
         )
@@ -207,6 +227,10 @@ class RVCr2(VoiceChangerModel):
         return self.slotInfo.samplingRate
 
     def realloc(self, block_frame: int, extra_frame: int, crossfade_frame: int, sola_search_frame: int):
+        self.is_half = self.device_manager.use_fp16()
+        self.dtype = torch.float16 if self.is_half else torch.float32
+        self._last_block_frame = int(block_frame)
+
         block_frame_16k = int(block_frame / self.input_sample_rate * HUBERT_SAMPLE_RATE)
         crossfade_frame_16k = int(crossfade_frame / self.input_sample_rate * HUBERT_SAMPLE_RATE)
         sola_search_frame_16k = int(sola_search_frame / self.input_sample_rate * HUBERT_SAMPLE_RATE)
@@ -250,6 +274,22 @@ class RVCr2(VoiceChangerModel):
         logger.info(f'Allocated audio buffer size: {audio_buffer_size}')
         logger.info(f'Allocated convert buffer size: {convert_size_16k}')
         logger.info(f'Allocated pitchf buffer size: {self.convert_feature_size_16k + 1}')
+
+    def reset_state(self) -> None:
+        """Reset streaming buffers and filter/F0 state without reallocating memory."""
+        for attr in ("audio_buffer", "convert_buffer", "pitch_buffer", "pitchf_buffer"):
+            buf = getattr(self, attr, None)
+            if buf is not None:
+                buf.zero_()
+        self._pitch_sample_acc = 0
+        self._rms_gain_ema_t = None
+        self._gate_hangover_chunks = 0
+        if self.resampler_in is not None:
+            self.resampler_in.reset()
+        if self.formant_filter is not None:
+            self.formant_filter.reset()
+        if self.pipeline is not None:
+            self.pipeline.last_f0_smoothed = None
 
     def _sync_formant_filter(self) -> None:
         self.formant_filter.update_config(
@@ -351,28 +391,29 @@ class RVCr2(VoiceChangerModel):
         audio_out: torch.Tensor = self.resampler_out(audio_model * torch.sqrt(vol_t))
         return audio_out
 
-    def inference(self, audio_in: AudioInOutFloat):
+    def inference(self, audio_in: AudioInOutFloat, bypass_silence_gate: bool = False):
         if self.pipeline is None:
             raise PipelineNotInitializedException()
 
         # Precompute RMS volume on CPU before GPU upload to avoid mid-pipeline GPU sync
         vol = float(np.sqrt(np.mean(np.square(audio_in, dtype=np.float32)))) if audio_in.size > 0 else 0.0
 
-        if vol >= self.inputSensitivity:
-            self._gate_hangover_chunks = 2
-        elif self._gate_hangover_chunks > 0:
-            self._gate_hangover_chunks -= 1
-        else:
-            self.feed_context(audio_in)
-            if self._rms_gain_ema_t is not None:
-                self._rms_gain_ema_t = 0.9 * self._rms_gain_ema_t + 0.1
+        if not bypass_silence_gate:
+            if vol >= self.inputSensitivity:
+                self._gate_hangover_chunks = 2
+            elif self._gate_hangover_chunks > 0:
+                self._gate_hangover_chunks -= 1
+            else:
+                self.feed_context(audio_in)
+                if self._rms_gain_ema_t is not None:
+                    self._rms_gain_ema_t = 0.9 * self._rms_gain_ema_t + 0.1
 
-            # Lightweight CUDA clock keepalive instead of running full RVC pipeline on silence
-            dev = self.device_manager.device
-            if getattr(self.settings, 'powerSavingMode', 0) == 0 and dev.type == 'cuda':
-                if self._keepalive_a is not None and self._keepalive_b is not None:
-                    _ = torch.mm(self._keepalive_a, self._keepalive_b)
-            return None, vol
+                # Lightweight CUDA clock keepalive instead of running full RVC pipeline on silence
+                dev = self.device_manager.device
+                if getattr(self.settings, 'powerSavingMode', 0) == 0 and dev.type == 'cuda':
+                    if self._keepalive_a is not None and self._keepalive_b is not None:
+                        _ = torch.mm(self._keepalive_a, self._keepalive_b)
+                return None, vol
 
         audio_in_16k, pitch_hop_frames = self._prepare_16k_input(audio_in)
         circular_write(audio_in_16k, self.audio_buffer, scratch=self._audio_scratch)
@@ -433,6 +474,61 @@ class RVCr2(VoiceChangerModel):
                 audio_out = F.pad(audio_out, (0, expected_len - audio_out.shape[-1]))
 
         return audio_out, vol
+
+    def warmup(
+        self,
+        block_frame: Optional[int] = None,
+        on_audio_out: Optional[Callable[[torch.Tensor], None]] = None,
+        step: int = 5,
+        total: int = 5,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> None:
+        """
+        Pre-compile and warm up the full inference pipeline (TensorRT engines, TorchScript
+        JIT kernel fusion, cuDNN autotuning, and CUDA lazy modules) using deterministic
+        synthetic voiced audio, then reset all streaming state.
+        """
+        if self.pipeline is None or self.convert_buffer is None or self.resampler_in is None:
+            return
+
+        self._emit_progress(
+            step, total, "Compiling & warming up...", progress_callback=progress_callback
+        )
+
+        if block_frame is not None and block_frame > 0:
+            n_samples = int(block_frame)
+        elif self._last_block_frame > 0:
+            n_samples = self._last_block_frame
+        else:
+            n_samples = max(
+                128,
+                int(round((self.settings.serverReadChunkSize * 128 / 48000.0) * self.input_sample_rate)),
+            )
+
+        t = np.arange(n_samples, dtype=np.float32) / float(max(1, self.input_sample_rate))
+        dummy_audio = (0.15 * np.sin(2.0 * np.pi * 220.0 * t)).astype(np.float32, copy=False)
+
+        dev = self.device_manager.device
+        warmup_runs = 2 if dev.type == "cuda" else 1
+
+        logger.info(
+            f"Warming up pipeline ({warmup_runs} pass(es), chunk={n_samples} samples @ {self.input_sample_rate}Hz, device={dev})..."
+        )
+        t0 = perf_counter()
+        try:
+            with torch.no_grad():
+                for _ in range(warmup_runs):
+                    out_audio, _ = self.inference(dummy_audio, bypass_silence_gate=True)
+                    if on_audio_out is not None and out_audio is not None:
+                        on_audio_out(out_audio)
+                if dev.type == "cuda":
+                    torch.cuda.synchronize(dev)
+            elapsed_ms = (perf_counter() - t0) * 1000.0
+            logger.info(f"Pipeline warmup completed in {elapsed_ms:.1f} ms.")
+        except Exception as e:
+            logger.warning(f"Pipeline warmup failed (will warm up on first live chunk): {e}")
+        finally:
+            self.reset_state()
 
     def __del__(self):
         del self.pipeline

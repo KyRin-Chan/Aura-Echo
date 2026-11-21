@@ -17,11 +17,14 @@ function F0Extraction({ appState, uiState, appGuiSettingState }: F0ExtractionPro
   // Handle F0 Detector Change
   const handleChangeF0Detector = async (value: string) => {
     uiState.startLoading(`${t('changingF0Detector')}${value}`);
-    await appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting?.serverSetting,
-      f0Detector: value as F0Detector
-    });
-    uiState.stopLoading();
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting?.serverSetting,
+        f0Detector: value as F0Detector
+      });
+    } finally {
+      uiState.stopLoading();
+    }
   };
 
   // ---------------- Functions ----------------

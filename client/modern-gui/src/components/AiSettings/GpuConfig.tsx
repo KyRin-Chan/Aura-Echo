@@ -22,11 +22,14 @@ function GPUConfig({ appState, uiState }: GPUConfigProps) {
   const handleChangeGpu = async (gpuId: number) => {
     const gpuName = appState.serverSetting?.serverSetting?.gpus?.find((gpu) => gpu.id === gpuId)?.name;
     uiState.startLoading(`${t('changingToGpu')}${gpuName}`);
-    await appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting?.serverSetting,
-      gpu: gpuId
-    });
-    uiState.stopLoading();
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting?.serverSetting,
+        gpu: gpuId
+      });
+    } finally {
+      uiState.stopLoading();
+    }
   };
 
   // ---------------- Render ----------------

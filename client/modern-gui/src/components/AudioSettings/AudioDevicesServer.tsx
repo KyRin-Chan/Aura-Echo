@@ -62,14 +62,21 @@ function AudioDevicesServer() {
   // ---------------- Handlers ----------------
 
   // Handle Sample Rate Change
-  const handleSampleRateChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      serverInputAudioSampleRate: parseInt(event.target.value),
-      serverOutputAudioSampleRate: parseInt(event.target.value),
-      serverMonitorAudioSampleRate: parseInt(event.target.value),
-      serverAudioSampleRate: parseInt(event.target.value)
-    });
+  const handleSampleRateChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const sr = parseInt(event.target.value);
+    const hasModel = (appState.serverSetting?.serverSetting?.modelSlotIndex ?? -1) !== -1;
+    if (hasModel) uiState.startLoading(t('warmingUpPipeline'));
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        serverInputAudioSampleRate: sr,
+        serverOutputAudioSampleRate: sr,
+        serverMonitorAudioSampleRate: sr,
+        serverAudioSampleRate: sr
+      });
+    } finally {
+      if (hasModel) uiState.stopLoading();
+    }
   };
 
   // Handle Audio Driver Change

@@ -40,66 +40,87 @@ function SettingsView(): JSX.Element {
 
   // Handle cross fade overlap size change
   const handleCrossFadeOverlapSizeChange = async (val: number) => {
-    await appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      crossFadeOverlapSize: val
-    });
-    setLocalCrossFadeOverlapSize(val);
+    const hasModel = (appState.serverSetting?.serverSetting?.modelSlotIndex ?? -1) !== -1;
+    if (hasModel) uiState.startLoading(t('warmingUpPipeline'));
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        crossFadeOverlapSize: val
+      });
+      setLocalCrossFadeOverlapSize(val);
+    } finally {
+      if (hasModel) uiState.stopLoading();
+    }
   };
 
   // Handle silence front change
   const handleSilenceFrontChange = async (val: boolean) => {
     const value = val ? 1 : 0;
     uiState.startLoading(value === 1 ? t('enablingSilenceFront') : t('disablingSilenceFront'));
-    await appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      silenceFront: value
-    });
-    uiState.stopLoading();
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        silenceFront: value
+      });
+    } finally {
+      uiState.stopLoading();
+    }
   };
 
   // Handle force fp32 change
   const handleForceFp32Change = async (val: boolean) => {
     const value = val ? 1 : 0;
     uiState.startLoading(value === 1 ? t('enablingForceFp32') : t('disablingForceFp32'));
-    await appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      forceFp32: value
-    });
-    uiState.stopLoading();
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        forceFp32: value
+      });
+    } finally {
+      uiState.stopLoading();
+    }
   };
 
   // Handle disable jit change
   const handleDisableJitChange = async (val: boolean) => {
     const value = val ? 1 : 0;
     uiState.startLoading(value === 1 ? t('disablingJit') : t('enablingJit'));
-    await appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      disableJit: value
-    });
-    uiState.stopLoading();
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        disableJit: value
+      });
+    } finally {
+      uiState.stopLoading();
+    }
   };
 
   // Handle use onnx change
   const handleUseONNXChange = async (val: boolean) => {
     const value = val ? 1 : 0;
     uiState.startLoading(value === 1 ? t('enablingUseOnnx') : t('disablingUseOnnx'));
-    await appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      useONNX: value
-    });
-    uiState.stopLoading();
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        useONNX: value
+      });
+    } finally {
+      uiState.stopLoading();
+    }
   };
 
   // Handle use TensorRT change
   const handleUseTensorRTChange = async (val: boolean) => {
     const value = val ? 1 : 0;
     uiState.startLoading(value === 1 ? t('enablingTensorRt') : t('disablingTensorRt'));
-    await appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      useTensorRT: value
-    });
-    uiState.stopLoading();
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        useTensorRT: value
+      });
+    } finally {
+      uiState.stopLoading();
+    }
   };
 
   // Handle protect change

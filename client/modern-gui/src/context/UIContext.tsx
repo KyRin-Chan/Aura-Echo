@@ -62,6 +62,7 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
   const [audioMonitorForGUI, setAudioMonitorForGUI] = useState<string>("none");
 
   const [loadingMessage, setLoadingMessage] = useState<string>();
+  const isLoadingRef = useRef(false);
   const [errors, setErrors] = useState<UIError[]>([]);
   const idRef = useRef(0);
 
@@ -69,6 +70,7 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
 
   // Start loading screen
   const startLoading = useCallback((message?: string) => {
+    isLoadingRef.current = true;
     setLoadingMessage(message);
     setLoadingProgress(null);
     setIsLoading(true);
@@ -76,6 +78,7 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
 
   // Stop loading screen
   const stopLoading = useCallback(() => {
+    isLoadingRef.current = false;
     setIsLoading(false);
     setLoadingMessage(undefined);
     setLoadingProgress(null);
@@ -160,7 +163,7 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
     protocol,
     serverUrl,
     onProgress: (progress) => {
-      if (isLoading) {
+      if (isLoadingRef.current) {
         setLoadingProgress(progress);
       }
     },

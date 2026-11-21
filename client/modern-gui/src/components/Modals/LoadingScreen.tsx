@@ -7,24 +7,35 @@ interface LoadingScreenProps {
   progress?: LoadingProgress | null;
 }
 
-const getStepLabel = (step: number, fallbackLabel: string): string => {
-  switch (step) {
-    case 1:
-      return t('loadingStepVoiceModel');
-    case 2:
-      return t('loadingStepEmbedder');
-    case 3:
-      return t('loadingStepPitchExtractor');
-    case 4:
-      return t('loadingStepFaissIndex');
-    default:
-      return fallbackLabel;
+const getStepLabel = (step: number, total: number, fallbackLabel: string): string => {
+  const lower = (fallbackLabel || '').toLowerCase();
+  if (lower.includes('voice model')) return t('loadingStepVoiceModel');
+  if (lower.includes('embedder')) return t('loadingStepEmbedder');
+  if (lower.includes('pitch extractor')) return t('loadingStepPitchExtractor');
+  if (lower.includes('faiss')) return t('loadingStepFaissIndex');
+  if (lower.includes('warm') || lower.includes('compil')) return t('loadingStepWarmup');
+
+  if (total >= 4) {
+    switch (step) {
+      case 1:
+        return t('loadingStepVoiceModel');
+      case 2:
+        return t('loadingStepEmbedder');
+      case 3:
+        return t('loadingStepPitchExtractor');
+      case 4:
+        return t('loadingStepFaissIndex');
+      case 5:
+        return t('loadingStepWarmup');
+    }
   }
+  return fallbackLabel;
 };
 
 const LoadingScreen: React.FC<LoadingScreenProps> = ({ message, progress }) => {
   const hasProgress = progress != null && progress.total > 0;
   const pct = hasProgress ? Math.round((progress.step / progress.total) * 100) : 0;
+  const isFinalCompilingStep = hasProgress && progress.step >= progress.total;
 
   return (
     <div className="fixed inset-0 bg-scrim/40 backdrop-blur-sm flex justify-center items-center z-50 p-4 animate-fadeIn">
@@ -66,6 +77,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ message, progress }) => {
             >
               {/* Indicator */}
               <div
+                className={isFinalCompilingStep ? 'animate-pulse' : undefined}
                 style={{
                   height: '100%',
                   width: `${pct}%`,
@@ -79,11 +91,13 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ message, progress }) => {
             {/* Step info row */}
             <div className="flex justify-between items-center">
               <span className="text-xs text-on-surface-variant leading-none">
-                {getStepLabel(progress.step, progress.label)}
+                {getStepLabel(progress.step, progress.total, progress.label)}
               </span>
-              <span className="text-xs font-semibold text-primary leading-none tabular-nums">
-                {progress.step} / {progress.total}
-              </span>
+              {progress.total > 1 && (
+                <span className="text-xs font-semibold text-primary leading-none tabular-nums">
+                  {progress.step} / {progress.total}
+                </span>
+              )}
             </div>
           </div>
         )}

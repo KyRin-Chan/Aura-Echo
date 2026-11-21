@@ -250,6 +250,8 @@ class VoiceChangerManager(ServerAudioCallbacks):
                 self.emit_progress(step, total, label)
 
             if slotInfo.voiceChangerType == self.vc.get_type():
+                if self.vc.vcmodel is not None and hasattr(self.vc.vcmodel, "set_progress_callback"):
+                    self.vc.vcmodel.set_progress_callback(_progress_callback)
                 self.vc.set_slot_info(slotInfo)
             elif slotInfo.voiceChangerType == "RVC":
                 logger.info("Loading RVC...")
@@ -318,15 +320,31 @@ class VoiceChangerManager(ServerAudioCallbacks):
             # since server audio can have its sample rate configured.
             # Revert change in case we switched back to client audio mode.
             elif key == 'enableServerAudio':
-                if val:
+                prev_in_sr = self.settings.inputSampleRate
+                prev_out_sr = self.settings.outputSampleRate
+                self.vc.begin_batch_update()
+                try:
+                    if val:
+                        self.update_settings('inputSampleRate', self.settings.serverAudioSampleRate)
+                        self.update_settings('outputSampleRate', self.settings.serverAudioSampleRate)
+                    else:
+                        self.update_settings('inputSampleRate', 48000)
+                        self.update_settings('outputSampleRate', 48000)
+                finally:
+                    self.vc.end_batch_update()
+                if self.settings.inputSampleRate != prev_in_sr or self.settings.outputSampleRate != prev_out_sr:
+                    self.vc.warmup(step=1, total=1)
+            elif key == 'serverAudioSampleRate':
+                prev_in_sr = self.settings.inputSampleRate
+                prev_out_sr = self.settings.outputSampleRate
+                self.vc.begin_batch_update()
+                try:
                     self.update_settings('inputSampleRate', self.settings.serverAudioSampleRate)
                     self.update_settings('outputSampleRate', self.settings.serverAudioSampleRate)
-                else:
-                    self.update_settings('inputSampleRate', 48000)
-                    self.update_settings('outputSampleRate', 48000)
-            elif key == 'serverAudioSampleRate':
-                self.update_settings('inputSampleRate', self.settings.serverAudioSampleRate)
-                self.update_settings('outputSampleRate', self.settings.serverAudioSampleRate)
+                finally:
+                    self.vc.end_batch_update()
+                if self.settings.inputSampleRate != prev_in_sr or self.settings.outputSampleRate != prev_out_sr:
+                    self.vc.warmup(step=1, total=1)
             elif key == 'audioEffects':
                 # Atomically swap prebuilt audio effects chains
                 if self.audio_effects_manager is not None and prebuilt_effects is not None:

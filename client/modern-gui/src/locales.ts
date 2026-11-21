@@ -101,6 +101,8 @@ export const locales = {
         loadingStepEmbedder: "Embedder",
         loadingStepPitchExtractor: "Pitch extractor",
         loadingStepFaissIndex: "FAISS index",
+        loadingStepWarmup: "Compiling & warming up",
+        warmingUpPipeline: "Compiling & warming up pipeline...",
         
         // Audio Effects & Merge
         mergeSuccess: "Models uploaded successfully!",
@@ -477,6 +479,8 @@ export const locales = {
         loadingStepEmbedder: "特征提取器",
         loadingStepPitchExtractor: "音高提取器",
         loadingStepFaissIndex: "检索索引",
+        loadingStepWarmup: "编译与预热",
+        warmingUpPipeline: "正在编译并预热模型...",
         
         // Audio Effects & Merge
         mergeSuccess: "模型融合并上传成功！",
@@ -853,6 +857,8 @@ export const locales = {
         loadingStepEmbedder: "埋め込み器",
         loadingStepPitchExtractor: "ピッチ抽出器",
         loadingStepFaissIndex: "検索インデックス",
+        loadingStepWarmup: "コンパイル・ウォームアップ",
+        warmingUpPipeline: "モデルのコンパイル・ウォームアップ中...",
         
         // Audio Effects & Merge
         mergeSuccess: "モデルのマージとアップロードが成功しました！",
