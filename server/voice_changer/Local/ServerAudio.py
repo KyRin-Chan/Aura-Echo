@@ -230,6 +230,8 @@ class ServerAudio:
 
                 try:
                     out_wav, vol, perf, err = self.callbacks.on_audio(self._worker_in_buf)
+                    if self._stop_event.is_set():
+                        break
                     self.performance = perf
 
                     if out_wav is not None and out_wav.size > 0:
@@ -243,6 +245,8 @@ class ServerAudio:
                         self.callbacks.emit_to(vol, self.performance, err)
                         last_emit_ts = now
                 except Exception as e:
+                    if self._stop_event.is_set():
+                        break
                     logger.exception(e)
                     self.callbacks.emit_to(
                         0,
@@ -453,6 +457,7 @@ class ServerAudio:
     def stop(self):
         with self._state_lock:
             self.running = False
+            self.settings.serverAudioStated = 0
             self._stop_event.set()
             self._in_event.set()
 
@@ -601,6 +606,7 @@ class ServerAudio:
                             sampleRate=sample_rate,
                         )
                     self.running = True
+                    self.settings.serverAudioStated = 1
                 except Exception as e:
                     self.stop()
                     self.callbacks.emit_to(0, self.performance, ('ERR_GENERIC_SERVER_AUDIO_ERROR', ERR_GENERIC_SERVER_AUDIO_ERROR))

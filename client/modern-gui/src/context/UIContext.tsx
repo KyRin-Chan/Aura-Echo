@@ -168,10 +168,13 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
 
   // Check if server is running (needed if page is reloaded and servermode still enabled)
   useEffect(() => {
-    if (appState.serverSetting.serverSetting.serverAudioStated == 1) {
-      setIsConverting(true);
+    if (appState.serverSetting.serverSetting.enableServerAudio == 1) {
+      setIsConverting(appState.serverSetting.serverSetting.serverAudioStated == 1);
     }
-  }, [appState.serverSetting.serverSetting.serverAudioStated]);
+  }, [
+    appState.serverSetting.serverSetting.enableServerAudio,
+    appState.serverSetting.serverSetting.serverAudioStated,
+  ]);
 
   // Enumerate devices on mount and listen to native devicechange events
   useEffect(() => {

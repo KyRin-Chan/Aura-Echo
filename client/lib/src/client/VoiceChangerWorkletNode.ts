@@ -39,6 +39,9 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
   private outputNode: VoiceChangerWorkletNode | null = null;
   private textDecoder = new TextDecoder("utf-8");
 
+  private isActive: boolean = false;
+  private stopTimeout: ReturnType<typeof setTimeout> | null = null;
+
   // Promises
   private startPromiseResolve:
     | ((value: void | PromiseLike<void>) => void)
@@ -179,6 +182,9 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
       });
 
       this.socket.on("response", (response: any[]) => {
+        if (!this.isActive) {
+          return;
+        }
         const [sendTimestamp, audio, ping, vol, perf] = response
         // NOTE: Large integers are packed as BigInt
         const totalPing = Date.now() - Number(sendTimestamp) + ping;
@@ -265,6 +271,10 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
           return;
         }
 
+        if (!this.isActive) {
+          return;
+        }
+
         const audio = new Uint8Array(arrayBuffer, 30);
 
         if (audio.byteLength < 128 * 2) {
@@ -319,11 +329,18 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
         this.startPromiseResolve = null;
       }
     } else if (event.data.responseType === "stop_ok") {
+      if (this.stopTimeout) {
+        clearTimeout(this.stopTimeout);
+        this.stopTimeout = null;
+      }
       if (this.stopPromiseResolve) {
         this.stopPromiseResolve();
         this.stopPromiseResolve = null;
       }
     } else if (event.data.responseType === "inputChunk") {
+      if (!this.isActive) {
+        return;
+      }
       const inputChunk = event.data.inputChunk as Int16Array | undefined;
       if (inputChunk && inputChunk.byteLength > 0) {
         const buffer =
@@ -335,6 +352,9 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
         this.bufferStart = Date.now();
       }
     } else if (event.data.responseType === "inputData") {
+      if (!this.isActive) {
+        return;
+      }
       const inputData = event.data.inputData as Float32Array;
       // console.log("receive input data", inputData);
 
@@ -395,6 +415,9 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
     } else if (this.setting.protocol === "rest") {
       const restClient = new ServerRestClient(this.setting.serverUrl);
       const data = await restClient.postVoice(timestamp, newBuffer);
+      if (!this.isActive) {
+        return;
+      }
       const totalPing = Date.now() - Number(data.sendTimestamp) + data.ping;
       if (data.error) {
         const { code, message } = data.details
@@ -438,9 +461,23 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
   };
 
   start = async () => {
+    this.isActive = true;
     this.requestChunks = new Int16Array(this.setting.inputChunkNum * 128);
     this.chunkCounter = 0;
     this.bufferStart = Date.now();
+
+    if (this.stopTimeout) {
+      clearTimeout(this.stopTimeout);
+      this.stopTimeout = null;
+    }
+    if (this.stopPromiseResolve) {
+      this.stopPromiseResolve();
+      this.stopPromiseResolve = null;
+    }
+    if (this.startPromiseResolve) {
+      this.startPromiseResolve();
+      this.startPromiseResolve = null;
+    }
 
     const p = new Promise<void>((resolve) => {
       this.startPromiseResolve = resolve;
@@ -454,8 +491,29 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
     await p;
   };
   stop = async () => {
+    this.isActive = false;
+    if (this.startPromiseResolve) {
+      this.startPromiseResolve();
+      this.startPromiseResolve = null;
+    }
+    if (this.stopTimeout) {
+      clearTimeout(this.stopTimeout);
+      this.stopTimeout = null;
+    }
+    if (this.stopPromiseResolve) {
+      this.stopPromiseResolve();
+      this.stopPromiseResolve = null;
+    }
+
     const p = new Promise<void>((resolve) => {
       this.stopPromiseResolve = resolve;
+      this.stopTimeout = setTimeout(() => {
+        this.stopTimeout = null;
+        if (this.stopPromiseResolve) {
+          this.stopPromiseResolve();
+          this.stopPromiseResolve = null;
+        }
+      }, 500);
     });
     const req: VoiceChangerWorkletProcessorRequest = {
       requestType: "stop",

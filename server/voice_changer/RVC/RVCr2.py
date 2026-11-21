@@ -179,7 +179,7 @@ class RVCr2(VoiceChangerModel):
         self.pipeline.setPitchExtractor(pitchExtractor)
 
     def update_settings(self, key: str, val, old_val):
-        if key in {"gpu", "forceFp32", "disableJit"}:
+        if key in {"gpu", "forceFp32", "disableJit", "useTensorRT"}:
             self.is_half = self.device_manager.use_fp16()
             self.dtype = torch.float16 if self.is_half else torch.float32
             self.initialize(True)

@@ -52,6 +52,7 @@ class DeviceManager(object):
         self.fp16_available = False
         self.force_fp32 = False
         self.disable_jit = False
+        self.use_tensorrt = False
         self.lock = threading.RLock()
         self.pitch_stream: Optional[torch.cuda.Stream] = None
         self.embedder_stream: Optional[torch.cuda.Stream] = None
@@ -63,10 +64,11 @@ class DeviceManager(object):
         logger.info(f'* CUDA: {self.cuda_enabled}, device count: {torch.cuda.device_count()}')
         logger.info(f'* MPS: {self.mps_enabled}')
 
-    def initialize(self, device_id: int, force_fp32: bool, disable_jit: bool):
-        self.set_device(device_id)
+    def initialize(self, device_id: int, force_fp32: bool, disable_jit: bool, use_tensorrt: bool = False):
         self.force_fp32 = force_fp32
         self.disable_jit = disable_jit
+        self.use_tensorrt = bool(use_tensorrt)
+        self.set_device(device_id)
 
     def set_device(self, id: int):
         if self.mps_enabled:
@@ -253,7 +255,7 @@ class DeviceManager(object):
         elif self.device.type == 'cuda':
             providers = []
             options = []
-            if "TensorrtExecutionProvider" in availableProviders:
+            if self.use_tensorrt and "TensorrtExecutionProvider" in availableProviders:
                 trt_cache_dir = os.path.join(TMP_DIR, "trt_cache")
                 os.makedirs(trt_cache_dir, exist_ok=True)
                 providers.append("TensorrtExecutionProvider")
@@ -262,6 +264,9 @@ class DeviceManager(object):
                     "trt_fp16_enable": True,
                     "trt_engine_cache_enable": True,
                     "trt_engine_cache_path": trt_cache_dir,
+                    "trt_timing_cache_enable": True,
+                    "trt_timing_cache_path": trt_cache_dir,
+                    "trt_builder_optimization_level": 1,
                 })
             if "CUDAExecutionProvider" in availableProviders:
                 providers.append("CUDAExecutionProvider")
@@ -298,6 +303,16 @@ class DeviceManager(object):
         elif self.cuda_enabled:
             torch.cuda.empty_cache()
         self.force_fp32 = force_fp32
+
+    def set_use_tensorrt(self, use_tensorrt: bool):
+        if self.mps_enabled:
+            torch.mps.empty_cache()
+        elif self.cuda_enabled:
+            torch.cuda.empty_cache()
+        self.use_tensorrt = bool(use_tensorrt)
+        if self.device.type == 'cuda':
+            onnx_providers, _ = self.get_onnx_execution_provider()
+            logger.info(f'Selected ONNX Runtime execution providers: {onnx_providers}')
 
     def is_int8_avalable(self):
         if self.device.type == 'cpu':

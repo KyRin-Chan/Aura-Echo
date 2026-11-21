@@ -32,6 +32,7 @@ export class VoiceChangerClient {
 
     private promiseForInitialize: Promise<void>;
     private _isVoiceChanging = false;
+    private opGeneration = 0;
 
     private setting: VoiceChangerClientSetting = DefaultClientSettng.voiceChangerClientSetting;
 
@@ -205,9 +206,14 @@ export class VoiceChangerClient {
     }
 
     start = async () => {
+        const gen = ++this.opGeneration;
+
         // Before starting capture, sync client chunking with server settings
         try {
             const info = await this.configurator.getSettings();
+            if (gen !== this.opGeneration) {
+                return;
+            }
             const current = this.vcInNode.getSettings();
             if (info && typeof info.serverReadChunkSize === 'number' && current.inputChunkNum !== info.serverReadChunkSize) {
                 this.updateWorkletNodeSetting({ ...current, inputChunkNum: info.serverReadChunkSize });
@@ -215,17 +221,28 @@ export class VoiceChangerClient {
         } catch (e) {
             // Non-fatal: fall back to current settings if server not reachable
             console.warn('[VoiceChangerClient] Failed to sync chunk size before start:', e);
+            if (gen !== this.opGeneration) {
+                return;
+            }
         }
 
         if (this.ctx.state === "suspended") {
             await this.ctx.resume();
+            if (gen !== this.opGeneration) {
+                return;
+            }
         }
         await this.vcInNode.start();
+        if (gen !== this.opGeneration) {
+            await Promise.all([this.vcInNode.stop(), this.vcOutNode.stop()]);
+            return;
+        }
         this._isVoiceChanging = true;
     };
     stop = async () => {
-        await this.vcInNode.stop();
+        ++this.opGeneration;
         this._isVoiceChanging = false;
+        await Promise.all([this.vcInNode.stop(), this.vcOutNode.stop()]);
     };
 
     get isVoiceChanging(): boolean {

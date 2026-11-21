@@ -156,6 +156,7 @@ export const ServerSettingKey = {
     protect: "protect",
     forceFp32: "forceFp32",
     disableJit: "disableJit",
+    useTensorRT: "useTensorRT",
     modelSamplingRate: "modelSamplingRate",
     silenceFront: "silenceFront",
     modelSlotIndex: "modelSlotIndex",
@@ -240,6 +241,7 @@ export type VoiceChangerServerSetting = {
     silenceFront: number; // 0:off, 1:on
     forceFp32: number; // 0:off, 1:on
     disableJit: number; // 0:off, 1:on
+    useTensorRT: number; // 0:off, 1:on
     modelSamplingRate: ModelSamplingRate; // 32000,40000,48000
     modelSlotIndex: number;
 
@@ -384,6 +386,7 @@ export const DefaultServerSetting: ServerInfo = {
     silenceFront: 1,
     forceFp32: 0,
     disableJit: 0,
+    useTensorRT: 0,
     modelSlotIndex: 0,
     audioEffects: [],
     audioBackgrounds: [],

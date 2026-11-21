@@ -120,6 +120,7 @@ export declare const ServerSettingKey: {
     readonly protect: "protect";
     readonly forceFp32: "forceFp32";
     readonly disableJit: "disableJit";
+    readonly useTensorRT: "useTensorRT";
     readonly modelSamplingRate: "modelSamplingRate";
     readonly silenceFront: "silenceFront";
     readonly modelSlotIndex: "modelSlotIndex";
@@ -191,6 +192,7 @@ export type VoiceChangerServerSetting = {
     silenceFront: number;
     forceFp32: number;
     disableJit: number;
+    useTensorRT: number;
     modelSamplingRate: ModelSamplingRate;
     modelSlotIndex: number;
     inputSampleRate: InputSampleRate;

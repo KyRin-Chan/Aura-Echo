@@ -18,6 +18,7 @@ export declare class VoiceChangerClient {
     private currentMediaStreamAudioDestinationMonitorNode;
     private promiseForInitialize;
     private _isVoiceChanging;
+    private opGeneration;
     private setting;
     private sslCertified;
     private sem;

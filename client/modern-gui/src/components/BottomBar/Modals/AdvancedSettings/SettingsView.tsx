@@ -91,6 +91,17 @@ function SettingsView(): JSX.Element {
     uiState.stopLoading();
   };
 
+  // Handle use TensorRT change
+  const handleUseTensorRTChange = async (val: boolean) => {
+    const value = val ? 1 : 0;
+    uiState.startLoading(value === 1 ? t('enablingTensorRt') : t('disablingTensorRt'));
+    await appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      useTensorRT: value
+    });
+    uiState.stopLoading();
+  };
+
   // Handle protect change
   const handleProtectChange = async (val: number) => {
     await appState.serverSetting.updateServerSettings({
@@ -211,6 +222,12 @@ function SettingsView(): JSX.Element {
           checked={appState.serverSetting.serverSetting.useONNX === 1}
           onChange={handleUseONNXChange}
           label={t('convertToOnnxLabel')}
+        />
+
+        <MD3Switch
+          checked={appState.serverSetting.serverSetting.useTensorRT === 1}
+          onChange={handleUseTensorRTChange}
+          label={t('useTensorRtLabel')}
         />
 
         <MD3Switch

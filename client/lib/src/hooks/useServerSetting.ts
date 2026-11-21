@@ -88,22 +88,21 @@ export type ServerSettingState = {
 export const useServerSetting = (props: UseServerSettingProps): ServerSettingState => {
     const [serverSetting, _setServerSetting] = useState<ServerInfo>(DefaultServerSetting);
     const serverSettingRef = useRef<ServerInfo>(serverSetting);
-    serverSettingRef.current = serverSetting;
+    const updateQueueRef = useRef<Promise<void>>(Promise.resolve());
 
     const setServerSetting = (info: ServerInfo | null) => {
         if (!info || !(info as any).modelSlots) {
             // サーバが情報を空で返したとき。Web版対策
             return;
         }
-        _setServerSetting((prev) => {
-            if (!prev) return info as ServerInfo;
-            // If modelSlots are structurally identical, preserve previous array reference
-            const prevSlots = prev.modelSlots ?? [];
-            const nextSlots = (info as ServerInfo).modelSlots ?? [];
-            const slotsEqual = JSON.stringify(prevSlots) === JSON.stringify(nextSlots);
-            const stableSlots = slotsEqual ? prevSlots : nextSlots;
-            return { ...(info as ServerInfo), modelSlots: stableSlots } as ServerInfo;
-        });
+        const prev = serverSettingRef.current;
+        const prevSlots = prev?.modelSlots ?? [];
+        const nextSlots = (info as ServerInfo).modelSlots ?? [];
+        const slotsEqual = JSON.stringify(prevSlots) === JSON.stringify(nextSlots);
+        const stableSlots = slotsEqual ? prevSlots : nextSlots;
+        const next = { ...(info as ServerInfo), modelSlots: stableSlots } as ServerInfo;
+        serverSettingRef.current = next;
+        _setServerSetting(next);
     };
 
     //////////////
@@ -112,38 +111,45 @@ export const useServerSetting = (props: UseServerSettingProps): ServerSettingSta
     const updateServerSettings = useMemo(() => {
         return async (setting: ServerInfo) => {
             if (!props.voiceChangerClient) return;
-            let latestRes: ServerInfo | null = null;
-            // Filter enum values to only strings to avoid numeric reverse mappings
-            const stringKeys = (Object.values(ServerSettingKey).filter((v) => typeof v === 'string') as string[]) as (keyof VoiceChangerServerSetting)[];
-            for (let i = 0; i < stringKeys.length; i++) {
-                const k = stringKeys[i] as keyof VoiceChangerServerSetting;
-                if (k === 'embedders' || k === 'pitchExtractors') {
-                    continue;
-                }
-                const cur_v = serverSettingRef.current[k];
-                const new_v = setting[k];
+            const runUpdate = async () => {
+                if (!props.voiceChangerClient) return;
+                let latestRes: ServerInfo | null = null;
+                // Filter enum values to only strings to avoid numeric reverse mappings
+                const stringKeys = (Object.values(ServerSettingKey).filter((v) => typeof v === 'string') as string[]) as (keyof VoiceChangerServerSetting)[];
+                for (let i = 0; i < stringKeys.length; i++) {
+                    const k = stringKeys[i] as keyof VoiceChangerServerSetting;
+                    if (k === 'embedders' || k === 'pitchExtractors') {
+                        continue;
+                    }
+                    const cur_v = serverSettingRef.current[k];
+                    const new_v = setting[k];
 
-                // Deep comparison for objects, simple comparison for primitives
-                const hasChanged = (k === 'audioEffects' || k === 'audioBackgrounds')
-                    ? JSON.stringify(cur_v) !== JSON.stringify(new_v)
-                    : cur_v != new_v;
+                    // Deep comparison for objects, simple comparison for primitives
+                    const hasChanged = (k === 'audioEffects' || k === 'audioBackgrounds')
+                        ? JSON.stringify(cur_v) !== JSON.stringify(new_v)
+                        : cur_v != new_v;
 
-                if (hasChanged) {
-                    // Serialize objects as JSON, convert primitives to string
-                    const valueToSend = ((k === 'audioEffects' || k === 'audioBackgrounds') && typeof new_v === 'object')
-                        ? JSON.stringify(new_v)
-                        : "" + new_v;
-                    
-                    const res = await props.voiceChangerClient.updateServerSettings(k, valueToSend);
-                    latestRes = res as ServerInfo;
-                    if (res) {
-                        serverSettingRef.current = res;
+                    if (hasChanged) {
+                        // Serialize objects as JSON, convert primitives to string
+                        const valueToSend = ((k === 'audioEffects' || k === 'audioBackgrounds') && typeof new_v === 'object')
+                            ? JSON.stringify(new_v)
+                            : "" + new_v;
+                        
+                        const res = await props.voiceChangerClient.updateServerSettings(k, valueToSend);
+                        latestRes = res as ServerInfo;
+                        if (res) {
+                            serverSettingRef.current = res;
+                        }
                     }
                 }
-            }
-            if (latestRes) {
-                setServerSetting(latestRes);
-            }
+                if (latestRes) {
+                    setServerSetting(latestRes);
+                }
+            };
+
+            const next = updateQueueRef.current.then(runUpdate, runUpdate);
+            updateQueueRef.current = next.catch(() => {});
+            return next;
         };
     }, [props.voiceChangerClient]);
 

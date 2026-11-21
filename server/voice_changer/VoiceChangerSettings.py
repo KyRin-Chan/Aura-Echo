@@ -86,6 +86,7 @@ class VoiceChangerSettings:
     _gpu: int = -1
     _forceFp32: int = 0
     _disableJit: int = 0
+    _useTensorRT: int = 0
 
     _passThrough: bool = False
     _recordIO: int = 0
@@ -177,6 +178,14 @@ class VoiceChangerSettings:
     @disableJit.setter
     def disableJit(self, enable: str):
         self._disableJit = int(enable)
+
+    @property
+    def useTensorRT(self):
+        return self._useTensorRT
+
+    @useTensorRT.setter
+    def useTensorRT(self, enable: str):
+        self._useTensorRT = int(enable)
 
     # Server Audio settings
     _serverAudioStated: int = 0

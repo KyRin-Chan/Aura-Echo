@@ -45,8 +45,12 @@ function BottomBar(): JSX.Element {
     if (!startWithAudioContextCreate) {
       return;
     }
+    setStartWithAudioContextCreate(false);
     uiContext.setIsConverting(true);
-    appState.start();
+    Promise.resolve(appState.start()).catch((err) => {
+      console.error('Failed to start voice changer:', err);
+      uiContext.setIsConverting(false);
+    });
   }, [startWithAudioContextCreate]);
 
   // ---------------- Handlers ----------------
@@ -54,9 +58,9 @@ function BottomBar(): JSX.Element {
   // Handle toggle audio convert
   const handleToggleClientActivity = async () => {
     if (uiContext.isConverting) {
-      handleStop();
+      await handleStop();
     } else {
-      handleStart();
+      await handleStart();
     }
   };
 
@@ -109,7 +113,12 @@ function BottomBar(): JSX.Element {
           }
         });
         uiContext.setIsConverting(true);
-        await appState.start();
+        try {
+          await appState.start();
+        } catch (err) {
+          console.error('Failed to start voice changer:', err);
+          uiContext.setIsConverting(false);
+        }
       }
     }
     // Server Mode
@@ -135,11 +144,16 @@ function BottomBar(): JSX.Element {
       }
 
       // Start server convert
-      appState.serverSetting.updateServerSettings({
-        ...appState.serverSetting.serverSetting,
-        serverAudioStated: 1
-      });
       uiContext.setIsConverting(true);
+      try {
+        await appState.serverSetting.updateServerSettings({
+          ...appState.serverSetting.serverSetting,
+          serverAudioStated: 1
+        });
+      } catch (err) {
+        console.error('Failed to start server audio:', err);
+        uiContext.setIsConverting(false);
+      }
     }
   };
 
@@ -150,7 +164,7 @@ function BottomBar(): JSX.Element {
       await appState.stop();
     } else {
       uiContext.setIsConverting(false);
-      appState.serverSetting.updateServerSettings({
+      await appState.serverSetting.updateServerSettings({
         ...appState.serverSetting.serverSetting,
         serverAudioStated: 0
       });

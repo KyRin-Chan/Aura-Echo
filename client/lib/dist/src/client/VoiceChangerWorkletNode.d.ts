@@ -19,6 +19,8 @@ export declare class VoiceChangerWorkletNode extends AudioWorkletNode {
     private recordingOutputChunk;
     private outputNode;
     private textDecoder;
+    private isActive;
+    private stopTimeout;
     private startPromiseResolve;
     private stopPromiseResolve;
     constructor(context: AudioContext, listener: VoiceChangerWorkletListener);

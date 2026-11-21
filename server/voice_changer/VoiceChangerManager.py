@@ -100,7 +100,12 @@ class VoiceChangerManager(ServerAudioCallbacks):
         except Exception:
             # In case of any unexpected structure, still default to CPU
             self.settings.gpu = -1
-        self.device_manager.initialize(self.settings.gpu, self.settings.forceFp32, self.settings.disableJit)
+        self.device_manager.initialize(
+            self.settings.gpu,
+            self.settings.forceFp32,
+            self.settings.disableJit,
+            self.settings.useTensorRT,
+        )
 
         self.vc = VoiceChangerV2(self.settings)
         self.server_audio = ServerAudio(self, self.settings)
@@ -303,6 +308,8 @@ class VoiceChangerManager(ServerAudioCallbacks):
                 self.device_manager.set_force_fp32(val)
             elif key == 'disableJit':
                 self.device_manager.set_disable_jit(val)
+            elif key == 'useTensorRT':
+                self.device_manager.set_use_tensorrt(bool(val))
             # FIXME: This is a very counter-intuitive handling of audio modes...
             # Map "serverAudioSampleRate" to "inputSampleRate" and "outputSampleRate"
             # since server audio can have its sample rate configured.
@@ -332,8 +339,9 @@ class VoiceChangerManager(ServerAudioCallbacks):
                 except Exception as e:
                     logger.warning(f"Failed to update audioBackgrounds: {e}")
      
-            self.server_audio.update_settings(key, val, old_value)
             self.vc.update_settings(key, val, old_value)
+
+        self.server_audio.update_settings(key, val, old_value)
 
         return self.get_info()
 
