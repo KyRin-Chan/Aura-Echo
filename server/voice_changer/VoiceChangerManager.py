@@ -242,7 +242,6 @@ class VoiceChangerManager(ServerAudioCallbacks):
                 'tran': slotInfo.defaultTune,
                 'formantShift': slotInfo.defaultFormantShift,
                 'indexRatio': slotInfo.defaultIndexRatio,
-                'protect': slotInfo.defaultProtect
             })
 
             # Build a progress callback that fans out to all registered emitters

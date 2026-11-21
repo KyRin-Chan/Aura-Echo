@@ -9,20 +9,44 @@ interface DebouncedSliderProps extends Omit<InputHTMLAttributes<HTMLInputElement
 
 export const useDebouncedCallback = <T extends (...args: any[]) => void>(
   callback: T,
-  delay: number
+  delay: number,
+  options?: { flushOnUnmount?: boolean }
 ) => {
   const timeoutRef = useRef<number>();
+  const pendingArgsRef = useRef<Parameters<T> | null>(null);
+  const pendingCallbackRef = useRef<T | null>(null);
+  const latestCallbackRef = useRef<T>(callback);
+  const flushOnUnmount = Boolean(options?.flushOnUnmount);
+  const flushOnUnmountRef = useRef<boolean>(flushOnUnmount);
+
+  latestCallbackRef.current = callback;
+  flushOnUnmountRef.current = flushOnUnmount;
 
   const debouncedFn = useCallback((...args: Parameters<T>) => {
+    pendingArgsRef.current = args;
+    pendingCallbackRef.current = callback;
     window.clearTimeout(timeoutRef.current);
     timeoutRef.current = window.setTimeout(() => {
-      callback(...args);
+      const pendingArgs = pendingArgsRef.current;
+      const pendingCallback = pendingCallbackRef.current;
+      pendingArgsRef.current = null;
+      pendingCallbackRef.current = null;
+      if (pendingArgs !== null) {
+        const target = flushOnUnmountRef.current ? latestCallbackRef.current : pendingCallback;
+        target?.(...pendingArgs);
+      }
     }, delay);
   }, [callback, delay]);
 
   useEffect(
     () => () => {
       window.clearTimeout(timeoutRef.current);
+      const pendingArgs = pendingArgsRef.current;
+      pendingArgsRef.current = null;
+      pendingCallbackRef.current = null;
+      if (flushOnUnmountRef.current && pendingArgs !== null) {
+        latestCallbackRef.current(...pendingArgs);
+      }
     },
     []
   );

@@ -1325,6 +1325,72 @@ class TestAudioPipelineQuality(unittest.TestCase):
         )
         self.assertLess(abs(float(fused_oct[2].item()) - 220.0), 15.0)
 
+    def test_protect_setting_persists_across_initialize_and_restart(self):
+        import tempfile
+        from voice_changer.VoiceChangerManager import VoiceChangerManager
+
+        slot_info = RVCModelSlot(
+            slotIndex=0,
+            voiceChangerType="RVC",
+            defaultTune=4.0,
+            defaultFormantShift=1.2,
+            defaultIndexRatio=0.6,
+            defaultProtect=0.5,
+        )
+
+        def _make_stub_manager(settings_obj: VoiceChangerSettings) -> VoiceChangerManager:
+            mgr = VoiceChangerManager.__new__(VoiceChangerManager)
+            mgr.settings = settings_obj
+            mgr.device_manager = DeviceManager.get_instance()
+            mgr.modelSlotManager = MagicMock()
+            mgr.modelSlotManager.get_slot_info.return_value = slot_info
+            mgr.vc = MagicMock()
+            mgr.vc.get_type.return_value = "RVC"
+            mgr.vc.vcmodel = None
+            mgr.server_audio = MagicMock()
+            mgr.audio_effects_manager = None
+            mgr.audio_mixer = None
+            mgr.emitToFuncs = []
+            mgr.progressEmitFuncs = []
+            mgr.get_info = MagicMock(return_value={})
+            return mgr
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stored_path = Path(tmpdir) / "stored_setting.json"
+            with patch("voice_changer.VoiceChangerManager.STORED_SETTING_FILE", str(stored_path)):
+                # 1. Updating protect stores it in settings and persists it to stored_setting.json
+                settings = VoiceChangerSettings()
+                mgr = _make_stub_manager(settings)
+                mgr.update_settings("protect", "0.25")
+                self.assertAlmostEqual(mgr.settings.protect, 0.25, places=6)
+                with open(stored_path, "r", encoding="utf-8") as f:
+                    saved_data = json.load(f)
+                self.assertAlmostEqual(float(saved_data["protect"]), 0.25, places=6)
+
+                # 2. Initializing a model slot updates per-model defaults without overwriting protect
+                mgr.initialize(0)
+                self.assertAlmostEqual(mgr.settings.tran, 4.0, places=6)
+                self.assertAlmostEqual(mgr.settings.formantShift, 1.2, places=6)
+                self.assertAlmostEqual(mgr.settings.indexRatio, 0.6, places=6)
+                self.assertAlmostEqual(mgr.settings.protect, 0.25, places=6)
+
+                # 3. Simulated server restart reloads stored_setting.json and runs initialize(0)
+                restarted_settings = VoiceChangerSettings()
+                with open(stored_path, "r", encoding="utf-8") as f:
+                    restarted_settings.set_properties(json.load(f))
+                restarted_mgr = _make_stub_manager(restarted_settings)
+                restarted_mgr.initialize(0)
+                self.assertAlmostEqual(restarted_mgr.settings.protect, 0.25, places=6)
+
+                # 4. get_model_current() only exposes per-model defaults, not defaultProtect
+                rvc = RVCr2.__new__(RVCr2)
+                rvc.pipeline = None
+                rvc.settings = restarted_settings
+                self.assertEqual(
+                    [item["key"] for item in rvc.get_model_current()],
+                    ["defaultTune", "defaultIndexRatio", "defaultFormantShift"],
+                )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

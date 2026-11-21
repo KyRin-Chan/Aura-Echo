@@ -13,6 +13,7 @@ interface MD3SliderProps {
   className?: string;
   showValue?: boolean;
   valueFormatter?: (val: number) => string;
+  flushOnUnmount?: boolean;
 }
 
 const MD3Slider: React.FC<MD3SliderProps> = ({
@@ -26,7 +27,8 @@ const MD3Slider: React.FC<MD3SliderProps> = ({
   id,
   className = '',
   showValue = false,
-  valueFormatter
+  valueFormatter,
+  flushOnUnmount = false
 }) => {
   const minNum = typeof min === 'string' ? parseFloat(min) : min;
   const maxNum = typeof max === 'string' ? parseFloat(max) : max;
@@ -37,9 +39,13 @@ const MD3Slider: React.FC<MD3SliderProps> = ({
     setInternalValue(value);
   }, [value]);
 
-  const debouncedChange = useDebouncedCallback((val: number) => {
-    onChange(val);
-  }, 300);
+  const debouncedChange = useDebouncedCallback(
+    (val: number) => {
+      onChange(val);
+    },
+    300,
+    { flushOnUnmount }
+  );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.valueAsNumber;

@@ -21,21 +21,23 @@ function SettingsView(): JSX.Element {
     appState.serverSetting?.serverSetting?.crossFadeOverlapSize ?? 0.02
   );
   const [localProtect, setLocalProtect] = useState<number>(
-    appState.serverSetting?.serverSetting?.protect ?? 0
+    appState.serverSetting?.serverSetting?.protect ?? 0.33
   );
   const [localLang, setLocalLang] = useState<LangType>(currentLang);
   const { removeItem } = useIndexedDB({ clientType: null });
 
   // ---------------- Hooks ----------------
 
-  // Update local state when server settings change
+  // Update local state when individual server settings change
   useEffect(() => {
     const crossFade = appState.serverSetting?.serverSetting?.crossFadeOverlapSize;
     if (crossFade != null) setLocalCrossFadeOverlapSize(crossFade);
+  }, [appState.serverSetting?.serverSetting?.crossFadeOverlapSize]);
 
+  useEffect(() => {
     const protect = appState.serverSetting?.serverSetting?.protect;
     if (protect != null) setLocalProtect(protect);
-  }, [appState.serverSetting?.serverSetting]);
+  }, [appState.serverSetting?.serverSetting?.protect]);
 
   // ---------------- Handlers ----------------
 
@@ -219,6 +221,7 @@ function SettingsView(): JSX.Element {
           onChange={async (val) => {
             await handleCrossFadeOverlapSizeChange(val);
           }}
+          flushOnUnmount={true}
           showValue={true}
           valueFormatter={(val) => `${val.toFixed(2)} s`}
         />
@@ -276,6 +279,7 @@ function SettingsView(): JSX.Element {
           onChange={async (val) => {
             await handleProtectChange(val);
           }}
+          flushOnUnmount={true}
           showValue={true}
           valueFormatter={(val) => val.toFixed(2)}
         />
