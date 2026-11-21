@@ -44,12 +44,12 @@ function AdvancedSettingsModal({ showAdvancedSettings, setShowAdvancedSettings }
       }}
     >
       <div className="flex flex-col h-full">
-        <div className="flex flex-row border-b border-gray-200 dark:border-gray-700">
+        <div className="flex flex-row border-b border-outline-variant">
           <button
             className={`px-4 py-2 text-sm font-medium transition-colors duration-200 ${
               activeTab === TAB_IDS.settings
-                ? 'text-blue-600 border-b-2 border-blue-500 dark:text-blue-400 dark:border-blue-400'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                ? 'text-primary border-b-2 border-primary'
+                : 'text-on-surface-variant hover:text-on-surface'
             }`}
             onClick={() => setActiveTab(TAB_IDS.settings)}
           >
@@ -58,8 +58,8 @@ function AdvancedSettingsModal({ showAdvancedSettings, setShowAdvancedSettings }
           <button
             className={`px-4 py-2 text-sm font-medium transition-colors duration-200 ${
               activeTab === TAB_IDS.downloader
-                ? 'text-blue-600 border-b-2 border-blue-500 dark:text-blue-400 dark:border-blue-400'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                ? 'text-primary border-b-2 border-primary'
+                : 'text-on-surface-variant hover:text-on-surface'
             }`}
             onClick={() => setActiveTab(TAB_IDS.downloader)}
           >

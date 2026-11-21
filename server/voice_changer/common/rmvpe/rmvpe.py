@@ -6,6 +6,7 @@ import torch
 import numpy as np
 from safetensors import safe_open
 from voice_changer.common.SafetensorsUtils import load_model
+from voice_changer.common.TorchUtils import StaticCUDAGraphRunner
 from librosa.filters import mel
 
 logger = logging.getLogger(__file__)
@@ -341,16 +342,21 @@ class RMVPE:
         if is_half:
             model = model.half()
 
-        self.use_jit_eager = not use_jit_compile
+        self.use_jit = use_jit_compile
         if use_jit_compile:
             logger.info('Compiling JIT model...')
             try:
                 model = torch.jit.optimize_for_inference(torch.jit.script(model))
             except Exception as e:
                 logger.warning(f"JIT compilation failed: {e}. Falling back to eager mode.")
-                self.use_jit_eager = True
+                self.use_jit = False
 
         self.model = model
+        self._cuda_graph_runner = (
+            StaticCUDAGraphRunner(self._model_forward_fn, warmup_steps=2, name="RMVPE")
+            if device.type == "cuda"
+            else None
+        )
 
         self.mel_extractor = MelSpectrogram(
             is_half, 128, 16000, 1024, 160, None, 30, 8000
@@ -358,11 +364,20 @@ class RMVPE:
         self.idx = torch.arange(360, device=device)[None, None, :]
         self.idx_cents = self.idx * 20 + 1997.3794084376191
 
+    def _model_forward_fn(self, mel_padded: torch.Tensor) -> torch.Tensor:
+        return self.model(mel_padded)
+
     def mel2hidden(self, mel: torch.Tensor) -> torch.Tensor:
         n_frames = mel.shape[-1]
-        mel = F.pad(mel, (0, 32 * ((n_frames - 1) // 32 + 1) - n_frames), mode='reflect')
-        with torch.jit.optimized_execution(self.use_jit_eager):
-            return self.model(mel)[:, :n_frames]
+        pad_len = 32 * ((n_frames - 1) // 32 + 1) - n_frames
+        if pad_len > 0:
+            mel = F.pad(mel, (0, pad_len), mode='reflect')
+        with torch.jit.optimized_execution(self.use_jit):
+            if self._cuda_graph_runner is not None and mel.device.type == "cuda":
+                hidden = self._cuda_graph_runner.run((mel,))
+            else:
+                hidden = self.model(mel)
+            return hidden[:, :n_frames]
 
     def decode(self, hidden: torch.Tensor, threshold: float):
         center = torch.argmax(hidden, dim=2, keepdim=True)  # [B, T, 1]

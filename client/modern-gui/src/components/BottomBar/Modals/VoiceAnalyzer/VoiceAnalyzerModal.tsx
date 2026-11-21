@@ -2,6 +2,7 @@ import { useState, JSX, useEffect, useRef } from 'react';
 import { ClientState } from '@dannadori/voice-changer-client-js';
 import { CSS_CLASSES } from '../../../../styles/constants';
 import GenericModal from '../../../Modals/GenericModal';
+import MD3Select from '../../../Helpers/MD3Select';
 import { UIContextType } from '../../../../context/UIContext';
 import { t } from '../../../../locales';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -54,7 +55,7 @@ const VoiceAnalyzerModal = ({
   setShowVoiceAnalyzer
 }: VoiceAnalyzerModalProps): JSX.Element | null => {
   // ---------------- State ----------------
-  const [activeModalTab, setActiveModalTab] = useState<'pitch' | 'manager'>('pitch');
+  const [activeModalTab, setActiveModalTab] = useState<'pitch' | 'formant'>('pitch');
   const [inputTab, setInputTab] = useState<'upload' | 'record'>('upload');
   const [targetFile, setTargetFile] = useState<File | null>(null);
   const [inputFile, setInputFile] = useState<File | null>(null);
@@ -180,12 +181,17 @@ const VoiceAnalyzerModal = ({
       setRecordingSeconds(0);
 
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      let elapsed = 0;
       recordingTimerRef.current = setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1);
+        elapsed += 1;
+        setRecordingSeconds(elapsed);
+        if (elapsed >= 10) {
+          stopRecording();
+        }
       }, 1000);
     } catch (err) {
       console.error('Failed to start recording:', err);
-      guiState.showError('Could not access microphone. Please check permissions.', t('errorTitle'));
+      guiState.showError('Could not access microphone. Please check permissions.', 'Error');
     }
   };
 
@@ -229,12 +235,17 @@ const VoiceAnalyzerModal = ({
       setGenRecordingSeconds(0);
 
       if (genRecordingTimerRef.current) clearInterval(genRecordingTimerRef.current);
+      let elapsed = 0;
       genRecordingTimerRef.current = setInterval(() => {
-        setGenRecordingSeconds((prev) => prev + 1);
+        elapsed += 1;
+        setGenRecordingSeconds(elapsed);
+        if (elapsed >= 10) {
+          stopGenRecording();
+        }
       }, 1000);
     } catch (err) {
       console.error('Failed to start recording:', err);
-      guiState.showError('Could not access microphone. Please check permissions.', t('errorTitle'));
+      guiState.showError('Could not access microphone. Please check permissions.', 'Error');
     }
   };
 
@@ -283,7 +294,7 @@ const VoiceAnalyzerModal = ({
 
   const handleCompare = async () => {
     if (!targetFile || !inputFile) {
-      guiState.showError(t('voiceAnalyzerUploadBoth'), t('voiceAnalyzerUploadWarning'));
+      guiState.showError(t('voiceAnalyzerUploadBoth'), 'Warning');
       return;
     }
 
@@ -313,8 +324,8 @@ const VoiceAnalyzerModal = ({
     } catch (error) {
       console.error('Voice comparison error:', error);
       guiState.showError(
-        `比对失败: ${error instanceof Error ? error.message : String(error)}`,
-        t('errorTitle')
+        `${t('voiceAnalyzerCompareFailed')}${error instanceof Error ? error.message : String(error)}`,
+        'Error'
       );
     } finally {
       setIsComparing(false);
@@ -331,7 +342,7 @@ const VoiceAnalyzerModal = ({
       `${t('voiceAnalyzerAppliedPitchSuccess')}${compareResult.recommended_pitch >= 0 ? '+' : ''}${
         compareResult.recommended_pitch
       }`,
-      t('confirmTitle')
+      'Confirm'
     );
   };
 
@@ -389,11 +400,11 @@ const VoiceAnalyzerModal = ({
   const handleGenerateProfile = async () => {
     const fileToUpload = genFile;
     if (!fileToUpload) {
-      guiState.showError('请先上传音频或录制声音', t('errorTitle'));
+      guiState.showError(t('voiceAnalyzerUploadOrRecordFirst'), 'Error');
       return;
     }
     if (!newProfileName.trim()) {
-      guiState.showError('请先输入档案名称', t('errorTitle'));
+      guiState.showError(t('voiceAnalyzerEnterProfileNameFirst'), 'Error');
       return;
     }
 
@@ -433,23 +444,25 @@ const VoiceAnalyzerModal = ({
         if (genPreviewUrl) URL.revokeObjectURL(genPreviewUrl);
         setGenPreviewUrl('');
 
-        guiState.showError('音色档案生成并保存成功！可在主界面的音色跃迁修正下拉框中直接选用。', t('confirmTitle'));
+        guiState.showError(t('voiceAnalyzerProfileSavedSuccess'), 'Confirm');
       } else {
-        throw new Error('Analysis failed');
+        throw new Error(t('voiceAnalysisUnsuccessful'));
       }
     } catch (e) {
       console.error('Error generating profile:', e);
-      guiState.showError(`生成档案失败: ${e instanceof Error ? e.message : String(e)}`, t('errorTitle'));
+      guiState.showError(`${t('voiceAnalyzerProfileGenFailed')}${e instanceof Error ? e.message : String(e)}`, 'Error');
     } finally {
       setIsGenerating(false);
     }
   };
 
   const handleClose = () => {
+    stopRecording();
+    stopGenRecording();
     setShowVoiceAnalyzer(false);
     setTargetFile(null);
     setInputFile(null);
-    setResult(null);
+    setCompareResult(null);
     if (targetPreviewUrl) URL.revokeObjectURL(targetPreviewUrl);
     if (inputPreviewUrl) URL.revokeObjectURL(inputPreviewUrl);
     setTargetPreviewUrl('');
@@ -590,7 +603,7 @@ const VoiceAnalyzerModal = ({
                             {isRecording ? (t('voiceAnalyzerRecordingStatus') || 'Recording...') : (t('voiceAnalyzerRecordStartStatus') || 'Click to Record')}
                           </span>
                           <span className="text-xs font-mono font-bold text-on-surface mt-0.5">
-                            {recordingDuration}s / 10s
+                            {recordingSeconds}s / 10s
                           </span>
                         </div>
                       </div>
@@ -618,7 +631,7 @@ const VoiceAnalyzerModal = ({
                 }`}
               >
                 <FontAwesomeIcon icon={faSync} className={isComparing ? 'animate-spin' : ''} />
-                <span>{isComparing ? '正在比对音高...' : '开始音高比对'}</span>
+                <span>{isComparing ? t('voiceAnalyzerComparing') : t('voiceAnalyzerStartAnalysis')}</span>
               </button>
             </div>
 
@@ -626,7 +639,7 @@ const VoiceAnalyzerModal = ({
             {compareResult && (
               <div className="p-6 rounded-2xl border border-outline-variant bg-surface-container-low space-y-6 animate-fadeIn">
                 <h4 className="text-base font-bold text-center border-b border-outline-variant/30 pb-2.5 mb-4 text-on-surface uppercase tracking-wider">
-                  音高诊断报告
+                  {t('voiceAnalyzerDiagnostics')}
                 </h4>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
@@ -657,7 +670,7 @@ const VoiceAnalyzerModal = ({
 
                 <div className="bg-surface-container border border-outline-variant rounded-xl p-5 space-y-4">
                   <p className="font-bold text-center text-sm text-on-surface-variant">
-                    推荐音高变调值
+                    {t('voiceAnalyzerRecommendedParams')}
                   </p>
 
                   <div className="flex flex-col md:flex-row md:items-center justify-between p-3 rounded-lg hover:bg-primary/4 transition-colors">
@@ -687,37 +700,36 @@ const VoiceAnalyzerModal = ({
             {/* Generate Single Profile Section */}
             <div className="p-5 rounded-2xl border border-outline-variant bg-surface-container-low space-y-4">
               <h5 className="text-xs font-bold text-primary uppercase tracking-wider mb-2">
-                新建共振峰音色档案
+                {t('voiceAnalyzerCreateProfileTitle')}
               </h5>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs items-end">
                 {/* Profile Name Input */}
                 <div className="flex flex-col space-y-1.5">
                   <label className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider">
-                    档案自定义名称
+                    {t('voiceAnalyzerProfileNameLabel')}
                   </label>
                   <input
                     type="text"
                     value={newProfileName}
                     onChange={(e) => setNewProfileName(e.target.value)}
-                    placeholder="例如: 我的说话声、KyRin 原音干声..."
-                    className="px-3 py-2 rounded-lg bg-surface-container border border-outline-variant text-on-surface font-medium text-xs focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                    placeholder={t('voiceAnalyzerProfileNamePlaceholder')}
+                    className="h-[48px] px-3 py-2 rounded-xs bg-surface-container border border-outline text-on-surface font-medium text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                   />
                 </div>
 
                 {/* Profile Type Select */}
-                <div className="flex flex-col space-y-1.5">
-                  <label className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider">
-                    音色角色类型
-                  </label>
-                  <select
+                <div>
+                  <MD3Select
+                    id="newProfileType"
+                    label={t('voiceAnalyzerProfileTypeLabel')}
                     value={newProfileType}
                     onChange={(e) => setNewProfileType(e.target.value as 'input' | 'target')}
-                    className="px-3 py-2 rounded-lg bg-surface-container border border-outline-variant text-on-surface font-medium text-xs focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                  >
-                    <option value="input">输入音色档案 (Your Voice / 原配)</option>
-                    <option value="target">目标音色档案 (Model Voice / 目标角色)</option>
-                  </select>
+                    options={[
+                      { value: 'input', label: t('voiceAnalyzerProfileTypeInputOption') },
+                      { value: 'target', label: t('voiceAnalyzerProfileTypeTargetOption') }
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -725,7 +737,7 @@ const VoiceAnalyzerModal = ({
               <div className="border-t border-outline-variant/30 pt-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-semibold text-secondary">
-                    音频输入样本 (仅需上传/录制单个声音角色段)
+                    {t('voiceAnalyzerSingleSampleHint')}
                   </span>
                   
                   {/* Tab Selector */}
@@ -758,7 +770,7 @@ const VoiceAnalyzerModal = ({
                   <label className="flex flex-col items-center justify-center border border-dashed border-outline-variant hover:border-secondary/50 bg-surface-container/40 hover:bg-secondary/5 p-4 rounded-xl cursor-pointer transition-all duration-200 text-center">
                     <FontAwesomeIcon icon={faMusic} className="text-secondary/70 text-lg mb-1.5" />
                     <span className="text-xs text-on-surface-variant font-medium select-none truncate max-w-full px-2">
-                      {genFile ? genFile.name : '点击选择要提取的单角色干声音频文件 (.wav/.mp3)'}
+                      {genFile ? genFile.name : t('voiceAnalyzerChooseSingleSample')}
                     </span>
                     <input type="file" accept="audio/*" onChange={handleGenFileChange} className="hidden" />
                   </label>
@@ -788,10 +800,10 @@ const VoiceAnalyzerModal = ({
                       </button>
                       <div className="flex flex-col text-left">
                         <span className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider">
-                          {isGenRecording ? '正在录音...' : '点击录制声音样品'}
+                          {isGenRecording ? t('voiceAnalyzerRecordingStatus') : t('voiceAnalyzerRecordStartStatus')}
                         </span>
                         <span className="text-xs font-mono font-bold text-on-surface mt-0.5">
-                          {genRecordingDuration}s / 10s
+                          {genRecordingSeconds}s / 10s
                         </span>
                       </div>
                     </div>
@@ -818,7 +830,7 @@ const VoiceAnalyzerModal = ({
                   }`}
                 >
                   <FontAwesomeIcon icon={faSync} className={isGenerating ? 'animate-spin' : ''} />
-                  <span>{isGenerating ? '正在分析并生成共振峰档案...' : '生成并保存音色档案'}</span>
+                  <span>{isGenerating ? t('voiceAnalyzerGeneratingProfile') : t('voiceAnalyzerGenerateAndSaveProfile')}</span>
                 </button>
               </div>
             </div>
@@ -868,7 +880,7 @@ const VoiceAnalyzerModal = ({
                                 ? 'bg-secondary/10 text-secondary border border-secondary/20' 
                                 : 'bg-primary/10 text-primary border border-primary/20'
                             }`}>
-                              {p.type === 'input' ? '输入' : '目标'}
+                              {p.type === 'input' ? t('voiceAnalyzerTypeInput') : t('voiceAnalyzerTypeTarget')}
                             </span>
                           </td>
                           <td className="p-3 font-mono text-on-surface-variant">{p.sr}Hz</td>

@@ -48,7 +48,7 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
       guiState.stopLoading();
     }
 
-    guiState.showError(t('modelDeleteSuccess'), t('confirmTitle'));
+    guiState.showError(t('modelDeleteSuccess'), 'Confirm');
     setShowDelete(false);
   };
 
@@ -108,7 +108,7 @@ function DeleteModelModal({ model, showModal, setShowDelete, modelDir }: DeleteM
                   ? 'SPIN V2'
                   : model.embedder || 'Unknown'}{' '}
                 • {model.samplingRate || 'Unknown'} Hz • {model.voiceChangerType || 'RVC'}
-                {model.version || '1'}
+                {model.version || '1'} • {model.vocoder === 'refinegan' ? 'RefineGAN' : 'NSF-HiFiGAN'}
               </p>
             </div>
           </div>

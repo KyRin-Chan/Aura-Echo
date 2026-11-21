@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext } from '@dnd-kit/sortable';
 import SortableCardItem from './Helpers/SortableCardItem';
@@ -17,15 +17,45 @@ const CARD_IDS = {
   AUDIO_EFFECTS: 'audioEffects',
 };
 
+const DEFAULT_CARD_ORDER: string[] = [
+  CARD_IDS.MODEL_SETTINGS,
+  CARD_IDS.PERFORMANCE,
+  CARD_IDS.AI_SETTINGS,
+  CARD_IDS.AUDIO_SETTINGS,
+  CARD_IDS.AUDIO_EFFECTS,
+];
+
+const CARD_ORDER_STORAGE_KEY = 'aura_card_order';
+
+function loadInitialCardOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(CARD_ORDER_STORAGE_KEY);
+    if (!raw) return DEFAULT_CARD_ORDER;
+    const parsed = JSON.parse(raw);
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === DEFAULT_CARD_ORDER.length &&
+      DEFAULT_CARD_ORDER.every((id) => parsed.includes(id))
+    ) {
+      return parsed;
+    }
+  } catch {
+    // fallback to default order
+  }
+  return DEFAULT_CARD_ORDER;
+}
+
 function MainContent() {
   // ---------------- States ----------------
-  const [cardOrder, setCardOrder] = useState<string[]>([
-    CARD_IDS.MODEL_SETTINGS,
-    CARD_IDS.PERFORMANCE,
-    CARD_IDS.AI_SETTINGS,
-    CARD_IDS.AUDIO_SETTINGS,
-    CARD_IDS.AUDIO_EFFECTS,
-  ]);
+  const [cardOrder, setCardOrder] = useState<string[]>(loadInitialCardOrder);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CARD_ORDER_STORAGE_KEY, JSON.stringify(cardOrder));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [cardOrder]);
 
   // ---------------- Hooks ----------------
 
@@ -102,7 +132,7 @@ function MainContent() {
       }
 
       let cardComponent;
-      const gridClasses = isWide ? 'col-span-2' : '';
+      const gridClasses = isWide ? 'col-span-1 xl:col-span-2' : '';
       
       switch (cardId) {
         case 'modelSettings':
@@ -185,7 +215,7 @@ function MainContent() {
       <SortableContext
         items={cardOrder}
       >
-        <div className="grid grid-cols-2 gap-4 auto-rows-min">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 auto-rows-min">
           {generateGridItems()}
         </div>
       </SortableContext>

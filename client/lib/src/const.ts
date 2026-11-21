@@ -298,6 +298,7 @@ export type RVCModelSlot = ModelSlot & {
     modelTypeOnnx: string;
     embedder: string;
     version: string;
+    vocoder?: string;
     embChannels: number;
     f0: boolean;
     samplingRate: number;

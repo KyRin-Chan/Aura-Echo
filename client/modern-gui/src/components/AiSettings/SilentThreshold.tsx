@@ -47,14 +47,44 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
     });
   };
 
+  // Calculate real-time input volume in dB (-90 to 0)
+  const volumeDb = Math.max(Math.round(20 * Math.log10(appState.performance.vol || 0.00001)), -90);
+  const volumePercent = Math.min(100, Math.max(0, ((volumeDb + 90) / 90) * 100));
+  const thresholdPercent = Math.min(100, Math.max(0, ((localSilentThreshold + 90) / 90) * 100));
+  const isAboveThreshold = volumeDb >= localSilentThreshold;
+
   // ---------------- Render ----------------
 
   return (
     <div className="flex flex-col space-y-3.5 bg-surface-container-low p-3 rounded-md border border-outline-variant">
       <div>
-        <label htmlFor="inSens" className={CSS_CLASSES.label}>
-          {t('silentThresholdDesc')}
-        </label>
+        <div className="flex items-center justify-between mb-1">
+          <label htmlFor="inSens" className={`${CSS_CLASSES.label} mb-0`}>
+            {t('silentThresholdDesc')}
+          </label>
+          <div className="flex items-center space-x-1.5">
+            <span
+              className={`inline-block w-2 h-2 rounded-full transition-colors ${
+                isAboveThreshold ? 'bg-primary' : 'bg-outline-variant'
+              }`}
+            />
+            <span className="text-[11px] font-mono tabular-nums text-on-surface-variant">
+              {volumeDb} dB
+            </span>
+          </div>
+        </div>
+        <div className="relative h-1.5 w-full rounded-full bg-surface-container-highest overflow-hidden mb-2.5">
+          <div
+            className={`h-full transition-all duration-75 rounded-full ${
+              isAboveThreshold ? 'bg-primary' : 'bg-outline'
+            }`}
+            style={{ width: `${volumePercent}%` }}
+          />
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-tertiary"
+            style={{ left: `${thresholdPercent}%` }}
+          />
+        </div>
         <MD3Slider
           id="inSens"
           min={-90}

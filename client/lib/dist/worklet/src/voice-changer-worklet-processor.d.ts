@@ -8,17 +8,23 @@ export declare const RequestType: {
 export type RequestType = (typeof RequestType)[keyof typeof RequestType];
 export declare const ResponseType: {
     readonly inputData: "inputData";
+    readonly inputChunk: "inputChunk";
     readonly start_ok: "start_ok";
     readonly stop_ok: "stop_ok";
+    readonly pop_detected: "pop_detected";
 };
 export type ResponseType = (typeof ResponseType)[keyof typeof ResponseType];
 export type VoiceChangerWorkletProcessorRequest = {
     requestType: RequestType;
     voice: Float32Array;
     cushion?: number;
+    inputChunkNum?: number;
 };
 export type VoiceChangerWorkletProcessorResponse = {
     responseType: ResponseType;
     recordData?: Float32Array[];
     inputData?: Float32Array;
+    inputChunk?: Int16Array;
+    type?: string;
+    count?: number;
 };

@@ -4,6 +4,11 @@ import torch.nn.functional as F
 import onnxruntime
 from const import PitchExtractorType
 from voice_changer.common.OnnxLoader import load_onnx_model
+from voice_changer.common.OnnxIOHelper import (
+    OnnxCudaIOBufferCache,
+    create_ort_session_with_stream,
+    ort_cuda_context,
+)
 from voice_changer.pitch_extractor.PitchExtractor import PitchExtractor
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.common.MelExtractor import MelSpectrogram
@@ -17,10 +22,7 @@ class RMVPEOnnxPitchExtractor(PitchExtractor):
 
         device_manager = DeviceManager.get_instance()
         self.is_half = device_manager.use_fp16()
-        (
-            onnxProviders,
-            onnxProviderOptions,
-        ) = device_manager.get_onnx_execution_provider()
+        self._cuda_stream = device_manager.pitch_stream
 
         model = load_onnx_model(file, self.is_half)
 
@@ -31,11 +33,13 @@ class RMVPEOnnxPitchExtractor(PitchExtractor):
 
         so = onnxruntime.SessionOptions()
         so.log_severity_level = 3
-        # so.enable_profiling = True
         self.mel_extractor = MelSpectrogram(
             self.is_half, 128, 16000, 1024, 160, mel_fmin=30, mel_fmax=8000
         ).to(device_manager.device)
-        self.onnx_session = onnxruntime.InferenceSession(model.SerializeToString(), sess_options=so, providers=onnxProviders, provider_options=onnxProviderOptions)
+        self.onnx_session, self._bound_to_stream = create_ort_session_with_stream(
+            model, so, device_manager, cuda_stream=self._cuda_stream
+        )
+        self._io_cache = OnnxCudaIOBufferCache()
 
     def extract(
         self,
@@ -53,24 +57,25 @@ class RMVPEOnnxPitchExtractor(PitchExtractor):
             mel = F.pad(mel, (0, pad_len), mode='reflect')
 
         if audio.device.type == 'cuda':
-            binding = self.onnx_session.io_binding()
-
-            binding.bind_input('mel', device_type='cuda', device_id=audio.device.index, element_type=self.fp_dtype_np, shape=tuple(mel.shape), buffer_ptr=mel.data_ptr())
-            binding.bind_cpu_input('threshold', self.threshold)
-
-            binding.bind_output('pitchf', device_type='cuda', device_id=audio.device.index)
-
-            self.onnx_session.run_with_iobinding(binding)
-
-            outputs = binding.get_outputs()
-            from torch.utils.dlpack import from_dlpack
-            out_val = outputs[0]
-            if hasattr(out_val, 'to_dlpack'):
-                output_tensor = from_dlpack(out_val.to_dlpack())
-            elif hasattr(out_val, '_ortvalue') and hasattr(out_val._ortvalue, 'to_dlpack'):
-                output_tensor = from_dlpack(out_val._ortvalue.to_dlpack())
-            else:
-                output_tensor = torch.from_numpy(out_val.numpy()).to(audio.device)
+            mel = mel.to(dtype=self.fp_dtype_t).contiguous()
+            with ort_cuda_context(audio.device, self._bound_to_stream, self._cuda_stream):
+                binding = self.onnx_session.io_binding()
+                binding.bind_input(
+                    'mel',
+                    device_type='cuda',
+                    device_id=audio.device.index,
+                    element_type=self.fp_dtype_np,
+                    shape=tuple(mel.shape),
+                    buffer_ptr=mel.data_ptr(),
+                )
+                binding.bind_cpu_input('threshold', self.threshold)
+                output_tensor = self._io_cache.run(
+                    self.onnx_session,
+                    binding,
+                    ['pitchf'],
+                    (tuple(mel.shape),),
+                    audio.device,
+                )[0]
 
             output_tensor = output_tensor.to(dtype=self.fp_dtype_t).squeeze()
             return output_tensor[..., :n_frames]

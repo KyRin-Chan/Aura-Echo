@@ -33,11 +33,11 @@ export function useModelLoadingProgress({
   onProgressRef.current = onProgress;
 
   useEffect(() => {
-    if (!serverUrl) return;
+    const baseUrl = serverUrl || window.location.origin;
 
     if (protocol === 'sio') {
       // Connect with the default JSON parser — no msgpack needed for progress events
-      const socket: Socket = io(serverUrl + '/test', {
+      const socket: Socket = io(baseUrl + '/test', {
         transports: ['websocket'],
         reconnection: false,
       });
@@ -52,7 +52,7 @@ export function useModelLoadingProgress({
     }
 
     if (protocol === 'ws') {
-      const wsUrl = serverUrl.replace(/^http/, 'ws') + '/ws/progress';
+      const wsUrl = baseUrl.replace(/^http/, 'ws') + '/ws/progress';
       let ws: WebSocket | null = new WebSocket(wsUrl);
 
       ws.onmessage = (event: MessageEvent) => {

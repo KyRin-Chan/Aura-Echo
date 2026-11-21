@@ -35,6 +35,9 @@ class Inferencer(Protocol):
         self.inferencerType = inferencerType
         self.file = file
 
+    def uses_standalone_vocoder(self) -> bool:
+        return False
+
     def getInferencerInfo(self):
         return {
             "inferencerType": self.inferencerType.value,

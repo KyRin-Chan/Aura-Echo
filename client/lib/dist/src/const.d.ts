@@ -134,6 +134,8 @@ export declare const ServerSettingKey: {
     readonly formantProfileStrength: "formantProfileStrength";
     readonly embedders: "embedders";
     readonly pitchExtractors: "pitchExtractors";
+    readonly vocoders: "vocoders";
+    readonly vocoderType: "vocoderType";
 };
 export type ServerSettingKey = (typeof ServerSettingKey)[keyof typeof ServerSettingKey];
 export type BackgroundTrackMode = 'loop' | 'random';
@@ -202,6 +204,8 @@ export type VoiceChangerServerSetting = {
     formantProfileStrength: number;
     embedders: ModelInfoDict;
     pitchExtractors: ModelInfoDict;
+    vocoders: ModelInfoDict;
+    vocoderType: string;
 };
 export interface ModelInfo {
     name: string;
@@ -214,6 +218,7 @@ export type ModelInfoDict = {
 };
 export declare const embedders: ModelInfoDict;
 export declare const pitchExtractors: ModelInfoDict;
+export declare const vocoders: ModelInfoDict;
 type ModelSlot = {
     slotIndex: number;
     voiceChangerType: VoiceChangerType;
@@ -239,6 +244,7 @@ export type RVCModelSlot = ModelSlot & {
     modelTypeOnnx: string;
     embedder: string;
     version: string;
+    vocoder?: string;
     embChannels: number;
     f0: boolean;
     samplingRate: number;

@@ -25,6 +25,7 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
 
   const [sampleRate, setSampleRate] = useState<number>(40000);
   const [selectedEmbedder, setSelectedEmbedder] = useState<string>('hubert_base');
+  const [selectedVocoder, setSelectedVocoder] = useState<string>('embedded');
   const [searchText, setSearchText] = useState<string>('');
   const [selectedModels, setSelectedModels] = useState<ModelMergeInfo[]>([]);
 
@@ -45,6 +46,8 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
       if (slot.samplingRate && slot.samplingRate !== sampleRate) return false;
 
       if (slot.embedder && slot.embedder !== selectedEmbedder) return false;
+
+      if ((slot.vocoder || 'embedded') !== selectedVocoder) return false;
 
       if (searchText && !slot.name.toLowerCase().includes(searchText.toLowerCase())) return false;
 
@@ -96,9 +99,11 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
 
   // Handle close
   const handleClose = () => {
+    if (appState.serverSetting.isUploading) return;
     setShowMerge(false);
     setSelectedModels([]);
     setSelectedEmbedder('hubert_base');
+    setSelectedVocoder('embedded');
     setSampleRate(40000);
     setSearchText('');
     setDownloadModel(true);
@@ -128,7 +133,7 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
           })),
         });
 
-        guiState.showError(t('modelsMergedSuccess'), t('confirmTitle'));
+        guiState.showError(t('modelsMergedSuccess'), 'Confirm');
 
         // Fetch the merged model file once
         const response = await fetch("/tmp/merged.pth");
@@ -144,7 +149,7 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url); // Clean up
-          guiState.showError(t('modelsDownloadedSuccess'), t('confirmTitle'));
+          guiState.showError(t('modelsDownloadedSuccess'), 'Confirm');
         }
 
         // Upload to slot if requested
@@ -152,7 +157,7 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
           let slotIndex = saveToEmptySlot ? getFirstEmptySlot() : 499;
 
           if (saveToEmptySlot && !slotIndex) {
-            guiState.showError(t('noEmptySlotsForSaving'), t('errorTitle'));
+            guiState.showError(t('noEmptySlotsForSaving'), 'Error');
             return;
           }
 
@@ -164,22 +169,20 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
             voiceChangerType: VoiceChangerType.RVC,
             slot: saveToEmptySlot ? getFirstEmptySlot()?.slotIndex! : 499,
             files: [{ kind: "rvcModel" as ModelFileKind, file: mergedModelFile, dir: "" }],
-            isSampleMode: false,
-            sampleId: null,
             params: {},
             embedder: selectedEmbedder
           };
 
           await appState.serverSetting.uploadModel(uploadSettingsData);
-          guiState.showError(t("mergeSuccess"), t("confirmTitle"));
+          guiState.showError(t("mergeSuccess"), 'Confirm');
           handleClose();
         }
       } else {
-        guiState.showError(t("mergeNoAction"), t("errorTitle"));
+        guiState.showError(t("mergeNoAction"), 'Error');
       }
     } catch (error) {
       console.error('Error merging models:', error);
-      guiState.showError(`${t("mergeError")}${error instanceof Error ? error.message : String(error)}`, t("errorTitle"));
+      guiState.showError(`${t("mergeError")}${error instanceof Error ? error.message : String(error)}`, 'Error');
     }
   };
 
@@ -214,6 +217,8 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
           setSampleRate={setSampleRate}
           selectedEmbedder={selectedEmbedder}
           setSelectedEmbedder={setSelectedEmbedder}
+          selectedVocoder={selectedVocoder}
+          setSelectedVocoder={setSelectedVocoder}
           searchText={searchText}
           setSearchText={setSearchText}
           onFilterChange={handleFilterChange}

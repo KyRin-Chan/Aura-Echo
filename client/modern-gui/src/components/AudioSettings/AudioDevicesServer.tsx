@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { useAppState } from '../../context/AppContext';
 import { useState } from 'react';
-import { ServerAudioDevice } from '@dannadori/voice-changer-client-js/const';
+import { ServerAudioDevice } from '@dannadori/voice-changer-client-js';
 import { useUIContext } from '../../context/UIContext';
 import MD3Select from '../Helpers/MD3Select';
 import { t } from '../../locales';

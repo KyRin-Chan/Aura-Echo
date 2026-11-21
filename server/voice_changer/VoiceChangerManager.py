@@ -105,7 +105,7 @@ class VoiceChangerManager(ServerAudioCallbacks):
         self.vc = VoiceChangerV2(self.settings)
         self.server_audio = ServerAudio(self, self.settings)
 
-        # Initialize audio effects manager once
+        # Initialize audio effects manager once and share with VoiceChangerV2/RVCr2/Pipeline
         self.audio_effects_manager = None
         try:
             from voice_changer.audio_effects.AudioEffectsManager import AudioEffectsManager
@@ -113,6 +113,9 @@ class VoiceChangerManager(ServerAudioCallbacks):
             logger.info("Audio Effects Manager Initialized.")
         except Exception as e:
             logger.warning(f"Failed to initialize audio effects manager: {e}")
+
+        if self.audio_effects_manager is not None:
+            self.vc.set_audio_effects_manager(self.audio_effects_manager)
 
         # Initialize background audio mixer
         self.audio_mixer = None
@@ -243,6 +246,8 @@ class VoiceChangerManager(ServerAudioCallbacks):
             elif slotInfo.voiceChangerType == "RVC":
                 logger.info("Loading RVC...")
                 rvc = RVCr2(slotInfo, self.settings)
+                if self.audio_effects_manager is not None:
+                    rvc.set_audio_effects_manager(self.audio_effects_manager)
                 rvc.set_progress_callback(_progress_callback)
                 self.vc.initialize(rvc)
             else:
@@ -277,6 +282,17 @@ class VoiceChangerManager(ServerAudioCallbacks):
         # TODO: Storing settings on each change is suboptimal. Maybe timed autosave?
         self.store_setting()
 
+        # Prebuild incremental audio effects outside device_manager.lock to avoid stalling live audio
+        prebuilt_effects = None
+        if key == 'audioEffects' and self.audio_effects_manager is not None:
+            try:
+                from voice_changer.audio_effects.AudioEffectsConfig import AudioEffectsConfig
+                prebuilt_effects = AudioEffectsConfig.build_updated_chains(
+                    self.audio_effects_manager, self.settings.to_dict()
+                )
+            except Exception as e:
+                logger.warning(f"Failed to prebuild audioEffects: {e}")
+
         with self.device_manager.lock:
             if key == "modelSlotIndex":
                 logger.info(f"Model slot is changed {old_value} -> {val}")
@@ -302,9 +318,10 @@ class VoiceChangerManager(ServerAudioCallbacks):
                 self.update_settings('inputSampleRate', self.settings.serverAudioSampleRate)
                 self.update_settings('outputSampleRate', self.settings.serverAudioSampleRate)
             elif key == 'audioEffects':
-                # Configure audio effects on the pipeline
-                if hasattr(self.vc, 'vcmodel') and self.vc.vcmodel is not None and hasattr(self.vc.vcmodel, 'pipeline') and self.vc.vcmodel.pipeline is not None:
-                    self.vc.vcmodel.pipeline.configure_audio_effects(self.settings.to_dict())
+                # Atomically swap prebuilt audio effects chains
+                if self.audio_effects_manager is not None and prebuilt_effects is not None:
+                    new_in, new_out, _, _ = prebuilt_effects
+                    self.audio_effects_manager.swap_chains(new_in, new_out)
                     logger.debug("Audio effects configuration updated")
             elif key == 'audioBackgrounds':
                 # Configure background audio mixer
@@ -362,6 +379,19 @@ class VoiceChangerManager(ServerAudioCallbacks):
                 except Exception as reinit_err:
                     logger.error(f"Failed to auto-recover CUDA context: {reinit_err}")
             return np.zeros(1, dtype=np.float32), 0, [0, 0, 0], ('Exception', format_exc())
+
+    def skip_voice(self, receivedData: AudioInOutFloat) -> tuple[AudioInOutFloat, float, list, tuple | None]:
+        if self.settings.passThrough:
+            return np.zeros(len(receivedData), dtype=np.float32), 0.0, [0.0, 0.0, 0.0], None
+        try:
+            with self.device_manager.lock:
+                audio, vol, perf = self.vc.on_skip_request(receivedData)
+            return audio, vol, perf, None
+        except (VoiceChangerIsNotSelectedException, PipelineNotInitializedException):
+            return np.zeros(len(receivedData), dtype=np.float32), 0.0, [0.0, 0.0, 0.0], None
+        except Exception as e:
+            logger.debug(f"skip_voice error: {e}")
+            return np.zeros(len(receivedData), dtype=np.float32), 0.0, [0.0, 0.0, 0.0], None
 
 
     # ---------------- Models ----------------

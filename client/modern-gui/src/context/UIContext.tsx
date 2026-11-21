@@ -15,7 +15,7 @@ interface UIError {
 export interface UIContextType {
   startLoading: (message?: string) => void;
   stopLoading: () => void;
-  showError: (message: string, type?: ErrorType) => void;
+  showError: (message: string, type?: ErrorType | string) => void;
   setIsConverting: (isConverting: boolean) => void;
   isConverting: boolean;
 
@@ -81,11 +81,25 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
     setLoadingProgress(null);
   }, []);
 
+  // Normalize notification type from legacy or localized strings
+  const normalizeErrorType = (rawType?: ErrorType | string): ErrorType => {
+    if (!rawType) return 'Error';
+    const lower = rawType.trim().toLowerCase();
+    if (lower === 'confirm' || rawType === '确认' || rawType === '成功' || rawType === '確認') {
+      return 'Confirm';
+    }
+    if (lower === 'warning' || rawType === '警告' || rawType === '提示') {
+      return 'Warning';
+    }
+    return 'Error';
+  };
+
   // Show error toast (top right)
-  const showError = useCallback((message: string, type: ErrorType = 'Error') => {
+  const showError = useCallback((message: string, type: ErrorType | string = 'Error') => {
+    const normalizedType = normalizeErrorType(type);
     idRef.current += 1;
     const id = idRef.current;
-    setErrors(prev => [...prev, { id, message, type }]);
+    setErrors(prev => [...prev, { id, message, type: normalizedType }]);
     setTimeout(() => {
       setErrors(prev => prev.filter(err => err.id !== id));
     }, 5000);
@@ -159,61 +173,46 @@ export const UIContextProvider: React.FC<{ children: ReactNode }> = ({ children 
     }
   }, [appState.serverSetting.serverSetting.serverAudioStated]);
 
-  // Poll devices
+  // Enumerate devices on mount and listen to native devicechange events
   useEffect(() => {
     let isMounted = true;
 
-    // Poll devices
-    const pollDevices = async () => {
-      // Check if device list changed
-      const checkDeviceDiff = (knownDeviceIds: Set<string>, newDeviceIds: Set<string>) => {
-        const deleted = new Set([...knownDeviceIds].filter((x) => !newDeviceIds.has(x)));
-        const added = new Set([...newDeviceIds].filter((x) => !knownDeviceIds.has(x)));
-        return { deleted, added };
-      };
-      
+    const refreshDevices = async () => {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
       try {
-        // Reload device list
         const audioInfo = await _reloadDeviceInfo();
+        if (!isMounted) return;
 
-        const knownAudioinputIds = new Set(inputAudioDeviceInfo.map((x) => x.deviceId));
-        const newAudioinputIds = new Set(audioInfo[0].map((x) => x.deviceId));
+        setInputAudioDeviceInfo((prev) => {
+          const prevIds = prev.map((d) => `${d.deviceId}:${d.label}`).join('|');
+          const nextIds = audioInfo[0].map((d) => `${d.deviceId}:${d.label}`).join('|');
+          return prevIds === nextIds ? prev : audioInfo[0];
+        });
 
-        const knownAudiooutputIds = new Set(outputAudioDeviceInfo.map((x) => x.deviceId));
-        const newAudiooutputIds = new Set(audioInfo[1].map((x) => x.deviceId));
-
-        // Check if device list changed
-        const audioInputDiff = checkDeviceDiff(knownAudioinputIds, newAudioinputIds);
-        const audioOutputDiff = checkDeviceDiff(knownAudiooutputIds, newAudiooutputIds);
-
-        // Update device list if changed
-        if (audioInputDiff.deleted.size > 0 || audioInputDiff.added.size > 0) {
-          console.log(`deleted input device: ${[...audioInputDiff.deleted]}`);
-          console.log(`added input device: ${[...audioInputDiff.added]}`);
-          setInputAudioDeviceInfo(audioInfo[0]);
-        }
-
-        if (audioOutputDiff.deleted.size > 0 || audioOutputDiff.added.size > 0) {
-          console.log(`deleted output device: ${[...audioOutputDiff.deleted]}`);
-          console.log(`added output device: ${[...audioOutputDiff.added]}`);
-          setOutputAudioDeviceInfo(audioInfo[1]);
-        }
-
-        // Poll devices every 3 seconds
-        if (isMounted) {
-          setTimeout(pollDevices, 1000 * 3);
-        }
+        setOutputAudioDeviceInfo((prev) => {
+          const prevIds = prev.map((d) => `${d.deviceId}:${d.label}`).join('|');
+          const nextIds = audioInfo[1].map((d) => `${d.deviceId}:${d.label}`).join('|');
+          return prevIds === nextIds ? prev : audioInfo[1];
+        });
       } catch (err) {
         console.error("An error occurred during enumeration of devices:", err);
       }
     };
 
-    pollDevices();
+    refreshDevices();
+
+    const mediaDevices = navigator.mediaDevices;
+    if (mediaDevices?.addEventListener) {
+      mediaDevices.addEventListener('devicechange', refreshDevices);
+    }
 
     return () => {
       isMounted = false;
+      if (mediaDevices?.removeEventListener) {
+        mediaDevices.removeEventListener('devicechange', refreshDevices);
+      }
     };
-  }, [inputAudioDeviceInfo, outputAudioDeviceInfo]);
+  }, []);
 
   // ---------------- Render ----------------
 

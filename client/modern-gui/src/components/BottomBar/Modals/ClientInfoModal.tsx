@@ -40,26 +40,26 @@ function ClientInfoModal({ showClientInfo, setShowClientInfo }: ClientInfoModalP
       }}
     >
       <div className="space-y-4">
-        <div className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-          <div className="flex items-start justify-between">
+        <div className="bg-surface-container-low border border-outline-variant rounded-xl p-4">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex-1">
-              <div className="flex items-center mb-2">
-                <h4 className="text-base font-semibold text-blue-900 dark:text-blue-100 mr-2">{t('clientLabel')}</h4>
-                <span className="px-2 py-1 text-xs font-medium bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 rounded-full">
+              <div className="flex items-center mb-3">
+                <h4 className="text-base font-semibold text-on-surface mr-2">{t('clientLabel')}</h4>
+                <span className="px-2.5 py-0.5 text-xs font-medium bg-primary-container text-on-primary-container rounded-full">
                   Aura-Echo
                 </span>
               </div>
 
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="bg-white/50 dark:bg-black/20 rounded-md p-2">
-                  <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">{t('editionLabel')}</div>
-                  <div className="text-blue-900 dark:text-blue-100 font-mono">
+                <div className="bg-surface-container border border-outline-variant/40 rounded-lg p-2.5">
+                  <div className="text-xs font-medium text-on-surface-variant mb-1">{t('editionLabel')}</div>
+                  <div className="text-on-surface font-mono">
                     {appGuiSettingState.appGuiSetting.edition || 'N/A'}
                   </div>
                 </div>
-                <div className="bg-white/50 dark:bg-black/20 rounded-md p-2">
-                  <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">{t('versionLabel')}</div>
-                  <div className="text-blue-900 dark:text-blue-100 font-mono">
+                <div className="bg-surface-container border border-outline-variant/40 rounded-lg p-2.5">
+                  <div className="text-xs font-medium text-on-surface-variant mb-1">{t('versionLabel')}</div>
+                  <div className="text-on-surface font-mono">
                     {appGuiSettingState.appGuiSetting.version || 'N/A'}
                   </div>
                 </div>
@@ -70,7 +70,7 @@ function ClientInfoModal({ showClientInfo, setShowClientInfo }: ClientInfoModalP
               href="https://github.com/KyRin-Chan/Aura-Echo"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center px-3 py-2 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 bg-white/50 dark:bg-black/20 hover:bg-white/80 dark:hover:bg-black/40 rounded-md transition-all duration-200"
+              className="flex items-center px-3 py-2 text-xs text-primary hover:bg-primary/10 bg-surface-container border border-outline-variant/40 rounded-lg transition-all duration-200"
             >
               <FontAwesomeIcon icon={faGithub} className="mr-1.5" size="sm" />
               <span className="font-medium">GitHub</span>
@@ -80,7 +80,7 @@ function ClientInfoModal({ showClientInfo, setShowClientInfo }: ClientInfoModalP
         </div>
 
         {/* Audio Diagnostics Section */}
-        <div className="border border-outline-variant rounded-lg p-4 bg-surface-container-low">
+        <div className="border border-outline-variant rounded-xl p-4 bg-surface-container-low">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-sm font-semibold text-on-surface">{t('audioDiagnosticsTitle')}</h4>
             {appState.popLogs && appState.popLogs.length > 0 && (
@@ -100,9 +100,9 @@ function ClientInfoModal({ showClientInfo, setShowClientInfo }: ClientInfoModalP
           ) : (
             <div className="space-y-1.5 max-h-[150px] overflow-y-auto custom-scrollbar text-xs">
               {appState.popLogs.slice().reverse().map((log, idx) => {
-                let badgeColor = "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
-                if (log.type === "clipping") badgeColor = "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300";
-                if (log.type === "underflow") badgeColor = "bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300";
+                let badgeColor = "bg-tertiary-container text-on-tertiary-container";
+                if (log.type === "clipping") badgeColor = "bg-error-container text-on-error-container";
+                if (log.type === "underflow") badgeColor = "bg-secondary-container text-on-secondary-container";
 
                 return (
                   <div key={idx} className="flex items-center justify-between p-2 rounded bg-surface-container border border-outline-variant/40">
@@ -122,8 +122,8 @@ function ClientInfoModal({ showClientInfo, setShowClientInfo }: ClientInfoModalP
           )}
         </div>
 
-        <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg shadow-inner">
-          <pre className="text-xs text-slate-700 dark:text-gray-300 overflow-auto max-h-[40vh] custom-scrollbar p-2 rounded-md bg-white dark:bg-slate-900">
+        <div className="bg-surface-container-low border border-outline-variant p-3 rounded-xl">
+          <pre className="text-xs text-on-surface overflow-auto max-h-[40vh] custom-scrollbar p-3 rounded-lg bg-surface-container">
             <code>{clientJson}</code>
           </pre>
         </div>

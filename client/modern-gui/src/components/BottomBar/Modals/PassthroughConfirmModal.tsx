@@ -44,7 +44,7 @@ const PassthroughConfirmModal: React.FC<PassthroughConfirmModalProps> = ({
       primaryButton={{
         text: t('activatePassthroughConfirmBtn'),
         onClick: handleConfirm,
-        className: CSS_CLASSES.modalPrimaryButton + " !bg-red-600 hover:!bg-red-700 focus:!ring-red-500"
+        className: `${CSS_CLASSES.modalPrimaryButton} !bg-error !text-on-error hover:!bg-error/90`
       }}
       secondaryButton={{
         text: t('cancelLabel'),
@@ -54,19 +54,19 @@ const PassthroughConfirmModal: React.FC<PassthroughConfirmModalProps> = ({
     >
       <div className="text-center space-y-4">
         <div className="flex justify-center">
-          <div className="flex items-center justify-center w-16 h-16 border-2 border-yellow-400 dark:border-yellow-500 rounded-full">
+          <div className="flex items-center justify-center w-16 h-16 border-2 border-tertiary bg-tertiary-container/30 rounded-full">
             <FontAwesomeIcon
               icon={faExclamationTriangle}
-              className="h-8 w-8 text-yellow-600 dark:text-yellow-400"
+              className="h-8 w-8 text-tertiary"
             />
           </div>
         </div>
 
         <div className="space-y-3">
-          <h4 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h4 className="text-lg font-semibold text-on-surface">
             {t('activatePassthroughConfirmTitle')}
           </h4>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-sm text-on-surface-variant">
             {t('activatePassthroughConfirmDesc')}
           </p>
         </div>

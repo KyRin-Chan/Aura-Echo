@@ -1,9 +1,11 @@
+import os
 import torch
 import onnxruntime
 import re
 import threading
-from typing import TypedDict, Literal
+from typing import TypedDict, Literal, Optional
 from enum import IntFlag
+from const import TMP_DIR
 
 try:
     import torch_directml
@@ -49,6 +51,9 @@ class DeviceManager(object):
         self.force_fp32 = False
         self.disable_jit = False
         self.lock = threading.RLock()
+        self.pitch_stream: Optional[torch.cuda.Stream] = None
+        self.embedder_stream: Optional[torch.cuda.Stream] = None
+        self.infer_stream: Optional[torch.cuda.Stream] = None
         logger.info('Initialized DeviceManager. Backend statuses:')
         logger.info(f'* DirectML: {self.dml_enabled}, device count: {torch_directml.device_count()}')
         logger.info(f'* CUDA: {self.cuda_enabled}, device count: {torch.cuda.device_count()}')
@@ -75,7 +80,10 @@ class DeviceManager(object):
         self.fp16_available = self.is_fp16_available()
         logger.info(f'Switched to {metadata["name"]} ({device}). FP16 support: {self.fp16_available}')
 
-        # Enable TF32 on supported NVIDIA GPUs (Ampere/Hopper or newer)
+        # Enable TF32 and create high-priority persistent CUDA streams on CUDA devices
+        self.pitch_stream = None
+        self.embedder_stream = None
+        self.infer_stream = None
         try:
             if self.device.type == 'cuda':
                 major, _ = torch.cuda.get_device_capability(self.device)
@@ -88,8 +96,14 @@ class DeviceManager(object):
                     if hasattr(torch, 'set_float32_matmul_precision'):
                         torch.set_float32_matmul_precision('high')
                     logger.info('Enabled TF32 (TensorFloat-32) for CUDA matmul/conv on this GPU.')
+
+                _, greatest_p = torch.cuda.Stream.priority_range()
+                self.pitch_stream = torch.cuda.Stream(device=self.device, priority=greatest_p)
+                self.embedder_stream = torch.cuda.Stream(device=self.device, priority=greatest_p)
+                self.infer_stream = torch.cuda.Stream(device=self.device, priority=greatest_p)
+                logger.info(f'Initialized persistent high-priority CUDA streams (priority={greatest_p}).')
         except Exception as e:
-            logger.debug(f'Unable to configure TF32: {e}')
+            logger.debug(f'Unable to configure CUDA TF32/streams: {e}')
 
     def use_fp16(self):
         return self.fp16_available and not self.force_fp32
@@ -156,7 +170,7 @@ class DeviceManager(object):
                 pass
         return False
 
-    def get_onnx_execution_provider(self):
+    def get_onnx_execution_provider(self, cuda_stream: Optional[torch.cuda.Stream] = None):
         cpu_settings = {
             "intra_op_num_threads": 8,
             "execution_mode": onnxruntime.ExecutionMode.ORT_PARALLEL,
@@ -172,11 +186,25 @@ class DeviceManager(object):
             providers = []
             options = []
             if "TensorrtExecutionProvider" in availableProviders:
+                trt_cache_dir = os.path.join(TMP_DIR, "trt_cache")
+                os.makedirs(trt_cache_dir, exist_ok=True)
                 providers.append("TensorrtExecutionProvider")
-                options.append({"device_id": self.device.index, "trt_fp16_enable": True})
+                options.append({
+                    "device_id": self.device.index,
+                    "trt_fp16_enable": True,
+                    "trt_engine_cache_enable": True,
+                    "trt_engine_cache_path": trt_cache_dir,
+                })
             if "CUDAExecutionProvider" in availableProviders:
                 providers.append("CUDAExecutionProvider")
-                options.append({"device_id": self.device.index})
+                cuda_opts = {
+                    "device_id": self.device.index,
+                    "cudnn_conv_algo_search": "HEURISTIC",
+                    "do_copy_in_default_stream": True,
+                }
+                if cuda_stream is not None:
+                    cuda_opts["user_compute_stream"] = str(cuda_stream.cuda_stream)
+                options.append(cuda_opts)
             if len(providers) > 0:
                 providers.append("CPUExecutionProvider")
                 options.append(cpu_settings)

@@ -21,14 +21,12 @@ const DownloaderView = (props: DownloaderViewProps) => {
   const [pitchExtractors, setPitchExtractors] = useState<ModelInfoDict>(
     appState.serverSetting.serverSetting.pitchExtractors || {}
   );
-  const [vocoders, setVocoders] = useState<ModelInfoDict>(appState.serverSetting.serverSetting.vocoders || {});
 
   // Update local state when server settings change
   useEffect(() => {
     const serverSetting = appState.serverSetting.serverSetting;
     setEmbedders(serverSetting.embedders || {});
     setPitchExtractors(serverSetting.pitchExtractors || {});
-    setVocoders(serverSetting.vocoders || {});
   }, [appState.serverSetting.serverSetting]);
 
   // Track download state changes and notify parent
@@ -43,7 +41,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
   }, []);
 
   const handleModelAction = async (
-    type: 'embedder' | 'pitchExtractor' | 'vocoder',
+    type: 'embedder' | 'pitchExtractor',
     action: 'download' | 'delete',
     id: string,
     info: ModelInfoDict[string]
@@ -55,8 +53,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
       action === 'delete' &&
       (info.mandatory ||
         (type === 'embedder' && isEmbedderInUse(id)) ||
-        (type === 'pitchExtractor' && isPitchExtractorInUse(id)) ||
-        (type === 'vocoder' && isVocoderInUse(id)))
+        (type === 'pitchExtractor' && isPitchExtractorInUse(id)))
     ) {
       return;
     }
@@ -79,22 +76,22 @@ const DownloaderView = (props: DownloaderViewProps) => {
 
       // Show success message with model name
       const actionText = action === 'download' ? t('downloadedLabel') : t('deletedLabel');
-      const modelType = type === 'embedder' ? t('embedderLabel') : type === 'vocoder' ? t('vocoderLabel') : t('pitchExtractorLabel');
+      const modelType = type === 'embedder' ? t('embedderLabel') : t('pitchExtractorLabel');
       const successMsg = t('modelActionSuccess')
         .replace('{type}', modelType)
         .replace('{name}', info.name || id)
         .replace('{action}', actionText);
-      uiState.showError(successMsg, t('confirmTitle'));
+      uiState.showError(successMsg, 'Confirm');
     } catch (error) {
       console.error(`Error ${action}ing ${type}:`, error);
-      const modelType = type === 'embedder' ? t('embedderLabel') : type === 'vocoder' ? t('vocoderLabel') : t('pitchExtractorLabel');
+      const modelType = type === 'embedder' ? t('embedderLabel') : t('pitchExtractorLabel');
       const errorMsg = t('modelActionFailed')
         .replace('{action}', action)
         .replace('{type}', modelType)
         .replace('{error}', error instanceof Error ? error.message : String(error));
       uiState.showError(
         errorMsg,
-        t('errorTitle')
+        'Error'
       );
     } finally {
       setLoadingItems((prev) => {
@@ -106,16 +103,6 @@ const DownloaderView = (props: DownloaderViewProps) => {
         }
         return newState;
       });
-    }
-  };
-
-  // Check if a vocoder is in use
-  const isVocoderInUse = (vocoderId: string): boolean => {
-    try {
-      const vocoderType = (appState.serverSetting.serverSetting as any).vocoderType;
-      return vocoderType === vocoderId;
-    } catch (e) {
-      return false;
     }
   };
 
@@ -143,7 +130,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
     }
   };
 
-  const renderItem = (id: string, info: ModelInfoDict[string], type: 'embedder' | 'pitchExtractor' | 'vocoder') => {
+  const renderItem = (id: string, info: ModelInfoDict[string], type: 'embedder' | 'pitchExtractor') => {
     if (!info) return null;
 
     const isLoading = loadingItems[id];
@@ -152,8 +139,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
     const name = info.name || id;
     const isInUse =
       (type === 'embedder' && !info.mandatory && isEmbedderInUse(id)) ||
-      (type === 'pitchExtractor' && !info.mandatory && isPitchExtractorInUse(id)) ||
-      (type === 'vocoder' && !info.mandatory && isVocoderInUse(id));
+      (type === 'pitchExtractor' && !info.mandatory && isPitchExtractorInUse(id));
 
     return (
       <div
@@ -237,7 +223,6 @@ const DownloaderView = (props: DownloaderViewProps) => {
 
   const sortedEmbedders = sortItems(embedders);
   const sortedPitchExtractors = sortItems(pitchExtractors);
-  const sortedVocoders = sortItems(vocoders);
 
   return (
     <div className="space-y-6 max-h-[500px] overflow-y-auto pr-1.5">

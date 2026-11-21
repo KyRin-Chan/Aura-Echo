@@ -117,7 +117,6 @@ function SettingsView(): JSX.Element {
   const handleLangChange = (lang: LangType) => {
     setLang(lang);
     setLocalLang(lang);
-    window.location.reload();
   };
 
   const handleResetSettings = async () => {
@@ -132,15 +131,15 @@ function SettingsView(): JSX.Element {
   // ---------------- Render ----------------
 
   const protocolOptions = [
-    { value: 'ws', label: 'Raw WebSocket (High Performance)' },
-    { value: 'sio', label: 'SIO (Socket.IO)' },
-    { value: 'rest', label: 'REST (HTTP)' }
+    { value: 'ws', label: t('protocolWsOption') },
+    { value: 'sio', label: t('protocolSioOption') },
+    { value: 'rest', label: t('protocolRestOption') }
   ];
 
   const languageOptions = [
-    { value: 'zh', label: '简体中文 (Chinese)' },
+    { value: 'zh', label: '简体中文' },
     { value: 'en', label: 'English' },
-    { value: 'ja', label: '日本語 (Japanese)' }
+    { value: 'ja', label: '日本語' }
   ];
 
   return (

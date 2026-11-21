@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from typing import Callable
 from voice_changer.VoiceChangerManager import VoiceChangerManager
-from voice_changer.utils.PacketLossConcealment import PacketLossConcealment
+from voice_changer.utils.PacketLossConcealment import ClockDriftTracker
 
 from webserver.restapi.MMVC_Rest_Sounds import MMVC_Rest_Sounds
 from webserver.restapi.MMVC_Rest_VoiceChanger import MMVC_Rest_VoiceChanger
@@ -144,31 +144,103 @@ class MMVC_Rest:
                         pass
                 await websocket.accept()
                 active_websockets.add(websocket)
-                min_diff = None
+
+                tracker = ClockDriftTracker(window_sec=60.0)
                 stale_count = 0
                 stale_ages = []
                 last_stale_log_time = 0.0
-                plc = PacketLossConcealment()
+
+                packet_queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+                dropped_packets: list[tuple[int, int, bytes]] = []
+                _sentinel = object()
+
+                async def _receiver():
+                    try:
+                        while True:
+                            data = await websocket.receive_bytes()
+                            recv_ts = round(time() * 1000)
+                            if len(data) < 8:
+                                continue
+                            ts = struct.unpack("<q", data[:8])[0]
+                            raw_audio = data[8:]
+                            if packet_queue.full():
+                                try:
+                                    old_item = packet_queue.get_nowait()
+                                    if old_item is not _sentinel:
+                                        dropped_packets.append(old_item)
+                                except asyncio.QueueEmpty:
+                                    pass
+                            await packet_queue.put((recv_ts, ts, raw_audio))
+                    except WebSocketDisconnect:
+                        pass
+                    except Exception as recv_err:
+                        logger.debug(f"WebSocket receiver ended: {recv_err}")
+                    finally:
+                        while True:
+                            try:
+                                packet_queue.put_nowait(_sentinel)
+                                break
+                            except asyncio.QueueFull:
+                                try:
+                                    dropped = packet_queue.get_nowait()
+                                    if dropped is not _sentinel:
+                                        dropped_packets.append(dropped)
+                                except asyncio.QueueEmpty:
+                                    break
+
+                async def _send_frame(recv_ts: int, ts: int, out_audio: np.ndarray, vol: float, perf: list, err):
+                    if err is not None:
+                        error_code, error_message = err
+                        logger.error(f"[WS] change_voice error: {error_code}: {error_message}")
+                        error_msg = f"{error_code}: {error_message}".encode("utf-8")
+                        header = struct.pack("<qiffffBB", 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
+                        await websocket.send_bytes(header + error_msg)
+                    else:
+                        ping = recv_ts - ts
+                        out_audio = np.nan_to_num(out_audio)
+                        out_bytes = np.round(np.clip(out_audio, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
+                        send_timestamp = round(time() * 1000)
+                        header = struct.pack(
+                            "<qiffffBB",
+                            send_timestamp,
+                            ping,
+                            float(vol),
+                            float(perf[0]),
+                            float(perf[1]),
+                            float(perf[2]),
+                            0,
+                            0,
+                        )
+                        logger.debug(f"[WS] Sending out_audio len: {len(out_bytes)}")
+                        await websocket.send_bytes(header + out_bytes)
+
+                recv_task = asyncio.create_task(_receiver())
                 try:
                     while True:
-                        data = await websocket.receive_bytes()
-                        recv_timestamp = round(time() * 1000)
-                        if len(data) < 8:
-                            continue
-                        
-                        ts = struct.unpack("<q", data[:8])[0]
-                        raw_audio = data[8:]
-                        input_audio = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768
-                        logger.debug(f"[WS] Received data len: {len(data)}, raw_audio len: {len(raw_audio)}, input_audio len: {len(input_audio)}")
+                        item = await packet_queue.get()
 
-                        # Align clock offsets
+                        # Drain any dropped intermediate packets to keep context continuous and client synced
+                        while dropped_packets:
+                            d_recv_ts, d_ts, d_raw = dropped_packets.pop(0)
+                            d_input = np.frombuffer(d_raw, dtype=np.int16).astype(np.float32) / 32768.0
+                            stale_count += 1
+                            stale_ages.append(tracker.update(d_recv_ts - d_ts))
+                            out_audio, vol, perf, err = await asyncio.to_thread(
+                                voiceChangerManager.skip_voice, d_input
+                            )
+                            await _send_frame(d_recv_ts, d_ts, out_audio, vol, perf, err)
+
+                        if item is _sentinel:
+                            break
+
+                        recv_timestamp, ts, raw_audio = item
+                        input_audio = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768.0
+                        logger.debug(f"[WS] Received raw_audio len: {len(raw_audio)}, input_audio len: {len(input_audio)}")
+
                         diff = recv_timestamp - ts
-                        if min_diff is None or diff < min_diff:
-                            min_diff = diff
-                        relative_age = diff - min_diff
+                        relative_age = tracker.update(diff)
 
                         if relative_age > 150:
-                            # Packet is too stale, skip inference to catch up
                             stale_count += 1
                             stale_ages.append(relative_age)
                             current_time = time()
@@ -181,11 +253,9 @@ class MMVC_Rest:
                                 stale_ages = []
                                 last_stale_log_time = current_time
 
-                            # Use Packet Loss Concealment to extrapolate missing audio instead of hard silence
-                            out_audio = plc.conceal(len(input_audio))
-                            vol = float(np.sqrt(np.square(out_audio).mean(dtype=np.float32))) if len(out_audio) > 0 else 0.0
-                            perf = [0.0, 0.0, 0.0]
-                            err = None
+                            out_audio, vol, perf, err = await asyncio.to_thread(
+                                voiceChangerManager.skip_voice, input_audio
+                            )
                         else:
                             if stale_count > 0:
                                 current_time = time()
@@ -196,29 +266,22 @@ class MMVC_Rest:
                                 stale_ages = []
                                 last_stale_log_time = 0.0
 
-                            out_audio, vol, perf, err = await asyncio.to_thread(voiceChangerManager.change_voice, input_audio)
-                            if err is None:
-                                out_audio = plc.process_normal(out_audio)
-                        if err is not None:
-                            error_code, error_message = err
-                            logger.error(f"[WS] change_voice error: {error_code}: {error_message}")
-                            error_msg = f"{error_code}: {error_message}".encode("utf-8")
-                            header = struct.pack("<qiffffBB", 0, 0, 0.0, 0.0, 0.0, 0.0, 1, 0)
-                            await websocket.send_bytes(header + error_msg)
-                        else:
-                            ping = recv_timestamp - ts
-                            out_audio = np.nan_to_num(out_audio)
-                            out_audio = np.clip(out_audio, -1.0, 1.0)
-                            out_audio = (out_audio * 32767).astype(np.int16).tobytes()
-                            send_timestamp = round(time() * 1000)
-                            header = struct.pack("<qiffffBB", send_timestamp, ping, vol, float(perf[0]), float(perf[1]), float(perf[2]), 0, 0)
-                            logger.debug(f"[WS] Sending out_audio len: {len(out_audio)}")
-                            await websocket.send_bytes(header + out_audio)
+                            out_audio, vol, perf, err = await asyncio.to_thread(
+                                voiceChangerManager.change_voice, input_audio
+                            )
+
+                        await _send_frame(recv_timestamp, ts, out_audio, vol, perf, err)
                 except WebSocketDisconnect:
                     logger.debug("WebSocket client disconnected from /ws/voice")
                 except Exception as e:
                     logger.exception(f"Error in websocket_voice: {e}")
                 finally:
+                    if not recv_task.done():
+                        recv_task.cancel()
+                        try:
+                            await recv_task
+                        except asyncio.CancelledError:
+                            pass
                     active_websockets.discard(websocket)
                     if stale_count > 0:
                         current_time = time()

@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronUp, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { RVCModelSlot, ClientState } from '@dannadori/voice-changer-client-js';
 import { useAppState } from '../../context/AppContext';
+import { useUIContext } from '../../context/UIContext';
 import DragHandle from '../Helpers/DragHandle';
 import { CSS_CLASSES } from '../../styles/constants';
 import { useInitialPlaceholder } from '../../scripts/usePlaceholder';
@@ -18,6 +19,7 @@ interface ModelSettingsCardProps {
 function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardProps): JSX.Element {
   // ---------------- State ----------------
   const appState = useAppState() as ClientState;
+  const uiContext = useUIContext();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [model, setModel] = useState<RVCModelSlot>();
 
@@ -58,8 +60,9 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
   };
 
   // Handle save settings
-  const handleSaveSettings = () => {
-    appState.serverSetting.updateModelDefault();
+  const handleSaveSettings = async () => {
+    await appState.serverSetting.updateModelDefault();
+    uiContext.showError(t('modelUpdateSuccess'), 'Confirm');
   };
 
   // ---------------- Render ----------------
@@ -91,25 +94,27 @@ function ModelSettingsCard({ dndAttributes, dndListeners }: ModelSettingsCardPro
           )}
           {
             model && (
-              <ModelSettings
-                model={model}
-                handlePitchChange={handlePitchChange}
-                handleIndexRatioChange={handleIndexRatioChange}
-                handleSpeakerChange={handleSpeakerChange}
-                setModel={setModel}
-              />
+              <>
+                <ModelSettings
+                  model={model}
+                  handlePitchChange={handlePitchChange}
+                  handleIndexRatioChange={handleIndexRatioChange}
+                  handleSpeakerChange={handleSpeakerChange}
+                  setModel={setModel}
+                />
+                <div className="flex justify-end mt-4">
+                  <button
+                    onClick={handleSaveSettings}
+                    className={CSS_CLASSES.primaryButton}
+                  >
+                    {t('saveSettingsBtn')}
+                  </button>
+                </div>
+              </>
             )
           }
         </>
       )}
-      <div className="flex justify-end mt-4">
-        <button
-          onClick={handleSaveSettings}
-          className={CSS_CLASSES.primaryButton}
-        >
-          {t('saveSettingsBtn')}
-        </button>
-      </div>
     </div>
   );
 }

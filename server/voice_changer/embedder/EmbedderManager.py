@@ -18,7 +18,7 @@ class EmbedderManager:
     @classmethod
     def get_embedder(cls, embedder_type: EmbedderType, force_reload: bool = False) -> Embedder:
         if cls.embedder is not None \
-            and cls.embedder == embedder_type \
+            and cls.embedder.matchCondition(embedder_type) \
             and not force_reload:
             logger.info('Reusing embedder.')
             return cls.embedder
@@ -46,5 +46,5 @@ class EmbedderManager:
         if not os.path.exists(model_path):
             raise FileNotFoundError(f'Embedder model file not found at {model_path}. Please download it first.')
 
-        return OnnxEmbedder().load_model(model_path)
+        return OnnxEmbedder().load_model(model_path, embedder_type)
 

@@ -35,6 +35,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
   private isOutputRecording = false;
   private recordingOutputChunk: Float32Array[] = [];
   private outputNode: VoiceChangerWorkletNode | null = null;
+  private textDecoder = new TextDecoder("utf-8");
 
   // Promises
   private startPromiseResolve:
@@ -48,6 +49,13 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
     super(context, "voice-changer-worklet-processor");
     this.port.onmessage = this.handleMessage.bind(this);
     this.listener = listener;
+    const initConfigReq: VoiceChangerWorkletProcessorRequest = {
+      requestType: "config",
+      voice: new Float32Array(0),
+      cushion: this.setting.playBufferCushion,
+      inputChunkNum: this.setting.inputChunkNum,
+    };
+    this.port.postMessage(initConfigReq);
     console.log(`[worklet_node][voice-changer-worklet-processor] created.`);
   }
 
@@ -85,11 +93,12 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
       this.setting = setting;
     }
 
-    // Send updated cushion configuration to worklet processor
+    // Send updated cushion and chunk configuration to worklet processor
     const req: VoiceChangerWorkletProcessorRequest = {
       requestType: "config",
       voice: new Float32Array(0),
       cushion: setting.playBufferCushion,
+      inputChunkNum: setting.inputChunkNum,
     };
     this.port.postMessage(req);
   };
@@ -214,8 +223,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
         const totalPing = Date.now() - sendTimestamp + ping;
 
         if (hasError) {
-          const decoder = new TextDecoder("utf-8");
-          const errorMsg = decoder.decode(new Uint8Array(arrayBuffer, 30));
+          const errorMsg = this.textDecoder.decode(new Uint8Array(arrayBuffer, 30));
           this.listener.notifyException("ERR_GENERIC_VOICE_CHANGER_EXCEPTION", errorMsg);
           return;
         }
@@ -282,6 +290,17 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
       if (this.stopPromiseResolve) {
         this.stopPromiseResolve();
         this.stopPromiseResolve = null;
+      }
+    } else if (event.data.responseType === "inputChunk") {
+      const inputChunk = event.data.inputChunk as Int16Array | undefined;
+      if (inputChunk && inputChunk.byteLength > 0) {
+        const buffer =
+          inputChunk.byteOffset === 0 && inputChunk.byteLength === inputChunk.buffer.byteLength
+            ? inputChunk.buffer
+            : inputChunk.slice().buffer;
+        this.sendBuffer(buffer);
+        this.listener.notifySendBufferingTime(Date.now() - this.bufferStart);
+        this.bufferStart = Date.now();
       }
     } else if (event.data.responseType === "inputData") {
       const inputData = event.data.inputData as Float32Array;
@@ -389,6 +408,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
   start = async () => {
     this.requestChunks = new Int16Array(this.setting.inputChunkNum * 128);
     this.chunkCounter = 0;
+    this.bufferStart = Date.now();
 
     const p = new Promise<void>((resolve) => {
       this.startPromiseResolve = resolve;
@@ -396,6 +416,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
     const req: VoiceChangerWorkletProcessorRequest = {
       requestType: "start",
       voice: new Float32Array(1),
+      inputChunkNum: this.setting.inputChunkNum,
     };
     this.port.postMessage(req);
     await p;

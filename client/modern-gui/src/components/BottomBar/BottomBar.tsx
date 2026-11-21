@@ -64,7 +64,7 @@ function BottomBar(): JSX.Element {
   const handleStart = async () => {
     // Check if model is selected
     if (appState.serverSetting.serverSetting.modelSlotIndex === -1) {
-      uiContext.showError(t('selectModelFirst'), t('voiceAnalyzerUploadWarning'));
+      uiContext.showError(t('selectModelFirst'), 'Warning');
       return;
     }
 
@@ -75,13 +75,13 @@ function BottomBar(): JSX.Element {
         !appState.setting.voiceChangerClientSetting.audioInput ||
         appState.setting.voiceChangerClientSetting.audioInput == 'none'
       ) {
-        uiContext.showError(t('selectAudioInputFirst'), t('voiceAnalyzerUploadWarning'));
+        uiContext.showError(t('selectAudioInputFirst'), 'Warning');
         return;
       }
 
       // Check if audio output is selected
       if (uiContext.audioOutputForGUI == 'none') {
-        uiContext.showError(t('selectAudioOutputFirst'), t('voiceAnalyzerUploadWarning'));
+        uiContext.showError(t('selectAudioOutputFirst'), 'Warning');
         return;
       }
 
@@ -111,7 +111,7 @@ function BottomBar(): JSX.Element {
           (device) => device.index === appState.serverSetting.serverSetting.serverInputDeviceId
         )
       ) {
-        uiContext.showError(t('selectAudioInputFirst'), t('voiceAnalyzerUploadWarning'));
+        uiContext.showError(t('selectAudioInputFirst'), 'Warning');
         return;
       }
 
@@ -121,7 +121,7 @@ function BottomBar(): JSX.Element {
           (device) => device.index === appState.serverSetting.serverSetting.serverOutputDeviceId
         )
       ) {
-        uiContext.showError(t('selectAudioOutputFirst'), t('voiceAnalyzerUploadWarning'));
+        uiContext.showError(t('selectAudioOutputFirst'), 'Warning');
         return;
       }
 

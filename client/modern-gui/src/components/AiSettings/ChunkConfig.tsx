@@ -116,7 +116,7 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
           onChange={handleChangeCushion}
           disabled={uiState.isConverting}
           showValue={true}
-          valueFormatter={(val) => `${val} Chunk(s)`}
+          valueFormatter={(val) => `${val} Chunk`}
         />
       </div>
       <div>

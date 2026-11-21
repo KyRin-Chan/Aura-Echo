@@ -7,11 +7,19 @@ interface LoadingScreenProps {
   progress?: LoadingProgress | null;
 }
 
-const STEP_LABELS: Record<number, string> = {
-  1: 'Voice model',
-  2: 'Embedder',
-  3: 'Pitch extractor',
-  4: 'FAISS index',
+const getStepLabel = (step: number, fallbackLabel: string): string => {
+  switch (step) {
+    case 1:
+      return t('loadingStepVoiceModel');
+    case 2:
+      return t('loadingStepEmbedder');
+    case 3:
+      return t('loadingStepPitchExtractor');
+    case 4:
+      return t('loadingStepFaissIndex');
+    default:
+      return fallbackLabel;
+  }
 };
 
 const LoadingScreen: React.FC<LoadingScreenProps> = ({ message, progress }) => {
@@ -71,7 +79,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ message, progress }) => {
             {/* Step info row */}
             <div className="flex justify-between items-center">
               <span className="text-xs text-on-surface-variant leading-none">
-                {STEP_LABELS[progress.step] ?? progress.label}
+                {getStepLabel(progress.step, progress.label)}
               </span>
               <span className="text-xs font-semibold text-primary leading-none tabular-nums">
                 {progress.step} / {progress.total}

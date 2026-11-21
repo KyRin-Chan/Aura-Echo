@@ -294,8 +294,11 @@ class MMVC_Rest_VoiceChanger:
                     else:
                         c_envs.append(mean_log_envelope)
                 
-                # Sort cluster centroids by low-frequency energy / F1 proxy
-                c_envs.sort(key=lambda env: np.mean(env[: len(env) // 4]))
+                # Sort cluster centroids by physical F1 low-frequency energy (< 1000 Hz)
+                low_band_mask = frequencies < 1000.0
+                if not np.any(low_band_mask):
+                    low_band_mask = slice(None, max(1, len(frequencies) // 8))
+                c_envs.sort(key=lambda env: np.mean(env[low_band_mask]))
                 vowel_envelopes = {
                     "close": np.exp(c_envs[0]).tolist(),
                     "open": np.exp(c_envs[1]).tolist(),
@@ -309,7 +312,7 @@ class MMVC_Rest_VoiceChanger:
             exp_env = np.exp(mean_log_envelope).tolist()
             vowel_envelopes = {"close": exp_env, "open": exp_env, "front": exp_env}
 
-        return f0_median, cent_median, mean_log_envelope, vowel_envelopes
+        return f0_median, cent_median, np.exp(mean_log_envelope), vowel_envelopes
 
     # Formant Profile & Binding API handlers
     async def get_formant_profiles(self):

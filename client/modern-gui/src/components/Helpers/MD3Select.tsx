@@ -29,7 +29,7 @@ const MD3Select: React.FC<MD3SelectProps> = ({
       {label && (
         <label
           htmlFor={id}
-          className={`absolute left-3 -top-2.5 px-1 text-[11px] font-medium leading-none tracking-wide transition-all bg-surface text-on-surface-variant ${
+          className={`absolute left-3 -top-2.5 px-1.5 rounded text-[11px] font-medium leading-none tracking-wide transition-all bg-surface-container-low text-on-surface-variant ${
             disabled ? 'opacity-50' : ''
           }`}
         >

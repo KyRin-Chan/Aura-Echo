@@ -14,12 +14,11 @@ interface ModelFilterProps {
 type SortOption = 'slot' | 'name';
 type SampleRateFilter = number | 'All';
 
-const sortOptions = [
-  { value: 'slot', label: 'Slot' },
-  { value: 'name', label: 'Name' }
-];
-
 function ModelFilter({ appState, setFilteredAndSortedModels }: ModelFilterProps) {
+  const sortOptions = [
+    { value: 'slot', label: t('sortSlotOption') },
+    { value: 'name', label: t('sortNameOption') }
+  ];
   // ---------------- State ----------------
   const [searchTerm, setSearchTerm] = useState('');
   const [currentSort, setCurrentSort] = useState<SortOption>('slot');
@@ -128,15 +127,20 @@ function ModelFilter({ appState, setFilteredAndSortedModels }: ModelFilterProps)
 
   // ---------------- Render ----------------
 
-  const typeOptions = modelTypeVersionOptions.map((opt) => ({ value: opt, label: opt }));
+  const typeOptions = modelTypeVersionOptions.map((opt) => ({
+    value: opt,
+    label: opt === 'All' ? t('filterAllOption') : opt
+  }));
   const rateOptions = sampleRateOptions.map((opt) => ({
     value: opt === 'All' ? 'All' : opt,
-    label: opt === 'All' ? 'All' : `${opt / 1000}kHz`
+    label: opt === 'All' ? t('filterAllOption') : `${opt / 1000}kHz`
   }));
   const embedderFilterOptions = embedderOptions.map((opt) => ({
     value: opt,
     label:
-      opt === 'hubert_base'
+      opt === 'All'
+        ? t('filterAllOption')
+        : opt === 'hubert_base'
         ? 'ContentVec / Hubert'
         : opt === 'spin_base'
         ? 'SPIN'
@@ -212,14 +216,14 @@ function ModelFilter({ appState, setFilteredAndSortedModels }: ModelFilterProps)
             <div className="space-y-2">
               <MD3Select
                 id="typeVersionFilter"
-                label="Type"
+                label={t('filterTypeLabel')}
                 value={typeVersionFilter}
                 onChange={(e) => setTypeVersionFilter(e.target.value)}
                 options={typeOptions}
               />
               <MD3Select
                 id="rateFilter"
-                label="Rate"
+                label={t('filterRateLabel')}
                 value={rateFilter === 'All' ? 'All' : rateFilter}
                 onChange={(e) =>
                   setRateFilter(e.target.value === 'All' ? 'All' : (Number(e.target.value) as SampleRateFilter))
@@ -228,7 +232,7 @@ function ModelFilter({ appState, setFilteredAndSortedModels }: ModelFilterProps)
               />
               <MD3Select
                 id="embedderFilter"
-                label="Embedder"
+                label={t('embedderLabel')}
                 value={embedderFilter}
                 onChange={(e) => setEmbedderFilter(e.target.value)}
                 options={embedderFilterOptions}

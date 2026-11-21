@@ -1,19 +1,22 @@
-import json
+import asyncio
+import logging
+from time import time
+
 import numpy as np
 import socketio
-from time import time
+
 from voice_changer.VoiceChangerManager import VoiceChangerManager
-from voice_changer.utils.PacketLossConcealment import PacketLossConcealment
+from voice_changer.utils.PacketLossConcealment import ClockDriftTracker
 
-import asyncio
-
-import logging
 logger = logging.getLogger(__name__)
+
 
 class MMVC_Namespace(socketio.AsyncNamespace):
     sid: str | None = None
 
     async def emitTo(self, vol, perf, err):
+        if not self.sid:
+            return
         if err is not None:
             error_code, error_message = err
             await self.emit("error", [error_code, error_message], to=self.sid)
@@ -21,24 +24,29 @@ class MMVC_Namespace(socketio.AsyncNamespace):
             await self.emit("server_stats", [vol, perf], to=self.sid)
 
     def emit_coroutine(self, vol, perf, err):
-        if self.sid:
-            asyncio.run(self.emitTo(vol, perf, err))
+        if self.sid and self._loop is not None and not self._loop.is_closed():
+            try:
+                asyncio.run_coroutine_threadsafe(self.emitTo(vol, perf, err), self._loop)
+            except Exception as e:
+                logger.debug(f"Failed to schedule emitTo: {e}")
 
     async def emitProgress(self, step: int, total: int, label: str):
         if self.sid:
             await self.emit("model_loading_progress", {"step": step, "total": total, "label": label}, to=self.sid)
 
     def emit_progress_coroutine(self, step: int, total: int, label: str):
-        if self.sid:
-            asyncio.run(self.emitProgress(step, total, label))
+        if self.sid and self._loop is not None and not self._loop.is_closed():
+            try:
+                asyncio.run_coroutine_threadsafe(self.emitProgress(step, total, label), self._loop)
+            except Exception as e:
+                logger.debug(f"Failed to schedule emitProgress: {e}")
 
     def __init__(self, namespace: str, voiceChangerManager: VoiceChangerManager):
         super().__init__(namespace)
         self.voiceChangerManager = voiceChangerManager
-        self.min_diffs = {}
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self.clock_trackers: dict[str, ClockDriftTracker] = {}
         self.stale_stats = {}
-        self.plc_buffers = {}
-        # self.voiceChangerManager.voiceChanger.emitTo = self.emit_coroutine
         self.voiceChangerManager.setEmitTo(self.emit_coroutine)
         self.voiceChangerManager.setProgressEmitTo(self.emit_progress_coroutine)
 
@@ -50,8 +58,12 @@ class MMVC_Namespace(socketio.AsyncNamespace):
 
     def on_connect(self, sid, environ, ext):
         self.sid = sid
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
         logger.info(f"Connected SID: {sid}")
-        self.min_diffs[sid] = None
+        self.clock_trackers[sid] = ClockDriftTracker(window_sec=60.0)
         self.stale_stats[sid] = {
             "count": 0,
             "ages": [],
@@ -59,24 +71,21 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         }
 
     async def on_request_message(self, sid, msg):
+        if self._loop is None:
+            self._loop = asyncio.get_running_loop()
         recv_timestamp = round(time() * 1000)
 
         ts, data = msg
-        # Receive and send int16 instead of float32 to reduce bandwidth requirement over websocket
-        input_audio = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768
+        input_audio = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
 
-        # Align clock offsets
+        # Align clock offsets with 60s sliding window to resist long-term clock drift
         diff = recv_timestamp - ts
-        min_diff = self.min_diffs.get(sid)
-        if min_diff is None or diff < min_diff:
-            self.min_diffs[sid] = diff
-            min_diff = diff
-        relative_age = diff - min_diff
+        tracker = self.clock_trackers.setdefault(sid, ClockDriftTracker(window_sec=60.0))
+        relative_age = tracker.update(diff)
 
         stats = self.stale_stats.setdefault(sid, {"count": 0, "ages": [], "last_log_time": 0.0})
 
         if relative_age > 150:
-            # Packet is too stale, skip inference to catch up
             stats["count"] += 1
             stats["ages"].append(relative_age)
             current_time = time()
@@ -89,12 +98,9 @@ class MMVC_Namespace(socketio.AsyncNamespace):
                 stats["ages"] = []
                 stats["last_log_time"] = current_time
 
-            # Use Packet Loss Concealment to extrapolate missing audio instead of hard silence
-            plc = self.plc_buffers.setdefault(sid, PacketLossConcealment())
-            out_audio = plc.conceal(len(input_audio))
-            vol = float(np.sqrt(np.square(out_audio).mean(dtype=np.float32))) if len(out_audio) > 0 else 0.0
-            perf = [0.0, 0.0, 0.0]
-            err = None
+            out_audio, vol, perf, err = await asyncio.to_thread(
+                self.voiceChangerManager.skip_voice, input_audio
+            )
         else:
             if stats["count"] > 0:
                 current_time = time()
@@ -105,27 +111,24 @@ class MMVC_Namespace(socketio.AsyncNamespace):
                 stats["ages"] = []
                 stats["last_log_time"] = 0.0
 
-            out_audio, vol, perf, err = await asyncio.to_thread(self.voiceChangerManager.change_voice, input_audio)
-            if err is None:
-                plc = self.plc_buffers.setdefault(sid, PacketLossConcealment())
-                out_audio = plc.process_normal(out_audio)
+            out_audio, vol, perf, err = await asyncio.to_thread(
+                self.voiceChangerManager.change_voice, input_audio
+            )
 
         if err is not None:
             error_code, error_message = err
             await self.emit("error", [error_code, error_message], to=sid)
         else:
             ping = recv_timestamp - ts
-            out_audio = np.nan_to_num(out_audio)  # Convert NaNs and infs to numbers
-            out_audio = np.clip(out_audio, -1.0, 1.0)  # Ensure values are within valid range
-            out_audio = (out_audio * 32767).astype(np.int16).tobytes()
+            out_audio = np.nan_to_num(out_audio)
+            out_audio = np.round(np.clip(out_audio, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
             send_timestamp = round(time() * 1000)
             await self.emit("response", [send_timestamp, out_audio, ping, vol, perf], to=sid)
 
     def on_disconnect(self, sid):
         self.sid = None
         logger.info(f"Disconnected SID: {sid}")
-        if sid in self.min_diffs:
-            del self.min_diffs[sid]
+        self.clock_trackers.pop(sid, None)
         if sid in self.stale_stats:
             stats = self.stale_stats[sid]
             if stats["count"] > 0:
@@ -134,5 +137,3 @@ class MMVC_Namespace(socketio.AsyncNamespace):
                 avg_age = sum(stats["ages"]) // len(stats["ages"])
                 logger.warning(f"[SIO] Stale packets detected for SID {sid}: {stats['count']} packet(s) skipped over {duration:.1f}s (avg relative age: {avg_age}ms). Skipping inference.")
             del self.stale_stats[sid]
-        if sid in self.plc_buffers:
-            del self.plc_buffers[sid]

@@ -3,6 +3,7 @@ import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
+import numpy as np
 import torch
 from torchaudio import transforms as tat
 import torchaudio
@@ -23,6 +24,7 @@ class BackgroundTrack:
     _audio: Optional[torch.Tensor] = field(default=None, repr=False)
     _sr: int = field(default=0, repr=False)
     _resampled: Optional[torch.Tensor] = field(default=None, repr=False)
+    _resampled_np: Optional[np.ndarray] = field(default=None, repr=False)
     _pos: int = field(default=0, repr=False)
     _pause_remaining: int = field(default=0, repr=False)
 
@@ -65,11 +67,13 @@ class AudioMixer:
             t._audio = wav.contiguous()
             t._sr = output_sr
             t._resampled = t._audio
+            t._resampled_np = t._audio.detach().cpu().numpy().astype(np.float32, copy=False)
             t._pos = 0
             t._pause_remaining = 0
         except Exception:
             # on failure, keep track disabled at runtime
             t._audio = None
+            t._resampled_np = None
             t.enabled = False
 
     def set_tracks(self, cfg: Any, output_sr: Optional[int] = None) -> None:
@@ -121,9 +125,12 @@ class AudioMixer:
                 if t_old._sr != self._output_sr and t_old._audio is not None:
                     # resample and reset position only on SR change
                     t_old._resampled = self._resample_to(t_old._audio, t_old._sr, self._output_sr)
+                    t_old._resampled_np = t_old._resampled.detach().cpu().numpy().astype(np.float32, copy=False)
                     t_old._sr = self._output_sr
                     t_old._pos = 0
                     t_old._pause_remaining = 0
+                elif t_old._resampled_np is None and t_old._resampled is not None:
+                    t_old._resampled_np = t_old._resampled.detach().cpu().numpy().astype(np.float32, copy=False)
                 new_tracks.append(t_old)
             else:
                 # New track or path changed or SR changed; (re)load
@@ -156,32 +163,35 @@ class AudioMixer:
     def _gain_linear(self, db: float) -> float:
         return 10.0 ** (db / 20.0)
 
-    @torch.no_grad()
-    def render(self, block_size: int, output_sr: int, device: Optional[torch.device] = None) -> torch.Tensor:
-        if device is None:
-            device = self.device
+    def has_active_tracks(self) -> bool:
+        return any(t.enabled and t._resampled_np is not None for t in list(self.tracks))
+
+    def render_numpy(self, block_size: int, output_sr: int) -> Optional[np.ndarray]:
+        tracks = list(self.tracks)
         if output_sr != self._output_sr:
             self._output_sr = output_sr
             # re-resample existing tracks to new SR
-            for t in self.tracks:
+            for t in tracks:
                 if t._audio is not None and t._sr != output_sr:
                     t._resampled = self._resample_to(t._audio, t._sr, output_sr)
+                    t._resampled_np = t._resampled.detach().cpu().numpy().astype(np.float32, copy=False)
                     t._sr = output_sr
                     t._pos = 0
                     t._pause_remaining = 0
 
-        if not self.tracks:
-            return torch.zeros(block_size, dtype=torch.float32, device=device)
+        active_tracks = [t for t in tracks if t.enabled and t._resampled_np is not None]
+        if not active_tracks:
+            return None
 
-        mix = torch.zeros(block_size, dtype=torch.float32)
-        for t in self.tracks:
-            if not t.enabled or t._resampled is None:
-                continue
-
+        mix = np.zeros(block_size, dtype=np.float32)
+        for t in active_tracks:
+            audio = t._resampled_np
+            gain = np.float32(self._gain_linear(t.gainDb))
+            audio_len = int(audio.shape[0])
             remaining = block_size
             write_pos = 0
+
             while remaining > 0:
-                # handle pause state
                 if t.mode == 'random' and t._pause_remaining > 0:
                     step = min(remaining, t._pause_remaining)
                     t._pause_remaining -= step
@@ -189,39 +199,42 @@ class AudioMixer:
                     write_pos += step
                     continue
 
-                audio = t._resampled
-                if t.mode == 'loop':
-                    # if in loop pause
-                    if t._pause_remaining > 0:
-                        step = min(remaining, t._pause_remaining)
-                        t._pause_remaining -= step
-                        remaining -= step
-                        write_pos += step
-                        continue
-                # compute copy length
-                if t._pos >= audio.numel():
-                    # reached end
+                if t.mode == 'loop' and t._pause_remaining > 0:
+                    step = min(remaining, t._pause_remaining)
+                    t._pause_remaining -= step
+                    remaining -= step
+                    write_pos += step
+                    continue
+
+                if t._pos >= audio_len:
                     if t.mode == 'loop':
-                        # schedule loop pause then reset
                         t._pause_remaining = int(round(max(0.0, t.loopPauseSec) * self._output_sr))
                         t._pos = 0
                         continue
                     elif t.mode == 'random':
-                        # schedule random pause and restart
                         t._pause_remaining = self._pick_random_pause(t)
                         t._pos = 0
                         continue
                     else:
                         break
-                available = audio.numel() - t._pos
+
+                available = audio_len - t._pos
                 step = min(available, remaining)
                 if step <= 0:
                     break
 
-                segment = audio[t._pos:t._pos+step]
-                mix[write_pos:write_pos+step] += segment * self._gain_linear(t.gainDb)
+                mix[write_pos : write_pos + step] += audio[t._pos : t._pos + step] * gain
                 t._pos += step
                 remaining -= step
                 write_pos += step
 
-        return mix.to(device)
+        return mix
+
+    @torch.no_grad()
+    def render(self, block_size: int, output_sr: int, device: Optional[torch.device] = None) -> Optional[torch.Tensor]:
+        mix_np = self.render_numpy(block_size, output_sr)
+        if mix_np is None:
+            return None
+        if device is None:
+            device = self.device
+        return torch.from_numpy(mix_np).to(device)

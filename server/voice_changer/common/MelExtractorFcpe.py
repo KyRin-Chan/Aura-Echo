@@ -155,11 +155,6 @@ class MelModule(torch.nn.Module):
 
         y = y.squeeze(-1)
 
-        if torch.min(y) < -1.:
-            logger.error(f'min value is {torch.min(y)}')
-        if torch.max(y) > 1.:
-            logger.error(f'max value is {torch.max(y)}')
-
         pad_left = (self.win_size - self.hop_length) // 2
         pad_right = max((self.win_size - self.hop_length + 1) // 2, self.win_size - y.size(-1) - pad_left)
         if pad_right < y.size(-1):
@@ -169,7 +164,7 @@ class MelModule(torch.nn.Module):
         y = torch.nn.functional.pad(y.unsqueeze(1), (pad_left, pad_right), mode=mode)
         y = y.squeeze(1)
 
-        spec = self.stft.transform(y)
+        spec = self.stft.transform(y, center=False)
 
         spec = torch.matmul(self.mel_basis, spec)
         if self.is_half:

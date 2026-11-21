@@ -15,8 +15,7 @@ const DragHandle: React.FC<DragHandleProps> = ({ attributes, listeners, classNam
     <button 
       {...attributes} 
       {...listeners} 
-      className={`p-1 cursor-grab transition-opacity hover:opacity-80 ${className}`}
-      style={{ color: 'var(--text-tertiary)' }}
+      className={`p-1 cursor-grab text-on-surface-variant hover:text-on-surface transition-colors ${className || ''}`}
       title={title}
     >
       <FontAwesomeIcon icon={faArrowsAlt} className="h-5 w-5" />

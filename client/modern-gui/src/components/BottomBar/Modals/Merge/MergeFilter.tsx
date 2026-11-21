@@ -12,6 +12,8 @@ interface MergeFilterProps {
   setSampleRate: (sampleRate: number) => void;
   selectedEmbedder: string;
   setSelectedEmbedder: (embedder: string) => void;
+  selectedVocoder: string;
+  setSelectedVocoder: (vocoder: string) => void;
   searchText: string;
   setSearchText: (searchText: string) => void;
   onFilterChange: () => void;
@@ -23,6 +25,8 @@ function MergeFilter({
   selectedEmbedder,
   embedders,
   setSelectedEmbedder,
+  selectedVocoder,
+  setSelectedVocoder,
   searchText,
   setSearchText,
   onFilterChange
@@ -30,6 +34,10 @@ function MergeFilter({
   // ---------------- States ----------------
 
   const sampleRates = [32000, 40000, 48000];
+  const vocoderOptions = [
+    { value: 'embedded', label: 'NSF-HiFiGAN' },
+    { value: 'refinegan', label: 'RefineGAN' }
+  ];
 
   // ---------------- Handlers ----------------
 
@@ -42,6 +50,12 @@ function MergeFilter({
   // Handle embedder change
   const handleEmbedderChange = (newEmbedder: string) => {
     setSelectedEmbedder(newEmbedder);
+    onFilterChange();
+  };
+
+  // Handle vocoder change
+  const handleVocoderChange = (newVocoder: string) => {
+    setSelectedVocoder(newVocoder);
     onFilterChange();
   };
 
@@ -79,7 +93,7 @@ function MergeFilter({
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <MD3Select
             id="sampleRateFilter"
             label={t('sampleRateLabel')}
@@ -95,6 +109,14 @@ function MergeFilter({
             onChange={(e) => handleEmbedderChange(e.target.value)}
             options={embedderOptions}
             disabled={Object.keys(embedders || {}).length === 0}
+          />
+
+          <MD3Select
+            id="vocoderFilter"
+            label={t('vocoderLabel')}
+            value={selectedVocoder}
+            onChange={(e) => handleVocoderChange(e.target.value)}
+            options={vocoderOptions}
           />
         </div>
       </div>

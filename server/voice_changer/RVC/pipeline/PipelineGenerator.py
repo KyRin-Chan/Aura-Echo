@@ -11,6 +11,7 @@ from voice_changer.embedder.EmbedderManager import EmbedderManager
 from voice_changer.RVC.inferencer.InferencerManager import InferencerManager
 from voice_changer.RVC.pipeline.Pipeline import Pipeline
 from voice_changer.pitch_extractor.PitchExtractorManager import PitchExtractorManager
+from voice_changer.audio_effects.AudioEffectsManager import AudioEffectsManager
 from settings import get_settings
 
 import logging
@@ -24,6 +25,7 @@ def createPipeline(
     useONNX: bool,
     force_reload: bool,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    audio_effects_manager: Optional[AudioEffectsManager] = None,
 ):
     def _report(step: int, label: str):
         if progress_callback:
@@ -65,6 +67,7 @@ def createPipeline(
         modelSlot.f0,
         modelSlot.samplingRate,
         modelSlot.embChannels,
+        audio_effects_manager=audio_effects_manager,
     )
 
     return pipeline

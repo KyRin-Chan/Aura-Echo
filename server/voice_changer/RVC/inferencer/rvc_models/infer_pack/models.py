@@ -651,7 +651,9 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
             float(p_dropout),
         )
         vocoder_type = kwargs.get("vocoder", "embedded")
-        self.is_refinegan = isinstance(vocoder_type, str) and vocoder_type.lower().replace("-", "") in ("refinegan", "refinegan")
+        self.is_refinegan = bool(
+            isinstance(vocoder_type, str) and vocoder_type.lower().replace("-", "") == "refinegan"
+        )
 
         if self.is_refinegan:
             self.dec = _RefineGANGenerator(
@@ -752,6 +754,28 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
         return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
 
     @torch.jit.export
+    def infer_latent(
+        self,
+        phone: torch.Tensor,
+        phone_lengths: torch.Tensor,
+        pitch: torch.Tensor,
+        nsff0: torch.Tensor,
+        sid: torch.Tensor,
+        skip_head: int,
+        return_length: int,
+    ):
+        g = self.emb_g(sid).unsqueeze(-1)
+        flow_head = max(skip_head - 24, 0)
+        dec_head = skip_head - flow_head
+        m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)
+        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+        z = self.flow(z_p, x_mask, g=g, reverse=True)
+        z = z[:, :, dec_head : dec_head + return_length]
+        x_mask = x_mask[:, :, dec_head : dec_head + return_length]
+        nsff0 = nsff0[:, skip_head : skip_head + return_length]
+        return z * x_mask, nsff0, g
+
+    @torch.jit.export
     def infer(
         self,
         phone: torch.Tensor,
@@ -772,22 +796,7 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
         z = z[:, :, dec_head : dec_head + return_length]
         x_mask = x_mask[:, :, dec_head : dec_head + return_length]
         nsff0 = nsff0[:, skip_head : skip_head + return_length]
-        if getattr(self, "is_refinegan", False):
-            o = self.dec(z * x_mask, nsff0, g=g)
-        else:
-            try:
-                from voice_changer.vocoder.VocoderManager import VocoderManager
-                active_vocoder = VocoderManager.get_instance().get_active_vocoder()
-                if active_vocoder is not None and getattr(active_vocoder, "is_loaded", False):
-                    o = active_vocoder.infer(z * x_mask, nsff0, g=g)
-                    if o is None or o.shape[-1] == 0:
-                        o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
-                else:
-                    o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
-            except Exception as e:
-                logger.warning(f"Error during active vocoder inference: {e}. Falling back to default decoder.")
-                o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
-
+        o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
         return o, x_mask, (z, z_p, m_p, logs_p)
 
 

@@ -1,64 +1,29 @@
+from concurrent.futures import ThreadPoolExecutor
+import logging
+import math
+import sys
+from typing import Optional
+
 from faiss import IndexIVFFlat
 import faiss.contrib.torch_utils
-
-from onnx import TensorProto
-from onnx.helper import (
-    make_model, make_node, make_graph,
-    make_tensor_value_info, make_opsetid
-)
-
-import numpy as np
-import sys
 import torch
-import torch.nn.functional as F
-import onnxruntime
-from torchaudio import transforms as tat
-from voice_changer.common.deviceManager.DeviceManager import DeviceManager
-import logging
 
-from const import HUBERT_SAMPLE_RATE, WINDOW_SIZE
-from voice_changer.common.TorchUtils import circular_write
-from voice_changer.embedder.Embedder import Embedder
-from voice_changer.RVC.inferencer.Inferencer import Inferencer
-
-from voice_changer.pitch_extractor.PitchExtractor import PitchExtractor
-from voice_changer.utils.Timer import Timer2
-from const import F0_MEL_MIN, F0_MEL_MAX
+from const import F0_MEL_MIN, F0_MEL_MAX, HUBERT_SAMPLE_RATE, WINDOW_SIZE
 from voice_changer.audio_effects.AudioEffectsManager import AudioEffectsManager
-from voice_changer.audio_effects.AudioEffectsConfig import AudioEffectsConfig
+from voice_changer.common.TorchUtils import circular_write
+from voice_changer.common.deviceManager.DeviceManager import DeviceManager
+from voice_changer.embedder.Embedder import Embedder
+from voice_changer.pitch_extractor.PitchExtractor import PitchExtractor
+from voice_changer.RVC.inferencer.Inferencer import Inferencer
+from voice_changer.utils.Timer import Timer2
 
 logger = logging.getLogger(__name__)
 
-
-def _compute_minimum_phase_filter(log_H_normalized: np.ndarray, gain_scale: float, device: torch.device) -> torch.Tensor:
-    """
-    Computes a complex 1D PyTorch tensor representing the minimum-phase frequency response
-    from a normalized log-magnitude spectrum. Fully GPU hardware-accelerated via PyTorch FFT.
-    """
-    log_H = gain_scale * log_H_normalized
-    log_H_tensor = torch.tensor(log_H, dtype=torch.float32, device=device)
-    
-    # Construct symmetric full-spectrum log-magnitude
-    log_H_full = torch.cat([log_H_tensor, torch.flip(log_H_tensor[1:-1], dims=[0])])
-    n_fft = log_H_full.shape[0]
-    
-    # Real IFFT to obtain cepstrum
-    cepstrum = torch.fft.ifft(log_H_full).real
-    
-    # Create causal mask (t=0 & t=Nyquist -> 1, 0 < t < Nyquist -> 2, t > Nyquist -> 0)
-    causal_mask = torch.zeros(n_fft, device=device, dtype=torch.float32)
-    causal_mask[0] = 1.0
-    causal_mask[n_fft // 2] = 1.0
-    causal_mask[1 : n_fft // 2] = 2.0
-    
-    causal_cepstrum = cepstrum * causal_mask
-    
-    # Forward FFT to obtain complex minimum-phase log spectrum
-    complex_log_spectrum = torch.fft.fft(causal_cepstrum)
-    
-    # Exponentiate to get complex minimum-phase frequency response H_min_phase
-    H_min_phase = torch.exp(complex_log_spectrum[: log_H_tensor.shape[0]])
-    return H_min_phase
+_AUTO_TUNE_MIDI_MAP = {
+    "G4": 67, "G#4": 68, "A4": 69, "A#4": 70, "B4": 71,
+    "C5": 72, "C#5": 73, "D5": 74, "D#5": 75, "E5": 76,
+    "F5": 77, "F#5": 78, "G5": 79, "A5": 81, "C6": 84,
+}
 
 
 class Pipeline:
@@ -68,12 +33,10 @@ class Pipeline:
 
     index: IndexIVFFlat | None
     index_reconstruct: torch.Tensor | None
-    # feature: Any | None
 
     model_sr: int
     device: torch.device
-    isHalf: bool
-    audio_effects_manager: AudioEffectsManager
+    audio_effects_manager: Optional[AudioEffectsManager]
 
     def __init__(
         self,
@@ -85,6 +48,7 @@ class Pipeline:
         use_f0: bool,
         model_sr: int,
         embChannels: int,
+        audio_effects_manager: Optional[AudioEffectsManager] = None,
     ):
         self.embedder = embedder
         self.inferencer = inferencer
@@ -96,9 +60,10 @@ class Pipeline:
         self.device_manager = DeviceManager.get_instance()
         self.device = self.device_manager.device
         self.is_half = self.device_manager.use_fp16()
+        self.dtype = torch.float16 if self.is_half else torch.float32
 
         self.index = index
-        self.index_reconstruct: torch.Tensor | None = index_reconstruct
+        self.index_reconstruct = index_reconstruct
         self.use_index = index is not None and self.index_reconstruct is not None
         self.use_gpu_index = sys.platform == 'linux' and '+cu' in torch.__version__ and self.device.type == 'cuda'
         self.use_f0 = use_f0
@@ -106,34 +71,63 @@ class Pipeline:
         self.model_sr = model_sr
         self.model_window = model_sr // 100
 
-        self.dtype = torch.float16 if self.is_half else torch.float32
+        # GPU-resident FAISS replacement for Windows/MPS when faiss-gpu is unavailable
+        self.use_torch_gpu_index = False
+        self._gpu_index_norms: Optional[torch.Tensor] = None
+        if self.use_index and not self.use_gpu_index and self.device.type in ('cuda', 'mps'):
+            try:
+                self.index_reconstruct = self.index_reconstruct.to(
+                    device=self.device, dtype=self.dtype
+                ).contiguous()
+                ntotal = self.index_reconstruct.shape[0]
+                norms = torch.empty(ntotal, dtype=torch.float32, device=self.device)
+                chunk_sz = 65536
+                for start in range(0, ntotal, chunk_sz):
+                    end = min(start + chunk_sz, ntotal)
+                    norms[start:end] = torch.sum(self.index_reconstruct[start:end].float() ** 2, dim=1)
+                self._gpu_index_norms = norms
+                self.use_torch_gpu_index = True
+                logger.info(
+                    f"Enabled zero-copy PyTorch GPU index search ({ntotal} vectors, dtype={self.dtype})."
+                )
+            except Exception as e:
+                logger.warning(f"Failed to prepare PyTorch GPU index search, falling back to CPU FAISS: {e}")
+                self.use_torch_gpu_index = False
+                self._gpu_index_norms = None
 
         self.settings = None
-        self.last_f0_smoothed = None
-        self.last_pitchf_tail = None
-        self._formant_filter_pre_tensor = None
-        self._formant_filter_post_tensor = None
-        self._formant_filter_cache_key = None
-        
-        # Initialize Audio Effects Manager with provider system
-        try:
-            self.audio_effects_manager = AudioEffectsManager()
-            logger.info("Audio Effects Manager initialized with provider system")
-        except Exception as e:
-            logger.error(f"Failed to initialize AudioEffectsManager: {e}")
-            self.audio_effects_manager = None
+        self.last_f0_smoothed: Optional[float] = None
 
-        # Initialize a high-priority CUDA stream if CUDA is available
-        self.cuda_stream = None
-        if self.device.type == 'cuda':
+        # Share external AudioEffectsManager when provided (used for autoTune parameters)
+        if audio_effects_manager is not None:
+            self.audio_effects_manager = audio_effects_manager
+        else:
             try:
-                least_p, greatest_p = torch.cuda.Stream.priority_range()
-                self.cuda_stream = torch.cuda.Stream(priority=greatest_p)
-                logger.info(f"Initialized High-Priority CUDA Stream (Priority: {greatest_p}, Range: {least_p} to {greatest_p})")
+                self.audio_effects_manager = AudioEffectsManager()
             except Exception as e:
-                logger.warning(f"Failed to initialize high-priority CUDA stream: {e}")
+                logger.error(f"Failed to initialize AudioEffectsManager: {e}")
+                self.audio_effects_manager = None
 
+        # Persistent worker thread for Pitch || Embedder concurrency
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="PipelineEmbedder")
 
+        # Persistent device streams from DeviceManager
+        self._pitch_stream = self.device_manager.pitch_stream
+        self._embedder_stream = self.device_manager.embedder_stream
+
+        # Cached small scalar tensors
+        self._cached_plen_val: Optional[int] = None
+        self._cached_plen_tensor: Optional[torch.Tensor] = None
+        self._cached_sid_val: Optional[int] = None
+        self._cached_sid_tensor: Optional[torch.Tensor] = None
+
+    def __del__(self):
+        executor = getattr(self, "_executor", None)
+        if executor is not None:
+            try:
+                executor.shutdown(wait=False)
+            except Exception:
+                pass
 
     def getPipelineInfo(self):
         inferencerInfo = self.inferencer.getInferencerInfo() if self.inferencer else {}
@@ -143,144 +137,220 @@ class Pipeline:
 
     def setPitchExtractor(self, pitchExtractor: PitchExtractor):
         self.pitchExtractor = pitchExtractor
-    
-    def configure_audio_effects(self, settings: dict) -> None:
-        """Configure audio effects from frontend settings"""
-        if self.audio_effects_manager is None:
-            logger.warning("AudioEffectsManager not available, skipping configuration")
-            return
-            
-        success = AudioEffectsConfig.configure_effects_from_settings(
-            self.audio_effects_manager, 
-            settings
-        )
-        if success:
-            logger.debug("Audio effects configured successfully")
-        else:
-            logger.warning("Failed to configure audio effects")
 
-    def extract_pitch(self, audio: torch.Tensor, pitch: torch.Tensor | None, pitchf: torch.Tensor | None, f0_up_key: float) -> tuple[torch.Tensor, torch.Tensor]:
+    def configure_audio_effects(self, settings: dict) -> None:
+        """Configure audio effects from settings."""
+        if self.audio_effects_manager is None:
+            return
+        from voice_changer.audio_effects.AudioEffectsConfig import AudioEffectsConfig
+        AudioEffectsConfig.configure_effects_from_settings(self.audio_effects_manager, settings)
+
+    def _get_active_autotune(self):
+        if self.audio_effects_manager is None:
+            return None
+        for effect in self.audio_effects_manager.input_effects:
+            if effect.effect_type == "autoTune" and effect.is_enabled():
+                return effect
+        return None
+
+    def _apply_autotune_tail(
+        self, f0: torch.Tensor, auto_tune_effect, new_frames: int
+    ) -> torch.Tensor:
+        if new_frames <= 0 or f0.numel() == 0:
+            return f0
+
+        ceiling_str = auto_tune_effect.parameters.get("pitchCeiling", "Off")
+        retune_speed = float(auto_tune_effect.parameters.get("retuneSpeed", 35.0))
+        ceiling_midi = _AUTO_TUNE_MIDI_MAP.get(ceiling_str, 0)
+
+        # Vectorized chromatic semitone snapping on device
+        f0_tail = f0[-new_frames:].float()
+        voiced_mask = f0_tail > 0
+        midi = torch.where(
+            voiced_mask,
+            69.0 + 12.0 * torch.log2(torch.clamp(f0_tail, min=1e-3) / 440.0),
+            f0_tail,
+        )
+        midi_snapped = torch.round(midi)
+        if ceiling_midi > 0:
+            midi_snapped = torch.clamp(midi_snapped, max=float(ceiling_midi))
+        target_hz = torch.where(
+            voiced_mask,
+            440.0 * torch.pow(2.0, (midi_snapped - 69.0) / 12.0),
+            torch.zeros_like(f0_tail),
+        )
+
+        # Sequential causal exponential smoothing over newly arrived frames only
+        alpha = math.exp(-10.0 / max(1.0, retune_speed))
+        inv_alpha = 1.0 - alpha
+        voiced_list = voiced_mask.tolist()
+        target_list = target_hz.tolist()
+
+        last_val = self.last_f0_smoothed
+        smoothed_list = [0.0] * len(target_list)
+        for t in range(len(target_list)):
+            if not voiced_list[t]:
+                smoothed_list[t] = 0.0
+                continue
+            tgt = target_list[t]
+            if t == 0:
+                val = tgt if (last_val is None or last_val <= 0.0) else (alpha * last_val + inv_alpha * tgt)
+            else:
+                val = tgt if not voiced_list[t - 1] else (alpha * smoothed_list[t - 1] + inv_alpha * tgt)
+            smoothed_list[t] = val
+            last_val = val
+
+        self.last_f0_smoothed = last_val
+        f0_out = f0.clone()
+        f0_out[-new_frames:] = torch.tensor(smoothed_list, dtype=f0.dtype, device=f0.device)
+        return f0_out
+
+    def extract_pitch(
+        self,
+        audio: torch.Tensor,
+        pitch: torch.Tensor | None,
+        pitchf: torch.Tensor | None,
+        f0_up_key: float,
+        pitch_hop_frames: Optional[int] = None,
+        pitch_scratch: Optional[torch.Tensor] = None,
+        pitchf_scratch: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         f0 = self.pitchExtractor.extract(
             audio,
             HUBERT_SAMPLE_RATE,
             WINDOW_SIZE,
         )
-        f0 *= 2 ** (f0_up_key / 12)
+        f0 = f0 * (2 ** (f0_up_key / 12))
 
-        # Apply Chromatic Auto-Tune & Pitch Ceiling Pre-processing from AudioEffectsManager
-        if self.audio_effects_manager is not None:
-            # Look for an active "autoTune" effect in the input chain
-            auto_tune_effect = None
-            for effect in self.audio_effects_manager.input_effects:
-                if effect.effect_type == "autoTune" and effect.is_enabled():
-                    auto_tune_effect = effect
-                    break
-            
-            if auto_tune_effect is not None:
-                # Extract parameters from the active autoTune effect
-                ceiling_str = auto_tune_effect.parameters.get("pitchCeiling", "Off")
-                retune_speed = float(auto_tune_effect.parameters.get("retuneSpeed", 35.0))
-                
-                # Map note name strings to MIDI notes
-                midi_map = {
-                    "G4": 67, "G#4": 68, "A4": 69, "A#4": 70, "B4": 71,
-                    "C5": 72, "C#5": 73, "D5": 74, "D#5": 75, "E5": 76,
-                    "F5": 77, "F#5": 78, "G5": 79, "A5": 81, "C6": 84
-                }
-                ceiling_midi = midi_map.get(ceiling_str, 0)
-                
-                f0_np = f0.cpu().numpy()
-                f0_smoothed = np.zeros_like(f0_np)
-                num_frames = len(f0_np)
-                
-                # Each frame corresponds to 10ms of audio (100 Hz frame rate)
-                alpha = np.exp(-10.0 / max(1.0, retune_speed))
-                last_val = self.last_f0_smoothed if hasattr(self, 'last_f0_smoothed') and self.last_f0_smoothed is not None else None
-                
-                for t in range(num_frames):
-                    hz = f0_np[t]
-                    if hz <= 0:
-                        f0_smoothed[t] = 0.0
-                        continue
-                    
-                    # Convert frequency (Hz) to MIDI note
-                    midi = 69.0 + 12.0 * np.log2(hz / 440.0)
-                    
-                    # Snap to nearest semitone center (Chromatic Scale)
-                    midi_snapped = np.round(midi)
-                    
-                    # Clamp to ceiling MIDI note if active
-                    if ceiling_midi > 0:
-                        midi_snapped = min(midi_snapped, ceiling_midi)
-                    
-                    # Convert back to frequency (Hz)
-                    target_hz = 440.0 * (2.0 ** ((midi_snapped - 69.0) / 12.0))
-                    
-                    # Exponential smoothing to prevent robotic electro-stutter
-                    if t == 0:
-                        if last_val is None or last_val <= 0:
-                            val = target_hz
-                        else:
-                            val = alpha * last_val + (1.0 - alpha) * target_hz
-                    else:
-                        if f0_np[t-1] <= 0:
-                            # Onset Protection: if previous frame was unvoiced, start fresh
-                            val = target_hz
-                        else:
-                            val = alpha * f0_smoothed[t-1] + (1.0 - alpha) * target_hz
-                            
-                    f0_smoothed[t] = val
-                    last_val = val
-                
-                # Save the last voiced sample for cross-chunk continuity
-                self.last_f0_smoothed = last_val
-                f0 = torch.tensor(f0_smoothed, dtype=f0.dtype, device=f0.device)
+        auto_tune_effect = self._get_active_autotune()
+        hop_frames = (
+            min(pitch_hop_frames, f0.shape[0])
+            if (pitch_hop_frames is not None and pitch_hop_frames > 0)
+            else f0.shape[0]
+        )
+        if auto_tune_effect is not None:
+            f0 = self._apply_autotune_tail(f0, auto_tune_effect, hop_frames)
 
         f0_mel = 1127.0 * torch.log(1.0 + f0 / 700.0)
         f0_mel = torch.clip(
             (f0_mel - F0_MEL_MIN) * 254 / (F0_MEL_MAX - F0_MEL_MIN) + 1,
             1,
             255,
-            out=f0_mel
+            out=f0_mel,
         )
         f0_coarse = torch.round(f0_mel, out=f0_mel).long()
         f0_coarse[f0 == 0] = 0
 
         if pitch is not None and pitchf is not None:
-            circular_write(f0_coarse, pitch)
-            circular_write(f0, pitchf)
+            if pitch_hop_frames is not None:
+                # Shift buffers by exact hop of new audio frames to stay aligned with convert_buffer
+                hop = min(max(0, pitch_hop_frames), pitchf.shape[0])
+                if hop > 0:
+                    keep = pitchf.shape[0] - hop
+                    if keep > 0:
+                        if pitch_scratch is not None and pitch_scratch.shape == pitch.shape:
+                            pitch_scratch[:keep].copy_(pitch[hop:])
+                            pitch[:keep].copy_(pitch_scratch[:keep])
+                        else:
+                            pitch[:keep] = pitch[hop:].detach().clone()
+                        if pitchf_scratch is not None and pitchf_scratch.shape == pitchf.shape:
+                            pitchf_scratch[:keep].copy_(pitchf[hop:])
+                            pitchf[:keep].copy_(pitchf_scratch[:keep])
+                        else:
+                            pitchf[:keep] = pitchf[hop:].detach().clone()
+
+                    # When autoTune is active, only write the causally smoothed tail so prior frames stay smooth
+                    write_len = hop if auto_tune_effect is not None else min(f0.shape[0], pitchf.shape[0])
+                    if write_len > 0:
+                        pitch[-write_len:] = f0_coarse[-write_len:].to(dtype=pitch.dtype)
+                        pitchf[-write_len:] = f0[-write_len:].to(dtype=pitchf.dtype)
+            else:
+                circular_write(f0_coarse, pitch, scratch=pitch_scratch)
+                circular_write(f0, pitchf, scratch=pitchf_scratch)
         else:
             pitch = f0_coarse
             pitchf = f0
 
         return pitch.unsqueeze(0), pitchf.unsqueeze(0)
 
-    def _search_index(self, audio: torch.Tensor, top_k: int = 1):
-        if top_k == 1:
-            _, ix = self.index.search(audio if self.use_gpu_index else audio.detach().cpu(), 1)
-            ix = ix.to(self.device)
-            return self.index_reconstruct[ix.squeeze()]
+    def _search_index(self, audio: torch.Tensor, top_k: int = 1) -> torch.Tensor:
+        if self.use_torch_gpu_index and self._gpu_index_norms is not None:
+            q_match = audio.to(dtype=self.index_reconstruct.dtype)
+            q_norms = torch.sum(audio.float() ** 2, dim=1, keepdim=True)
+            ntotal = self.index_reconstruct.shape[0]
+            k_eff = min(top_k, ntotal)
 
-        score, ix = self.index.search(audio if self.use_gpu_index else audio.detach().cpu(), k=top_k)
-        score, ix = (
-            score.to(self.device),
-            ix.to(self.device),
-        )
-        weight = torch.square(1 / score)
+            if ntotal <= 131072:
+                dots = torch.matmul(q_match, self.index_reconstruct.t()).float()
+                dist2 = (q_norms + self._gpu_index_norms.unsqueeze(0) - 2.0 * dots).clamp_min_(1e-8)
+                score, ix = torch.topk(dist2, k=k_eff, dim=1, largest=False)
+            else:
+                chunk_sz = 65536
+                cand_scores = []
+                cand_indices = []
+                for start in range(0, ntotal, chunk_sz):
+                    end = min(start + chunk_sz, ntotal)
+                    dots = torch.matmul(q_match, self.index_reconstruct[start:end].t()).float()
+                    dist2 = (
+                        q_norms + self._gpu_index_norms[start:end].unsqueeze(0) - 2.0 * dots
+                    ).clamp_min_(1e-8)
+                    sc, idx = torch.topk(dist2, k=min(k_eff, end - start), dim=1, largest=False)
+                    cand_scores.append(sc)
+                    cand_indices.append(idx + start)
+                all_scores = torch.cat(cand_scores, dim=1)
+                all_indices = torch.cat(cand_indices, dim=1)
+                score, pos = torch.topk(all_scores, k=k_eff, dim=1, largest=False)
+                ix = torch.gather(all_indices, 1, pos)
+
+            if k_eff == 1:
+                return self.index_reconstruct[ix.squeeze(1)]
+            weight = torch.square(1.0 / (score + 1e-6))
+            weight /= weight.sum(dim=1, keepdim=True)
+            return torch.sum(self.index_reconstruct[ix].float() * weight.unsqueeze(2), dim=1)
+
+        # CPU / Linux faiss-gpu fallback
+        query = audio if self.use_gpu_index else audio.detach().cpu()
+        if top_k == 1:
+            _, ix = self.index.search(query, 1)
+            ix = ix.to(self.device)
+            return self.index_reconstruct[ix.squeeze(1)]
+
+        score, ix = self.index.search(query, k=top_k)
+        score = score.to(self.device)
+        ix = ix.to(self.device)
+        weight = torch.square(1.0 / (score + 1e-6))
         weight /= weight.sum(dim=1, keepdim=True)
         return torch.sum(self.index_reconstruct[ix] * weight.unsqueeze(2), dim=1)
 
     def _upscale(self, feats: torch.Tensor) -> torch.Tensor:
-        # Vectorized nearest-neighbor upscaling (scale_factor=2) using native PyTorch operations.
-        # This is fully device-agnostic, works on all devices, and avoids GPU-CPU roundtrips.
         return torch.stack([feats, feats], dim=2).flatten(1, 2)
+
+    def _get_cached_plen(self, audio_feats_len: int) -> torch.Tensor:
+        if (
+            self._cached_plen_tensor is None
+            or self._cached_plen_val != audio_feats_len
+            or self._cached_plen_tensor.device != self.device
+        ):
+            self._cached_plen_val = audio_feats_len
+            self._cached_plen_tensor = torch.tensor([audio_feats_len], device=self.device, dtype=torch.int64)
+        return self._cached_plen_tensor
+
+    def _get_cached_sid(self, sid: int) -> torch.Tensor:
+        if (
+            self._cached_sid_tensor is None
+            or self._cached_sid_val != sid
+            or self._cached_sid_tensor.device != self.device
+        ):
+            self._cached_sid_val = sid
+            self._cached_sid_tensor = torch.tensor([sid], device=self.device, dtype=torch.int64)
+        return self._cached_sid_tensor
 
     def exec(
         self,
         sid: int,
-        audio: torch.Tensor,  # torch.tensor [n]
-        pitch: torch.Tensor | None,  # torch.tensor [m]
-        pitchf: torch.Tensor | None,  # torch.tensor [m]
+        audio: torch.Tensor,
+        pitch: torch.Tensor | None,
+        pitchf: torch.Tensor | None,
         f0_up_key: float,
         index_rate: float,
         audio_feats_len: int,
@@ -290,271 +360,115 @@ class Pipeline:
         skip_head: int,
         return_length: int,
         protect: float = 0.5,
+        pitch_hop_frames: Optional[int] = None,
+        pitch_scratch: Optional[torch.Tensor] = None,
+        pitchf_scratch: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        with Timer2("Pipeline-Exec", False) as t:  # NOQA
-            # 16000のサンプリングレートで入ってきている。以降この世界は16000で処理。
+        with Timer2("Pipeline-Exec", False) as t:
             assert audio.dim() == 1, audio.dim()
-
-            # Precompute formant filters if settings are available and changed
-            if self.settings is not None:
-                active = getattr(self.settings, "formantProfileActive", False)
-                target_env = getattr(self.settings, "formantProfileTargetEnvelope", "[]")
-                target_sr = getattr(self.settings, "formantProfileTargetSr", 0)
-                input_env = getattr(self.settings, "formantProfileInputEnvelope", "[]")
-                input_sr = getattr(self.settings, "formantProfileInputSr", 0)
-                strength = getattr(self.settings, "formantProfileStrength", 0.35)
-                device = self.device
-                model_sr = self.model_sr
-
-                cache_key = (active, target_env, target_sr, input_env, input_sr, strength, model_sr, str(device))
-                if cache_key != self._formant_filter_cache_key:
-                    self._formant_filter_cache_key = cache_key
-                    if active and target_env and input_env and target_sr > 0 and input_sr > 0:
-                        try:
-                            import json
-                            import numpy as np
-                            parsed_tgt = json.loads(target_env)
-                            parsed_in = json.loads(input_env)
-                            
-                            n_fft_out = 2048
-                            f_out = np.linspace(0, model_sr / 2, n_fft_out // 2 + 1)
-
-                            def build_mp_tensor(env_raw, sr_val, is_inverse=False):
-                                env_arr = np.array(env_raw, dtype=np.float32)
-                                if len(env_arr) == 0:
-                                    return None
-                                f_src = np.linspace(0, sr_val / 2, len(env_arr))
-                                log_env = np.interp(f_out, f_src, np.log(env_arr + 1e-8))
-                                x_p = np.arange(len(log_env))
-                                s_p, i_p = np.polyfit(x_p, log_env, 1)
-                                log_norm = log_env - (s_p * x_p + i_p)
-                                log_norm = np.clip(log_norm, -3.0, 3.0)
-                                scale = -0.5 * strength if is_inverse else strength
-                                return _compute_minimum_phase_filter(log_norm, scale, device)
-
-                            # 1. Post-filter (target envelope coloring)
-                            if isinstance(parsed_tgt, dict) and "open" in parsed_tgt:
-                                self._formant_is_vowel_aware = True
-                                self._formant_filter_post_tensor_open = build_mp_tensor(parsed_tgt["open"], target_sr)
-                                self._formant_filter_post_tensor_front = build_mp_tensor(parsed_tgt["front"], target_sr)
-                                self._formant_filter_post_tensor_close = build_mp_tensor(parsed_tgt["close"], target_sr)
-                                self._formant_filter_post_tensor = self._formant_filter_post_tensor_open
-                            else:
-                                self._formant_is_vowel_aware = False
-                                self._formant_filter_post_tensor = build_mp_tensor(parsed_tgt, target_sr)
-                            
-                            # 2. Pre-filter (input envelope inverse filtering / whitening)
-                            if isinstance(parsed_in, dict) and "open" in parsed_in:
-                                self._formant_filter_pre_tensor = build_mp_tensor(parsed_in["open"], input_sr, is_inverse=True)
-                            else:
-                                self._formant_filter_pre_tensor = build_mp_tensor(parsed_in, input_sr, is_inverse=True)
-                                
-                            logger.info(f"Dynamic vowel-aware minimum-phase formant filters precomputed successfully on GPU (vowel-aware: {self._formant_is_vowel_aware})")
-                        except Exception as ex:
-                            logger.error(f"Error precomputing minimum-phase formant filters: {ex}")
-                            self._formant_filter_pre_tensor = None
-                            self._formant_filter_post_tensor = None
-                    else:
-                        self._formant_filter_pre_tensor = None
-                        self._formant_filter_post_tensor = None
-
-            # Apply pre-whitening filter to input audio if active
-            if self._formant_filter_pre_tensor is not None:
-                try:
-                    n_fft = 2048
-                    hop_length = 256  # Smaller hop length (87.5% overlap) to prevent time-smearing & window boundary artifacts
-                    audio_float = audio.to(device=self.device, dtype=torch.float32)
-                    if audio_float.shape[0] >= n_fft:
-                        window = torch.hann_window(n_fft, device=self.device)
-                        S = torch.stft(
-                            audio_float,
-                            n_fft=n_fft,
-                            hop_length=hop_length,
-                            window=window,
-                            return_complex=True
-                        )
-                        S_filtered = S * self._formant_filter_pre_tensor.unsqueeze(-1)
-                        audio_filtered = torch.istft(
-                            S_filtered,
-                            n_fft=n_fft,
-                            hop_length=hop_length,
-                            window=window,
-                            length=audio_float.shape[0]
-                        )
-                        audio = audio_filtered.to(device=audio.device, dtype=audio.dtype)
-                except Exception as ex:
-                    logger.error(f"Error applying pre-whitening filter: {ex}")
 
             formant_length = return_length
             t.record("pre-process")
 
-            # Audio Effects vor Voice Conversion anwenden
-            if self.audio_effects_manager is not None:
-                audio = self.audio_effects_manager.process_input_chain(audio, sample_rate=16000)
-            t.record("input-effects")
-
-            # Pitch extraction and feature extraction in parallel (releasing GIL in ONNX/PyTorch)
+            # Pitch extraction and feature extraction in parallel via persistent executor
             if self.use_f0:
-                import threading
+                def _run_feats_worker():
+                    if self._embedder_stream is not None:
+                        with torch.cuda.stream(self._embedder_stream):
+                            return self.embedder.extract_features(
+                                audio.view(1, -1), embOutputLayer, useFinalProj
+                            )
+                    return self.embedder.extract_features(
+                        audio.view(1, -1), embOutputLayer, useFinalProj
+                    )
 
-                pitch_res = [None, None]
-                feats_res = [None]
-                exceptions = []
+                if self._embedder_stream is not None:
+                    self._embedder_stream.wait_stream(torch.cuda.current_stream(self.device))
+                fut_feats = self._executor.submit(_run_feats_worker)
 
-                def _run_pitch():
-                    try:
-                        pitch_res[0], pitch_res[1] = self.extract_pitch(
-                            audio[silence_front:], pitch, pitchf, f0_up_key
+                try:
+                    if self._pitch_stream is not None:
+                        cur = torch.cuda.current_stream(self.device)
+                        self._pitch_stream.wait_stream(cur)
+                        with torch.cuda.stream(self._pitch_stream):
+                            pitch, pitchf = self.extract_pitch(
+                                audio[silence_front:],
+                                pitch,
+                                pitchf,
+                                f0_up_key,
+                                pitch_hop_frames=pitch_hop_frames,
+                                pitch_scratch=pitch_scratch,
+                                pitchf_scratch=pitchf_scratch,
+                            )
+                        cur.wait_stream(self._pitch_stream)
+                    else:
+                        pitch, pitchf = self.extract_pitch(
+                            audio[silence_front:],
+                            pitch,
+                            pitchf,
+                            f0_up_key,
+                            pitch_hop_frames=pitch_hop_frames,
+                            pitch_scratch=pitch_scratch,
+                            pitchf_scratch=pitchf_scratch,
                         )
-                    except Exception as e:
-                        exceptions.append(e)
-
-                def _run_feats():
-                    try:
-                        if self.cuda_stream is not None:
-                            current_stream = torch.cuda.current_stream()
-                            self.cuda_stream.wait_stream(current_stream)
-                            with torch.cuda.stream(self.cuda_stream):
-                                feats_res[0] = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
-                            current_stream.wait_stream(self.cuda_stream)
-                        else:
-                            feats_res[0] = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
-                    except Exception as e:
-                        exceptions.append(e)
-
-                t_pitch = threading.Thread(target=_run_pitch)
-                t_feats = threading.Thread(target=_run_feats)
-
-                t_pitch.start()
-                t_feats.start()
-
-                t_pitch.join()
-                t_feats.join()
-
-                if exceptions:
-                    raise exceptions[0]
-
-                pitch, pitchf = pitch_res[0], pitch_res[1]
-                feats = feats_res[0]
+                finally:
+                    feats = fut_feats.result()
+                    if self._embedder_stream is not None:
+                        torch.cuda.current_stream(self.device).wait_stream(self._embedder_stream)
             else:
                 pitch, pitchf = None, None
-                if self.cuda_stream is not None:
-                    current_stream = torch.cuda.current_stream()
-                    self.cuda_stream.wait_stream(current_stream)
-                    with torch.cuda.stream(self.cuda_stream):
-                        feats = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
-                    current_stream.wait_stream(self.cuda_stream)
-                else:
-                    feats = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
+                feats = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)
 
             feats = torch.cat((feats, feats[:, -1:, :]), 1)
             t.record("extract-pitch-and-feats")
 
-            # Index - feature抽出
+            # Index feature retrieval & protect blending (single upscale)
             is_active_index = self.use_index and index_rate > 0
             use_protect = protect < 0.5
-            if self.use_f0 and is_active_index and use_protect:
-                feats_orig = feats.detach().clone()
 
             if is_active_index:
                 skip_offset = skip_head // 2
-                index_audio = feats[0][skip_offset :]
+                feats_orig_slice = feats[0, skip_offset:]
+                index_audio = self._search_index(feats_orig_slice.float(), 8).to(dtype=feats.dtype)
 
-                # TODO: kは調整できるようにする
-                index_audio = self._search_index(index_audio.float(), 8).unsqueeze(0)
-                if self.is_half:
-                    index_audio = index_audio.half()
+                if self.use_f0 and use_protect:
+                    delta = (index_audio - feats_orig_slice).unsqueeze(0)
+                    feats = self._upscale(feats)[:, :audio_feats_len, :]
+                    pitch = pitch[:, -audio_feats_len:]
+                    pitchf = pitchf[:, -audio_feats_len:]
 
-                # Recover silent front
-                feats[0][skip_offset :] = index_audio * index_rate + feats[0][skip_offset :] * (1 - index_rate)
-
-            feats = self._upscale(feats)[:, :audio_feats_len, :]
-            if self.use_f0:
-                pitch = pitch[:, -audio_feats_len:]
-                pitchf = pitchf[:, -audio_feats_len:]
-                # pitchの推定が上手くいかない(pitchf=0)場合、検索前の特徴を混ぜる
-                # pitchffの作り方の疑問はあるが、本家通りなので、このまま使うことにする。
-                # https://github.com/w-okada/voice-changer/pull/276#issuecomment-1571336929
-                if is_active_index and use_protect:
-                    # FIXME: Another interpolate on feats is a big performance hit.
-                    feats_orig = self._upscale(feats_orig)[:, :audio_feats_len, :]
-                    pitchff = pitchf.detach().clone()
-                    pitchff[pitchf > 0] = 1
-                    pitchff[pitchf < 1] = protect
-                    pitchff = pitchff.unsqueeze(-1)
-                    feats = feats * pitchff + feats_orig * (1 - pitchff)
-
-            p_len = torch.tensor([audio_feats_len], device=self.device, dtype=torch.int64)
-
-            sid = torch.tensor([sid], device=self.device, dtype=torch.int64)
-            t.record("mid-precess")
-            # 推論実行
-            if self.cuda_stream is not None:
-                current_stream = torch.cuda.current_stream()
-                self.cuda_stream.wait_stream(current_stream)
-                with torch.cuda.stream(self.cuda_stream):
-                    out_audio = self.inferencer.infer(feats, p_len, pitch, pitchf, sid, skip_head, return_length, formant_length).float()
-                current_stream.wait_stream(self.cuda_stream)
+                    up_start = skip_offset * 2
+                    rem = audio_feats_len - up_start
+                    if rem > 0:
+                        delta_up = self._upscale(delta)[:, :rem, :]
+                        pitchff = torch.where(
+                            pitchf[:, up_start:audio_feats_len] > 0, 1.0, protect
+                        ).to(dtype=feats.dtype).unsqueeze(-1)
+                        feats[:, up_start:audio_feats_len, :] = (
+                            feats[:, up_start:audio_feats_len, :]
+                            + delta_up * (index_rate * pitchff)
+                        )
+                else:
+                    feats[0, skip_offset:] = (
+                        index_audio * index_rate + feats_orig_slice * (1.0 - index_rate)
+                    )
+                    feats = self._upscale(feats)[:, :audio_feats_len, :]
+                    if self.use_f0:
+                        pitch = pitch[:, -audio_feats_len:]
+                        pitchf = pitchf[:, -audio_feats_len:]
             else:
-                out_audio = self.inferencer.infer(feats, p_len, pitch, pitchf, sid, skip_head, return_length, formant_length).float()
+                feats = self._upscale(feats)[:, :audio_feats_len, :]
+                if self.use_f0:
+                    pitch = pitch[:, -audio_feats_len:]
+                    pitchf = pitchf[:, -audio_feats_len:]
+
+            p_len = self._get_cached_plen(audio_feats_len)
+            sid_t = self._get_cached_sid(sid)
+            t.record("mid-precess")
+
+            out_audio = self.inferencer.infer(
+                feats, p_len, pitch, pitchf, sid_t, skip_head, return_length, formant_length
+            ).float()
             t.record("infer")
-            
-            # Apply formant profile warp filter if active
-            if self._formant_filter_post_tensor is not None:
-                try:
-                    n_fft = 2048
-                    hop_length = 256  # Smaller hop length (87.5% overlap) to prevent time-smearing & window boundary artifacts
-                    
-                    # Ensure out_audio is float32 and on the correct device
-                    out_audio_float = out_audio.to(device=self.device, dtype=torch.float32)
-                    
-                    # STFT requires input length >= n_fft to avoid padding issues or errors
-                    if out_audio_float.shape[0] >= n_fft:
-                        window = torch.hann_window(n_fft, device=self.device)
-                        S = torch.stft(
-                            out_audio_float,
-                            n_fft=n_fft,
-                            hop_length=hop_length,
-                            window=window,
-                            return_complex=True
-                        )
-                        
-                        # Pointwise scaling of magnitude spectrum (dynamic vowel-aware or static minimum-phase)
-                        if getattr(self, "_formant_is_vowel_aware", False) and getattr(self, "_formant_filter_post_tensor_open", None) is not None:
-                            n_freq = S.shape[0]
-                            mag = torch.abs(S)
-                            low_e = torch.sum(mag[: n_freq // 4, :], dim=0) + 1e-8
-                            mid_e = torch.sum(mag[n_freq // 4 : n_freq // 2, :], dim=0) + 1e-8
-                            high_e = torch.sum(mag[n_freq // 2 :, :], dim=0) + 1e-8
-                            tot_e = low_e + mid_e + high_e
 
-                            w_close = (low_e / tot_e).unsqueeze(0)
-                            w_open = (mid_e / tot_e).unsqueeze(0)
-                            w_front = (high_e / tot_e).unsqueeze(0)
-
-                            H_dynamic = (
-                                w_close * self._formant_filter_post_tensor_close.unsqueeze(-1) +
-                                w_open * self._formant_filter_post_tensor_open.unsqueeze(-1) +
-                                w_front * self._formant_filter_post_tensor_front.unsqueeze(-1)
-                            )
-                            S_filtered = S * H_dynamic
-                        else:
-                            S_filtered = S * self._formant_filter_post_tensor.unsqueeze(-1)
-                        
-                        # Reconstruct via ISTFT
-                        out_audio_filtered = torch.istft(
-                            S_filtered,
-                            n_fft=n_fft,
-                            hop_length=hop_length,
-                            window=window,
-                            length=out_audio_float.shape[0]
-                        )
-                        out_audio = out_audio_filtered.to(device=out_audio.device, dtype=out_audio.dtype)
-                except Exception as ex:
-                    logger.error(f"Error applying formant profile filter: {ex}")
-            
-            # Audio Effects nach Voice Conversion anwenden
-            if self.audio_effects_manager is not None:
-                out_audio = self.audio_effects_manager.process_output_chain(out_audio, sample_rate=self.model_sr)
-            t.record("output-effects")
         return out_audio

@@ -1,10 +1,10 @@
 import { PerfStatus } from './PerformanceStatsCard';
 import { t } from '../../locales';
 
-const STATUS_LABELS: Record<PerfStatus, { text: string; color: string; bg: string }> = {
-  good: { text: t('statusGood'), color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' },
-  warning: { text: t('statusWarning'), color: '#fbbf24', bg: 'rgba(251, 191, 36, 0.15)' },
-  critical: { text: t('statusCritical'), color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.15)' },
+const STATUS_STYLE: Record<PerfStatus, { textKey: 'statusGood' | 'statusWarning' | 'statusCritical'; color: string; bg: string }> = {
+  good: { textKey: 'statusGood', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' },
+  warning: { textKey: 'statusWarning', color: '#fbbf24', bg: 'rgba(251, 191, 36, 0.15)' },
+  critical: { textKey: 'statusCritical', color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.15)' },
 };
 
 function CustomTooltip({ active, payload, label }: any) {
@@ -15,7 +15,7 @@ function CustomTooltip({ active, payload, label }: any) {
     if (mainProcessData) {
       const dataPoint = mainProcessData.payload;
       const status: PerfStatus = dataPoint.status || 'good';
-      const statusConfig = STATUS_LABELS[status];
+      const statusConfig = STATUS_STYLE[status];
 
       return (
         <div className="bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)] rounded-2xl p-3.5 shadow-xl backdrop-blur-md flex flex-col gap-1.5 min-w-[200px]">
@@ -27,7 +27,7 @@ function CustomTooltip({ active, payload, label }: any) {
               className="text-xs px-2.5 py-0.5 rounded-full font-semibold"
               style={{ color: statusConfig.color, backgroundColor: statusConfig.bg }}
             >
-              {statusConfig.text}
+              {t(statusConfig.textKey)}
             </span>
           </div>
           <div className="flex justify-between text-xs">

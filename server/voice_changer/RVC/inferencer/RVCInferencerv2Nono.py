@@ -4,6 +4,7 @@ import logging
 from safetensors import safe_open
 from const import EnumInferenceTypes
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
+from voice_changer.common.TorchUtils import StaticCUDAGraphRunner
 from voice_changer.RVC.inferencer.Inferencer import Inferencer
 from .rvc_models.infer_pack.models import SynthesizerTrnMs768NSFsid_nono
 from voice_changer.common.SafetensorsUtils import load_model
@@ -28,6 +29,7 @@ class RVCInferencerv2Nono(Inferencer):
         else:
             cpt = torch.load(file, map_location=dev if dev.type == 'cuda' else 'cpu')
             model = SynthesizerTrnMs768NSFsid_nono(*cpt["config"], is_half=is_half).to(dev)
+            _load_state_dict_compat(model, cpt["weight"], strict=False)
         # Strip parametrizations (weight_norm) exactly like Applio Realtime Voice Converter
         try:
             from torch.nn.utils.parametrize import strip_parametrizations
@@ -38,17 +40,41 @@ class RVCInferencerv2Nono(Inferencer):
         if is_half:
             model = model.half()
 
-        self.use_jit_eager = not use_jit_compile
+        self.use_jit = use_jit_compile
         if use_jit_compile:
             logger.info('Compiling JIT model...')
             try:
                 model = torch.jit.optimize_for_inference(torch.jit.script(model), other_methods=['infer'])
             except Exception as e:
                 logger.warning(f"JIT compilation failed: {e}. Falling back to eager mode.")
-                self.use_jit_eager = True
+                self.use_jit = False
 
         self.model = model
+        self._cuda_graph_runner = (
+            StaticCUDAGraphRunner(self._graph_infer_fn, warmup_steps=2, name="RVCv2Nono")
+            if dev.type == "cuda"
+            else None
+        )
         return self
+
+    def _graph_infer_fn(
+        self,
+        feats: torch.Tensor,
+        pitch_length: torch.Tensor,
+        sid: torch.Tensor,
+        skip_head: int,
+        return_length: int,
+        formant_length: int,
+    ) -> torch.Tensor:
+        res = self.model.infer(
+            feats,
+            pitch_length,
+            sid,
+            skip_head=skip_head,
+            return_length=return_length,
+            formant_length=formant_length,
+        )
+        return res[0][0, 0]
 
     def infer(
         self,
@@ -62,13 +88,19 @@ class RVCInferencerv2Nono(Inferencer):
         formant_length: int,
     ) -> torch.Tensor:
         with torch.jit.optimized_execution(self.use_jit):
-            res = self.model.infer(
-                feats,
-                pitch_length,
-                sid,
-                skip_head=skip_head,
-                return_length=return_length,
-                formant_length=formant_length
-            )
-        res = res[0][0, 0]
+            if self._cuda_graph_runner is not None and feats.device.type == "cuda":
+                res = self._cuda_graph_runner.run(
+                    (feats, pitch_length, sid),
+                    (skip_head, return_length, formant_length),
+                )
+            else:
+                out = self.model.infer(
+                    feats,
+                    pitch_length,
+                    sid,
+                    skip_head=skip_head,
+                    return_length=return_length,
+                    formant_length=formant_length,
+                )
+                res = out[0][0, 0]
         return torch.clip(res, -1.0, 1.0, out=res)

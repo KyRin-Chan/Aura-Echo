@@ -53,11 +53,15 @@ class STFT(torch.nn.Module):
         self.register_buffer("inverse_basis", inverse_basis.float())
         self.register_buffer("fft_window", fft_window.float())
 
-    def transform(self, input_data, return_phase=False):
+    def transform(self, input_data, return_phase=False, center: bool = True):
         """Take input data (audio) to STFT domain.
 
         Arguments:
             input_data {tensor} -- Tensor of floats, with shape (num_batch, num_samples)
+
+        Keyword Arguments:
+            return_phase {bool} -- Whether to also return phase tensor
+            center {bool} -- Whether to apply half-FFT reflection padding before framing
 
         Returns:
             magnitude {tensor} -- Magnitude of STFT with shape (num_batch,
@@ -65,11 +69,32 @@ class STFT(torch.nn.Module):
             phase {tensor} -- Phase of STFT with shape (num_batch,
                 num_frequencies, num_frames)
         """
-        input_data = F.pad(
-            input_data,
-            (self.pad_amount, self.pad_amount),
-            mode="reflect",
-        )
+        if input_data.device.type != "privateuseone":
+            x = input_data.float() if input_data.dtype != torch.float32 else input_data
+            win = self.fft_window.float() if self.fft_window.dtype != torch.float32 else self.fft_window
+            if win.device != x.device:
+                win = win.to(x.device)
+            spec = torch.stft(
+                x,
+                n_fft=self.filter_length,
+                hop_length=self.hop_length,
+                win_length=self.filter_length,
+                window=win,
+                center=center,
+                pad_mode="reflect",
+                return_complex=True,
+            )
+            magnitude = torch.sqrt(spec.real.pow(2) + spec.imag.pow(2) + 1e-12)
+            if return_phase:
+                return magnitude, torch.angle(spec)
+            return magnitude
+
+        if center:
+            input_data = F.pad(
+                input_data,
+                (self.pad_amount, self.pad_amount),
+                mode="reflect",
+            )
         forward_transform = input_data.unfold(
             1, self.filter_length, self.hop_length
         ).permute(0, 2, 1)

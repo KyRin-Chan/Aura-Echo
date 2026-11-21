@@ -27,7 +27,7 @@ supported model sample rate (32 k, 40 k, 48 k …).
 import math
 import os
 import logging
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 import torch
@@ -131,6 +131,43 @@ def _precompute_kaiser_sinc_kernel(
 # RefineGAN building blocks
 # ---------------------------------------------------------------------------
 
+class _Fp32Resample(nn.Module):
+    """Precomputed Kaiser-sinc resampler that preserves float32 kernel precision across .half() calls."""
+
+    def __init__(
+        self,
+        orig_freq: int,
+        new_freq: int,
+        lowpass_filter_width: int = 64,
+        rolloff: float = 0.9475937167399596,
+        beta: float = 14.769656459379492,
+    ):
+        super().__init__()
+        self.resampler = tat.Resample(
+            orig_freq=orig_freq,
+            new_freq=new_freq,
+            lowpass_filter_width=lowpass_filter_width,
+            rolloff=rolloff,
+            resampling_method="sinc_interp_kaiser",
+            beta=beta,
+            dtype=torch.float32,
+        )
+
+    def _apply(self, fn):
+        orig_kernel = getattr(self.resampler, "kernel", None)
+        if orig_kernel is not None:
+            probe_out = fn(torch.empty(0, dtype=torch.float32, device=orig_kernel.device))
+            target_device = probe_out.device
+            super()._apply(fn)
+            self.resampler.kernel = orig_kernel.to(device=target_device, dtype=torch.float32)
+        else:
+            super()._apply(fn)
+        return self
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.resampler(x.float())
+
+
 class _SineGenerator(nn.Module):
     """
     Harmonic sine excitation source driven by F0.
@@ -190,7 +227,7 @@ class _SineGenerator(nn.Module):
         tmp = torch.cumsum(rad_values, dim=1) % 1.0
         idx = (tmp[:, 1:, :] - tmp[:, :-1, :]) < 0
         shift = torch.zeros_like(rad_values)
-        shift[:, 1:, :] = idx * -1.0
+        shift[:, 1:, :] = idx.to(rad_values.dtype) * -1.0
 
         sines = torch.sin(
             torch.cumsum(rad_values + shift, dim=1) * (2.0 * math.pi)
@@ -206,6 +243,7 @@ class _SineGenerator(nn.Module):
         """
         # Phase accumulation via cumsum is precision-sensitive: always run in float32
         # to avoid overflow when operating in FP16 mode (float16 max ≈ 65504).
+        target_dtype = f0.dtype
         f0_fp32 = f0.float()
         with torch.no_grad():
             f0_buf = torch.zeros(
@@ -224,8 +262,6 @@ class _SineGenerator(nn.Module):
 
             sine_waves = sine_waves * uv + noise
 
-        # Cast float32 result to the Linear layer's dtype (float16 or float32)
-        target_dtype = self.merge[0].weight.dtype
         return self.merge(sine_waves.to(target_dtype))
 
 
@@ -338,8 +374,13 @@ class _ParallelResBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.input_conv(x)
-        # average across the parallel branches
-        return torch.stack([blk(x) for blk in self.blocks], dim=0).mean(dim=0)
+        # average across the parallel branches (TorchScript-friendly without intermediate stack)
+        acc: Optional[torch.Tensor] = None
+        for blk in self.blocks:
+            y = blk(x)
+            acc = y if acc is None else acc + y
+        assert acc is not None
+        return acc / float(len(self.blocks))
 
     def remove_weight_norm(self):
         _safe_remove_weight_norm(self.input_conv)
@@ -390,14 +431,25 @@ class _RefineGANGenerator(nn.Module):
             nn.Conv1d(1, start_channels, 7, padding=3)
         )
 
-        # Multi-scale F0 downsampling branches
+        # Multi-scale F0 downsampling branches with precomputed Kaiser-sinc kernels
         channels = start_channels
         size = self.upp
         self.downsample_blocks = nn.ModuleList()
+        self.down_resamplers = nn.ModuleList()
         self.df0: list = []                       # [(old_T_factor, new_T_factor), …]
         for i, _ in enumerate(upsample_rates):
             new_size = int(size / upsample_rates[-(i + 1)])
             self.df0.append((size, new_size))
+            g = math.gcd(size, new_size)
+            self.down_resamplers.append(
+                _Fp32Resample(
+                    orig_freq=size // g,
+                    new_freq=new_size // g,
+                    lowpass_filter_width=64,
+                    rolloff=0.9475937167399596,
+                    beta=14.769656459379492,
+                )
+            )
             size = new_size
             new_ch = channels * 2
             self.downsample_blocks.append(
@@ -412,8 +464,11 @@ class _RefineGANGenerator(nn.Module):
         )
         self.mel_conv.apply(_init_weights)
 
-        if gin_channels > 0:
+        self.has_cond = gin_channels > 0
+        if self.has_cond:
             self.cond = nn.Conv1d(gin_channels, ch // 2, 1)
+        else:
+            self.cond = nn.Identity()
 
         # --- Decoder ---
         self.upsample_blocks = nn.ModuleList()
@@ -445,11 +500,19 @@ class _RefineGANGenerator(nn.Module):
         mel: torch.Tensor,
         f0: torch.Tensor,
         g: Optional[torch.Tensor] = None,
+        n_res: Optional[int] = None,
     ) -> torch.Tensor:
         target_dtype = self.pre_conv.weight.dtype
         mel = mel.to(target_dtype)
+        f0 = f0.to(target_dtype)
         if g is not None:
             g = g.to(target_dtype)
+
+        if n_res is not None:
+            if n_res != mel.shape[-1]:
+                mel = F.interpolate(mel, size=n_res, mode="linear")
+            if n_res != f0.shape[-1]:
+                f0 = F.interpolate(f0.unsqueeze(1), size=n_res, mode="linear").squeeze(1)
 
         f0_frames = mel.shape[-1]
 
@@ -464,36 +527,26 @@ class _RefineGANGenerator(nn.Module):
         # pre_conv: 1 ch → start_channels
         x = self.pre_conv(har)
 
-        # Build F0 down-branches with sinc-Kaiser anti-aliasing resampling
-        downs = []
-        for blk, (old_sz, new_sz) in zip(self.downsample_blocks, self.df0):
+        # Build F0 down-branches using precomputed Kaiser-sinc resamplers
+        downs: List[torch.Tensor] = []
+        for blk, down_resampler in zip(self.downsample_blocks, self.down_resamplers):
             x = F.leaky_relu(x, self.leaky_relu_slope)
             downs.append(x)
-            # torchaudio.functional.resample (sinc_interp_kaiser) requires float32 input.
-            # Localized float32 cast ensures 100% exact Applio audio quality while keeping convs in FP16.
-            x = torchaudio.functional.resample(
-                x.float().contiguous(),
-                orig_freq=int(f0_frames * old_sz),
-                new_freq=int(f0_frames * new_sz),
-                lowpass_filter_width=64,
-                rolloff=0.9475937167399596,
-                resampling_method="sinc_interp_kaiser",
-                beta=14.769656459379492,
-            ).to(target_dtype)
+            x = down_resampler(x.float().contiguous()).to(target_dtype)
             x = blk(x)
 
         # Mel/z projection + optional speaker conditioning
         mel = self.mel_conv(mel)
-        if g is not None:
+        if self.has_cond and g is not None:
             mel = mel + self.cond(g)
 
         # Concat mel branch with the coarsest F0 branch
         x = torch.cat([mel, x], dim=1)
 
         # Decode: linear upsample + fuse next F0 branch + ParallelResBlock
-        for ups, res, down in zip(
-            self.upsample_blocks, self.upsample_conv_blocks, reversed(downs)
-        ):
+        n_downs = len(downs)
+        for i, (ups, res) in enumerate(zip(self.upsample_blocks, self.upsample_conv_blocks)):
+            down = downs[n_downs - 1 - i]
             x = F.leaky_relu(x, self.leaky_relu_slope)
             x = ups(x)
             x = torch.cat([x, down], dim=1)

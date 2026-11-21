@@ -106,7 +106,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
     const outputWav = await appState.stopOutputRecording();
     setIsRecording(false);
     setReloadTrigger(Date.now());
-    const wavUrl = URL.createObjectURL(new Blob([outputWav], { type: "audio/wav" }));
+    const wavUrl = URL.createObjectURL(new Blob([new Float32Array(outputWav)], { type: "audio/wav" }));
     const audioInput = document.getElementById(AUDIO_KEYS.AUDIO_ELEMENT_FOR_SAMPLING_INPUT) as HTMLAudioElement;
     if (audioInput) {
       audioInput.src = wavUrl;

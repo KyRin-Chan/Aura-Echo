@@ -80,7 +80,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
   const handleSave = async () => {
     const trimmedName = form.modelName.trim();
     if (!trimmedName) {
-      guiState.showError(t('modelUploadEnterName'), t('errorTitle'));
+      guiState.showError(t('modelUploadEnterName'), 'Error');
       return;
     }
     try {
@@ -108,7 +108,7 @@ function EditModelModal({ model, showModal, setShowEdit, modelDir, icon }: EditM
     }
 
     await appState.serverSetting.reloadServerInfo();
-    guiState.showError(t('modelUpdateSuccess'), t('confirmTitle'));
+    guiState.showError(t('modelUpdateSuccess'), 'Confirm');
     setShowEdit(false);
   };
 

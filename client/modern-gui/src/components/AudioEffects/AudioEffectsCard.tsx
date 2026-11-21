@@ -154,7 +154,7 @@ function AudioEffectsCard({ dndAttributes, dndListeners }: AudioEffectsCardProps
     console.log('Background sound uploaded successfully.');
 
     // Notify user of successful upload and refresh server state
-    guiState.showError(t('bgSoundUploadSuccess'), t('confirmTitle'));
+    guiState.showError(t('bgSoundUploadSuccess'), 'Confirm');
     await appState.serverSetting.reloadServerInfo();
   }
 

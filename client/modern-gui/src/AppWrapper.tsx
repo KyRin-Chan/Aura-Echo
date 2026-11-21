@@ -1,5 +1,5 @@
 import React from 'react';
-import { t } from './locales';
+import { t, subscribeLang } from './locales';
 import { AppContextProvider } from './context/AppContext';
 import App from './App';
 import GenericModal from './components/Modals/GenericModal';
@@ -8,15 +8,23 @@ import { UIContextProvider } from './context/UIContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AppRootProvider } from './context/AppRootProvider';
 
+const WELCOME_DISMISSED_KEY = 'aura_welcome_dismissed';
+
 const AppContent: React.FC = () => {
   // ---------------- State ----------------
-  const [showWelcome, setShowWelcome] = React.useState<boolean>(true);
+  const [showWelcome, setShowWelcome] = React.useState<boolean>(() => !sessionStorage.getItem(WELCOME_DISMISSED_KEY));
   const [fadeOut, setFadeOut] = React.useState<boolean>(false);
+  const [, setLangTick] = React.useState<number>(0);
+
+  React.useEffect(() => {
+    return subscribeLang(() => setLangTick((n) => n + 1));
+  }, []);
 
   // ---------------- Functions ----------------
 
   // Handle welcome modal completion
   const handleWelcomeComplete = async () => {
+    sessionStorage.setItem(WELCOME_DISMISSED_KEY, '1');
     setFadeOut(true);
     setTimeout(() => {
       setShowWelcome(false);

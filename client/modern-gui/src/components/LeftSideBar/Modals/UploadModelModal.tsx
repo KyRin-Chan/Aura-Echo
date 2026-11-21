@@ -148,12 +148,12 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
 
   const handleUploadModal = async () => {
     if (!uploadSettings.files) {
-      guiState.showError(t('modelUploadSelectFile'), t('errorTitle'));
+      guiState.showError(t('modelUploadSelectFile'), 'Error');
       return;
     }
     const trimmedModelName = uploadSettings.modelName.trim();
     if (!trimmedModelName) {
-      guiState.showError(t('modelUploadEnterName'), t('errorTitle'));
+      guiState.showError(t('modelUploadEnterName'), 'Error');
       return;
     }
 
@@ -168,7 +168,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
       }
 
       if (emptySlotIndex === -1) {
-        guiState.showError(t('modelUploadNoSlot'), t('errorTitle'));
+        guiState.showError(t('modelUploadNoSlot'), 'Error');
         return;
       }
 
@@ -228,7 +228,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
           console.log('Icon uploaded.');
         }
 
-        guiState.showError(t('modelUploadSuccess'), t('confirmTitle'));
+        guiState.showError(t('modelUploadSuccess'), 'Confirm');
 
         if (autoSelectModel) {
           guiState.startLoading(t('loadingSwappingModel') + uploadSettings.modelName);
@@ -240,7 +240,7 @@ function UploadModelModal({ appState, guiState, showUpload, setShowUpload }: Upl
         }
       } else {
         console.error('Model upload failed - no model file found in slot after upload');
-        guiState.showError(t('modelUploadFailed'), t('errorTitle'));
+        guiState.showError(t('modelUploadFailed'), 'Error');
         return;
       }
 

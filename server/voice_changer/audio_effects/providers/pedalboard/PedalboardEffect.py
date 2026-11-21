@@ -1,10 +1,12 @@
 import torch
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 from ...AudioEffect import AudioEffect, AudioChannel
 import logging
 
 logger = logging.getLogger(__name__)
+
+_SYNTHETIC_IR_CACHE: Dict[Tuple[str, float, float, int], np.ndarray] = {}
 
 try:
     from pedalboard import (
@@ -22,8 +24,13 @@ except ImportError:
 
 def _generate_synthetic_ir(ir_type: str, room_size: float, damping: float, sample_rate: int = 48000) -> np.ndarray:
     """
-    Generates a synthetic impulse response NumPy array.
+    Generates (and caches) a synthetic impulse response NumPy array.
     """
+    cache_key = (str(ir_type), round(float(room_size), 3), round(float(damping), 3), int(sample_rate))
+    cached = _SYNTHETIC_IR_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     # 1. Determine duration (rt60) based on type and room_size
     if ir_type == "hall":
         rt60 = 1.5 + room_size * 2.5  # 1.5 to 4.0 seconds
@@ -89,8 +96,13 @@ def _generate_synthetic_ir(ir_type: str, room_size: float, damping: float, sampl
     max_val = np.max(np.abs(ir))
     if max_val > 1e-6:
         ir = ir / max_val * 0.7
-        
-    return ir.astype(np.float32)
+
+    ir_f32 = ir.astype(np.float32)
+    if len(_SYNTHETIC_IR_CACHE) >= 16:
+        oldest_key = next(iter(_SYNTHETIC_IR_CACHE))
+        _SYNTHETIC_IR_CACHE.pop(oldest_key, None)
+    _SYNTHETIC_IR_CACHE[cache_key] = ir_f32
+    return ir_f32
 
 
 class PedalboardEffect(AudioEffect):
@@ -246,29 +258,40 @@ class PedalboardEffect(AudioEffect):
     def set_parameters(self, parameters: Dict[str, Any]) -> None:
         super().set_parameters(parameters)
         self._init_effect()  # Reinitialize with new parameters
-    
+
+    def get_pedalboard_plugins(self) -> List[Any]:
+        """Return underlying Pedalboard plugin instance(s) for chain batching."""
+        if not self.enabled or not PEDALBOARD_AVAILABLE or self._effect is None:
+            return []
+        if isinstance(self._effect, Pedalboard):
+            return list(self._effect)
+        return [self._effect]
+
+    def process_numpy(self, audio_np: np.ndarray, sample_rate: int) -> np.ndarray:
+        if not self.enabled or not PEDALBOARD_AVAILABLE or self._effect is None or audio_np.size == 0:
+            return audio_np
+
+        try:
+            arr = np.ascontiguousarray(audio_np, dtype=np.float32)
+            was_1d = arr.ndim == 1
+            if was_1d:
+                arr = arr.reshape(1, -1)
+
+            # reset=False preserves stateful reverb tails, delay lines, and compressor envelopes
+            processed = self._effect(arr, sample_rate, reset=False)
+
+            if was_1d and processed.ndim == 2 and processed.shape[0] == 1:
+                processed = processed[0]
+
+            return np.ascontiguousarray(processed, dtype=np.float32)
+        except Exception as e:
+            logger.error(f"Error in {self.effect_type} effect: {e}")
+            return audio_np
+
     def process(self, audio: torch.Tensor, sample_rate: int) -> torch.Tensor:
         if not self.enabled or not PEDALBOARD_AVAILABLE or self._effect is None:
             return audio
-        
-        try:
-            # Convert to numpy
-            audio_np = audio.detach().cpu().numpy().copy().astype(np.float32)
-            
-            # Pedalboard expects 2D array (channels, samples)
-            if audio_np.ndim == 1:
-                audio_np = audio_np.reshape(1, -1)
-            
-            # Apply effect
-            processed = self._effect(audio_np, sample_rate)
-            
-            # Convert back to 1D if needed
-            if processed.ndim == 2 and processed.shape[0] == 1:
-                processed = processed[0]
-            
-            # Convert back to torch tensor
-            return torch.tensor(processed.copy(), dtype=audio.dtype, device=audio.device)
-            
-        except Exception as e:
-            logger.error(f"Error in {self.effect_type} effect: {e}")
-            return audio
+
+        audio_np = audio.detach().cpu().numpy()
+        processed = self.process_numpy(audio_np, sample_rate)
+        return torch.as_tensor(processed, dtype=audio.dtype, device=audio.device)

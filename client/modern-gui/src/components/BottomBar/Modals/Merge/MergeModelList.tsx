@@ -128,7 +128,7 @@ function MergeModelList({
                           ? 'SPIN V2'
                           : model.embedder || 'Unknown'}{' '}
                         • {model.samplingRate || 'Unknown'} Hz • {model.voiceChangerType || 'RVC'}
-                        {model.version || '1'}
+                        {model.version || '1'} • {model.vocoder === 'refinegan' ? 'RefineGAN' : 'NSF-HiFiGAN'}
                       </div>
                     </div>
                   </div>
