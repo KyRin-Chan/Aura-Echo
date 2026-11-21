@@ -373,7 +373,14 @@ class VoiceChangerManager(ServerAudioCallbacks):
                 try:
                     logger.warning("CUDA context error/corruption detected. Attempting auto-recovery...")
                     import torch
-                    torch.cuda.empty_cache()
+                    try:
+                        torch.cuda.synchronize()
+                    except Exception as sync_err:
+                        logger.debug(f"CUDA synchronize during recovery failed: {sync_err}")
+                    try:
+                        torch.cuda.empty_cache()
+                    except Exception as cache_err:
+                        logger.debug(f"CUDA empty_cache during recovery failed: {cache_err}")
                     # Force re-initialize of the active slot to rebuild pipeline
                     self.initialize(self.settings.modelSlotIndex)
                 except Exception as reinit_err:

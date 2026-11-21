@@ -12,30 +12,37 @@ logger = logging.getLogger(__name__)
 
 
 class MMVC_Namespace(socketio.AsyncNamespace):
-    sid: str | None = None
-
     async def emitTo(self, vol, perf, err):
-        if not self.sid:
+        if not self.sids:
             return
-        if err is not None:
-            error_code, error_message = err
-            await self.emit("error", [error_code, error_message], to=self.sid)
-        else:
-            await self.emit("server_stats", [vol, perf], to=self.sid)
+        for sid in list(self.sids):
+            try:
+                if err is not None:
+                    error_code, error_message = err
+                    await self.emit("error", [error_code, error_message], to=sid)
+                else:
+                    await self.emit("server_stats", [vol, perf], to=sid)
+            except Exception as e:
+                logger.debug(f"Failed to emit stats to SID {sid}: {e}")
 
     def emit_coroutine(self, vol, perf, err):
-        if self.sid and self._loop is not None and not self._loop.is_closed():
+        if self.sids and self._loop is not None and not self._loop.is_closed():
             try:
                 asyncio.run_coroutine_threadsafe(self.emitTo(vol, perf, err), self._loop)
             except Exception as e:
                 logger.debug(f"Failed to schedule emitTo: {e}")
 
     async def emitProgress(self, step: int, total: int, label: str):
-        if self.sid:
-            await self.emit("model_loading_progress", {"step": step, "total": total, "label": label}, to=self.sid)
+        if not self.sids:
+            return
+        for sid in list(self.sids):
+            try:
+                await self.emit("model_loading_progress", {"step": step, "total": total, "label": label}, to=sid)
+            except Exception as e:
+                logger.debug(f"Failed to emit progress to SID {sid}: {e}")
 
     def emit_progress_coroutine(self, step: int, total: int, label: str):
-        if self.sid and self._loop is not None and not self._loop.is_closed():
+        if self.sids and self._loop is not None and not self._loop.is_closed():
             try:
                 asyncio.run_coroutine_threadsafe(self.emitProgress(step, total, label), self._loop)
             except Exception as e:
@@ -45,6 +52,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         super().__init__(namespace)
         self.voiceChangerManager = voiceChangerManager
         self._loop: asyncio.AbstractEventLoop | None = None
+        self.sids: set[str] = set()
         self.clock_trackers: dict[str, ClockDriftTracker] = {}
         self.stale_stats = {}
         self.voiceChangerManager.setEmitTo(self.emit_coroutine)
@@ -57,7 +65,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
         return cls._instance
 
     def on_connect(self, sid, environ, ext):
-        self.sid = sid
+        self.sids.add(sid)
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -126,7 +134,7 @@ class MMVC_Namespace(socketio.AsyncNamespace):
             await self.emit("response", [send_timestamp, out_audio, ping, vol, perf], to=sid)
 
     def on_disconnect(self, sid):
-        self.sid = None
+        self.sids.discard(sid)
         logger.info(f"Disconnected SID: {sid}")
         self.clock_trackers.pop(sid, None)
         if sid in self.stale_stats:

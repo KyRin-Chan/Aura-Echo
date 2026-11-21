@@ -31,6 +31,11 @@ try:
 except Exception as e:
     print(f"Warning: Could not collect tensorrt: {e}")
 
+try:
+    binaries += collect_dynamic_libs('tensorrt_libs')
+except Exception as e:
+    print(f"Warning: Could not collect tensorrt_libs: {e}")
+
 hiddenimports += collect_submodules('scipy') # Fix "ModuleNotFoundError: No module named 'scipy._lib.*'"
 
 try:

@@ -18,7 +18,7 @@ import VoiceAnalyzerModal from './Modals/VoiceAnalyzer/VoiceAnalyzerModal';
 import AdvancedSettingsModal from './Modals/AdvancedSettings/AdvancedSettingsModal';
 import ClientInfoModal from './Modals/ClientInfoModal';
 import ServerInfoModal from './Modals/ServerInfoModal';
-import { CSS_CLASSES } from '../../styles/constants';
+import { AUDIO_KEYS, CSS_CLASSES } from '../../styles/constants';
 import PassthroughConfirmModal from './Modals/PassthroughConfirmModal';
 import { PRESET_SEED_COLORS } from '../../styles/md3ColorEngine';
 
@@ -99,6 +99,15 @@ function BottomBar(): JSX.Element {
       }
       // Start client convert
       else {
+        [
+          AUDIO_KEYS.AUDIO_ELEMENT_FOR_PLAY_RESULT,
+          AUDIO_KEYS.AUDIO_ELEMENT_FOR_PLAY_MONITOR
+        ].forEach((elemId) => {
+          const el = document.getElementById(elemId) as HTMLAudioElement | null;
+          if (el && el.srcObject && el.paused) {
+            el.play().catch(() => {});
+          }
+        });
         uiContext.setIsConverting(true);
         await appState.start();
       }

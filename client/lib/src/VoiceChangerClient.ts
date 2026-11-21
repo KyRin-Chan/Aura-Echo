@@ -64,6 +64,7 @@ export class VoiceChangerClient {
                 await this.ctx.audioWorklet.addModule(scriptUrl);
                 this.vcOutNode = new VoiceChangerWorkletNode(this.ctx, voiceChangerWorkletListener); // vc node
             }
+            this.vcInNode.setOutputNode(this.vcOutNode);
             this.currentMediaStreamAudioDestinationNode = this.ctx.createMediaStreamDestination(); // output node
             this.outputGainNode = this.ctx.createGain();
             this.outputGainNode.gain.value = this.setting.outputGain;
@@ -216,6 +217,9 @@ export class VoiceChangerClient {
             console.warn('[VoiceChangerClient] Failed to sync chunk size before start:', e);
         }
 
+        if (this.ctx.state === "suspended") {
+            await this.ctx.resume();
+        }
         await this.vcInNode.start();
         this._isVoiceChanging = true;
     };

@@ -1,4 +1,6 @@
 import os
+import site
+import sys
 import torch
 import onnxruntime
 import re
@@ -54,6 +56,8 @@ class DeviceManager(object):
         self.pitch_stream: Optional[torch.cuda.Stream] = None
         self.embedder_stream: Optional[torch.cuda.Stream] = None
         self.infer_stream: Optional[torch.cuda.Stream] = None
+        self._trt_dll_handles = []
+        self._registered_dll_dirs = set()
         logger.info('Initialized DeviceManager. Backend statuses:')
         logger.info(f'* DirectML: {self.dml_enabled}, device count: {torch_directml.device_count()}')
         logger.info(f'* CUDA: {self.cuda_enabled}, device count: {torch.cuda.device_count()}')
@@ -86,6 +90,8 @@ class DeviceManager(object):
         self.infer_stream = None
         try:
             if self.device.type == 'cuda':
+                if hasattr(torch.backends, 'cudnn'):
+                    torch.backends.cudnn.benchmark = True
                 major, _ = torch.cuda.get_device_capability(self.device)
                 if major >= 8:
                     # Allow TensorFloat-32 for float32 matmul and cuDNN conv
@@ -95,13 +101,18 @@ class DeviceManager(object):
                     # Use highest matmul precision (lets PyTorch pick TF32 where applicable)
                     if hasattr(torch, 'set_float32_matmul_precision'):
                         torch.set_float32_matmul_precision('high')
-                    logger.info('Enabled TF32 (TensorFloat-32) for CUDA matmul/conv on this GPU.')
+                    logger.info('Enabled TF32 (TensorFloat-32) and cuDNN benchmark for CUDA matmul/conv on this GPU.')
+                else:
+                    logger.info('Enabled cuDNN benchmark for CUDA conv on this GPU.')
 
                 _, greatest_p = torch.cuda.Stream.priority_range()
                 self.pitch_stream = torch.cuda.Stream(device=self.device, priority=greatest_p)
                 self.embedder_stream = torch.cuda.Stream(device=self.device, priority=greatest_p)
                 self.infer_stream = torch.cuda.Stream(device=self.device, priority=greatest_p)
                 logger.info(f'Initialized persistent high-priority CUDA streams (priority={greatest_p}).')
+
+                onnx_providers, _ = self.get_onnx_execution_provider()
+                logger.info(f'Selected ONNX Runtime execution providers: {onnx_providers}')
         except Exception as e:
             logger.debug(f'Unable to configure CUDA TF32/streams: {e}')
 
@@ -149,11 +160,73 @@ class DeviceManager(object):
             devices.append(device)
         return devices
 
+    def _find_tensorrt_lib_dirs(self) -> list[str]:
+        candidates = []
+        try:
+            candidates.extend(site.getsitepackages())
+        except Exception:
+            pass
+        try:
+            user_site = site.getusersitepackages()
+            if user_site:
+                candidates.append(user_site)
+        except Exception:
+            pass
+        candidates.extend([
+            os.path.join(sys.prefix, "Lib", "site-packages"),
+            getattr(sys, "_MEIPASS", None),
+            os.path.join(os.path.dirname(sys.executable), "_internal"),
+            os.path.dirname(sys.executable),
+        ])
+
+        trt_dirs = []
+        seen = set()
+        for base in candidates:
+            if not base:
+                continue
+            for path in (os.path.join(base, "tensorrt_libs"), base):
+                norm = os.path.normcase(os.path.abspath(path))
+                if norm not in seen and os.path.isdir(path):
+                    seen.add(norm)
+                    trt_dirs.append(path)
+        return trt_dirs
+
+    @staticmethod
+    def _dir_has_nvinfer_dll(directory: str) -> bool:
+        try:
+            for file in os.listdir(directory):
+                name = file.lower()
+                if name.startswith("nvinfer") and name.endswith(".dll"):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _register_tensorrt_libs(self) -> None:
+        current_path = os.environ.get("PATH", "")
+        path_entries = {
+            os.path.normcase(os.path.abspath(p))
+            for p in current_path.split(os.pathsep)
+            if p
+        }
+        for directory in self._find_tensorrt_lib_dirs():
+            if not self._dir_has_nvinfer_dll(directory):
+                continue
+            norm = os.path.normcase(os.path.abspath(directory))
+            if norm not in path_entries:
+                os.environ["PATH"] = directory + os.pathsep + os.environ.get("PATH", "")
+                path_entries.add(norm)
+            if hasattr(os, "add_dll_directory") and norm not in self._registered_dll_dirs:
+                try:
+                    self._trt_dll_handles.append(os.add_dll_directory(directory))
+                    self._registered_dll_dirs.add(norm)
+                except Exception as e:
+                    logger.debug(f"Failed to register TensorRT DLL directory {directory}: {e}")
+
     def _is_tensorrt_available(self):
-        import os
-        import sys
+        self._register_tensorrt_libs()
         search_dirs = os.environ.get("PATH", "").split(os.pathsep)
-        search_dirs.append(os.path.dirname(sys.executable))
+        search_dirs.extend(self._find_tensorrt_lib_dirs())
         search_dirs.extend([
             os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32"),
             os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "SysWOW64")
@@ -161,13 +234,8 @@ class DeviceManager(object):
         for directory in search_dirs:
             if not directory or not os.path.isdir(directory):
                 continue
-            try:
-                for file in os.listdir(directory):
-                    name = file.lower()
-                    if name.startswith("nvinfer") and name.endswith(".dll"):
-                        return True
-            except Exception:
-                pass
+            if self._dir_has_nvinfer_dll(directory):
+                return True
         return False
 
     def get_onnx_execution_provider(self, cuda_stream: Optional[torch.cuda.Stream] = None):

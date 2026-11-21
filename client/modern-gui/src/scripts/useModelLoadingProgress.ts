@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
 
 export type LoadingProgress = {
   step: number;
@@ -14,14 +13,8 @@ type UseModelLoadingProgressProps = {
 };
 
 /**
- * Subscribes to model loading progress events from the server.
- *
- * - 'sio' mode: connects to the /test Socket.IO namespace and listens for
- *   `model_loading_progress` events (JSON object payload).
- * - 'ws'  mode: opens a dedicated WebSocket to /ws/progress and parses JSON text frames.
- * - 'rest' mode: no real-time channel — does nothing.
- *
- * Calls onProgress(data) for each step, so the UI can display a progress bar.
+ * Subscribes to model loading progress events from the server via the dedicated
+ * /ws/progress WebSocket endpoint, avoiding Socket.IO sid collisions on /test.
  */
 export function useModelLoadingProgress({
   protocol,
@@ -34,26 +27,15 @@ export function useModelLoadingProgress({
 
   useEffect(() => {
     const baseUrl = serverUrl || window.location.origin;
+    const wsUrl = baseUrl.replace(/^http/, 'ws') + '/ws/progress';
 
-    if (protocol === 'sio') {
-      // Connect with the default JSON parser — no msgpack needed for progress events
-      const socket: Socket = io(baseUrl + '/test', {
-        transports: ['websocket'],
-        reconnection: false,
-      });
+    let isDisposed = false;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-      socket.on('model_loading_progress', (data: LoadingProgress) => {
-        onProgressRef.current(data);
-      });
-
-      return () => {
-        socket.disconnect();
-      };
-    }
-
-    if (protocol === 'ws') {
-      const wsUrl = baseUrl.replace(/^http/, 'ws') + '/ws/progress';
-      let ws: WebSocket | null = new WebSocket(wsUrl);
+    const connect = () => {
+      if (isDisposed) return;
+      ws = new WebSocket(wsUrl);
 
       ws.onmessage = (event: MessageEvent) => {
         try {
@@ -68,12 +50,27 @@ export function useModelLoadingProgress({
         // silently ignore — server may not be ready yet
       };
 
-      return () => {
-        ws?.close();
+      ws.onclose = () => {
         ws = null;
+        if (!isDisposed) {
+          reconnectTimer = setTimeout(connect, 2000);
+        }
       };
-    }
+    };
 
-    // 'rest' mode: no persistent connection for progress
+    connect();
+
+    return () => {
+      isDisposed = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+        ws = null;
+      }
+    };
   }, [protocol, serverUrl]);
 }

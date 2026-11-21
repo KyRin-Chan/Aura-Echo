@@ -4,7 +4,6 @@ import logging
 from safetensors import safe_open
 from const import EnumInferenceTypes
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
-from voice_changer.common.TorchUtils import StaticCUDAGraphRunner
 from voice_changer.RVC.inferencer.Inferencer import Inferencer
 from .rvc_models.infer_pack.models import SynthesizerTrnMs768NSFsid
 from voice_changer.common.SafetensorsUtils import load_model
@@ -83,6 +82,7 @@ class RVCInferencerv2(Inferencer):
         except Exception:
             model.remove_weight_norm()
 
+        model.eval()
         self.is_refinegan = getattr(model, "is_refinegan", False)
 
         if is_half:
@@ -101,39 +101,12 @@ class RVCInferencerv2(Inferencer):
                 self.use_jit = False
 
         self.model = model
-        self._cuda_graph_runner = (
-            StaticCUDAGraphRunner(self._graph_infer_fn, warmup_steps=2, name="RVCv2")
-            if dev.type == "cuda"
-            else None
-        )
         return self
 
     def uses_standalone_vocoder(self) -> bool:
         return bool(getattr(self, "_last_used_standalone_vocoder", False))
 
-    def _graph_infer_fn(
-        self,
-        feats: torch.Tensor,
-        pitch_length: torch.Tensor,
-        pitch: torch.Tensor,
-        pitchf: torch.Tensor,
-        sid: torch.Tensor,
-        skip_head: int,
-        return_length: int,
-        formant_length: int,
-    ) -> torch.Tensor:
-        res = self.model.infer(
-            feats,
-            pitch_length,
-            pitch,
-            pitchf,
-            sid,
-            skip_head=skip_head,
-            return_length=return_length,
-            formant_length=formant_length,
-        )
-        return res[0][0, 0]
-
+    @torch.no_grad()
     def infer(
         self,
         feats: torch.Tensor,
@@ -177,21 +150,15 @@ class RVCInferencerv2(Inferencer):
                 except Exception as e:
                     logger.warning(f"Error during active vocoder inference: {e}. Falling back to default decoder.")
 
-            if self._cuda_graph_runner is not None and feats.device.type == "cuda":
-                res = self._cuda_graph_runner.run(
-                    (feats, pitch_length, pitch, pitchf, sid),
-                    (skip_head, return_length, formant_length),
-                )
-            else:
-                out = self.model.infer(
-                    feats,
-                    pitch_length,
-                    pitch,
-                    pitchf,
-                    sid,
-                    skip_head=skip_head,
-                    return_length=return_length,
-                    formant_length=formant_length,
-                )
-                res = out[0][0, 0]
+            out = self.model.infer(
+                feats,
+                pitch_length,
+                pitch,
+                pitchf,
+                sid,
+                skip_head=skip_head,
+                return_length=return_length,
+                formant_length=formant_length,
+            )
+            res = out[0][0, 0]
         return torch.clip(res, -1.0, 1.0, out=res)

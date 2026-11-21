@@ -143,6 +143,9 @@ def create_ort_session_with_stream(
             and len(active_providers) > 0
             and active_providers[0] == "CUDAExecutionProvider"
         )
+        logger.info(
+            f"Initialized ORT InferenceSession (active_providers={active_providers}, custom_stream_bound={bound})"
+        )
         return sess, bound
     except Exception as e:
         if has_user_stream:
@@ -155,6 +158,9 @@ def create_ort_session_with_stream(
                 sess_options=sess_options,
                 providers=providers,
                 provider_options=provider_options,
+            )
+            logger.info(
+                f"Initialized ORT InferenceSession after retry (active_providers={sess.get_providers()}, custom_stream_bound=False)"
             )
             return sess, False
         raise

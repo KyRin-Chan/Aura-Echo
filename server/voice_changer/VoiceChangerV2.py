@@ -243,7 +243,7 @@ class VoiceChangerV2:
 
         mixed_np = self._flush_silence_sola_np(block_size)
         mixed_np = self._apply_post_cpu_chain(mixed_np, block_size)
-        vol = float(np.sqrt(np.mean(np.square(mixed_np, dtype=np.float32)))) if mixed_np.size > 0 else 0.0
+        vol = float(np.sqrt(np.mean(np.square(audio_in, dtype=np.float32)))) if audio_in.size > 0 else 0.0
         return mixed_np, vol
 
     @torch.no_grad()

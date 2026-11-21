@@ -29,6 +29,8 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
   private chunkCounter: number = 0;
   private socket: Socket<DefaultEventsMap, DefaultEventsMap> | null = null;
   private wsSocket: WebSocket | null = null;
+  private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private socketGeneration: number = 0;
   // performance monitor
   private bufferStart = 0;
 
@@ -113,16 +115,32 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
 
   // 処理
   createSocketIO = () => {
+    const gen = ++this.socketGeneration;
+    if (this.wsReconnectTimer) {
+      clearTimeout(this.wsReconnectTimer);
+      this.wsReconnectTimer = null;
+    }
     if (this.socket) {
       this.socket.close();
       this.socket = null;
     }
     if (this.wsSocket) {
+      this.wsSocket.onclose = null;
+      this.wsSocket.onerror = null;
+      this.wsSocket.onmessage = null;
       this.wsSocket.close();
       this.wsSocket = null;
     }
+
+    const baseUrl =
+      this.setting.serverUrl ||
+      (typeof window !== "undefined" ? window.location.origin : "");
+    if (!baseUrl) {
+      return;
+    }
+
     if (this.setting.protocol === "sio") {
-      this.socket = io(this.setting.serverUrl + "/test", { parser: msgpackrParser });
+      this.socket = io(baseUrl + "/test", { parser: msgpackrParser });
       this.socket.on("connect_error", (err) => {
         this.listener.notifyException(
           VOICE_CHANGER_CLIENT_EXCEPTION.ERR_SIO_CONNECT_FAILED,
@@ -130,7 +148,7 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
         );
       });
       this.socket.on("connect", () => {
-        // console.log(`[SIO] connect to ${this.setting.serverUrl}`);
+        // console.log(`[SIO] connect to ${baseUrl}`);
         // console.log(`[SIO] ${this.socket?.id}`);
       });
       this.socket.on("close", function () {
@@ -179,28 +197,42 @@ export class VoiceChangerWorkletNode extends AudioWorkletNode {
           this.listener.notifyPerformanceStats(totalPing, vol, perf);
         }
       });
-    } else if (this.setting.protocol === "ws") {
-      const wsUrl = this.setting.serverUrl.replace(/^http/, "ws") + "/ws/voice";
+    } else if (this.setting.protocol === "ws" || this.setting.protocol === "rest") {
+      const wsUrl = baseUrl.replace(/^http/, "ws") + "/ws/voice";
       // console.log(`[WS] Connecting to ${wsUrl}`);
-      this.wsSocket = new WebSocket(wsUrl);
-      this.wsSocket.binaryType = "arraybuffer";
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
+      this.wsSocket = ws;
 
-      this.wsSocket.onerror = (err) => {
-        this.listener.notifyException(
-          VOICE_CHANGER_CLIENT_EXCEPTION.ERR_SIO_CONNECT_FAILED,
-          `[WS] connection failed ${err}`
-        );
+      ws.onerror = (err) => {
+        if (this.socketGeneration !== gen) return;
+        console.warn("[WS] connection error:", err);
+        if (this.setting.protocol === "ws") {
+          this.listener.notifyException(
+            VOICE_CHANGER_CLIENT_EXCEPTION.ERR_SIO_CONNECT_FAILED,
+            `[WS] connection failed ${err}`
+          );
+        }
       };
 
-      this.wsSocket.onopen = () => {
+      ws.onopen = () => {
         // console.log(`[WS] connected to ${wsUrl}`);
       };
 
-      this.wsSocket.onclose = () => {
-        // console.log(`[WS] closed connection`);
+      ws.onclose = () => {
+        if (
+          this.socketGeneration === gen &&
+          (this.setting.protocol === "ws" || this.setting.protocol === "rest")
+        ) {
+          this.wsReconnectTimer = setTimeout(() => {
+            if (this.socketGeneration === gen) {
+              this.createSocketIO();
+            }
+          }, 1500);
+        }
       };
 
-      this.wsSocket.onmessage = async (event: MessageEvent) => {
+      ws.onmessage = async (event: MessageEvent) => {
         const arrayBuffer = event.data as ArrayBuffer;
         if (arrayBuffer.byteLength < 30) {
           this.listener.notifyException(

@@ -16,6 +16,7 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
   const [localSilentThreshold, setLocalSilentThreshold] = useState<number>(
     appState.serverSetting?.serverSetting?.silentThreshold ?? -75
   );
+  const [isSignalFresh, setIsSignalFresh] = useState<boolean>(false);
 
   // ---------------- Hooks ----------------
 
@@ -26,6 +27,23 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
       setLocalSilentThreshold(st);
     }
   }, [appState.serverSetting?.serverSetting?.silentThreshold]);
+
+  // Track whether performance stats are actively arriving while converting
+  useEffect(() => {
+    if (!uiState.isConverting) {
+      setIsSignalFresh(false);
+      return;
+    }
+
+    setIsSignalFresh(true);
+    const timer = setTimeout(() => {
+      setIsSignalFresh(false);
+    }, 1000);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [appState.performance, uiState.isConverting]);
 
   // ---------------- Handlers ----------------
 
@@ -48,10 +66,13 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
   };
 
   // Calculate real-time input volume in dB (-90 to 0)
-  const volumeDb = Math.max(Math.round(20 * Math.log10(appState.performance.vol || 0.00001)), -90);
-  const volumePercent = Math.min(100, Math.max(0, ((volumeDb + 90) / 90) * 100));
+  const isActive = uiState.isConverting && isSignalFresh;
+  const rawVol = isActive ? (appState.performance.vol || 0) : 0;
+  const exactVolumeDb = rawVol > 1e-5 ? 20 * Math.log10(rawVol) : -90;
+  const volumeDb = Math.max(Math.round(exactVolumeDb), -90);
+  const volumePercent = Math.min(100, Math.max(0, ((exactVolumeDb + 90) / 90) * 100));
   const thresholdPercent = Math.min(100, Math.max(0, ((localSilentThreshold + 90) / 90) * 100));
-  const isAboveThreshold = volumeDb >= localSilentThreshold;
+  const isAboveThreshold = isActive && rawVol > 0 && exactVolumeDb >= localSilentThreshold;
 
   // ---------------- Render ----------------
 
@@ -73,17 +94,25 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
             </span>
           </div>
         </div>
-        <div className="relative h-1.5 w-full rounded-full bg-surface-container-highest overflow-hidden mb-2.5">
+        <div className="relative h-2 w-full mb-1 flex items-center">
+          <div className="w-full h-2 rounded-full bg-surface-container-highest overflow-hidden">
+            <div
+              className={`h-full w-full origin-left rounded-full transition-transform duration-75 ${
+                isAboveThreshold ? 'bg-primary' : 'bg-outline'
+              }`}
+              style={{ transform: `scaleX(${volumePercent / 100})` }}
+            />
+          </div>
           <div
-            className={`h-full transition-all duration-75 rounded-full ${
-              isAboveThreshold ? 'bg-primary' : 'bg-outline'
-            }`}
-            style={{ width: `${volumePercent}%` }}
-          />
-          <div
-            className="absolute top-0 bottom-0 w-0.5 bg-tertiary"
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3.5 w-0.5 rounded-full bg-tertiary pointer-events-none"
             style={{ left: `${thresholdPercent}%` }}
           />
+        </div>
+        <div className="text-[9px] font-mono text-on-surface-variant/60 flex justify-between mb-2 select-none">
+          <span>-90</span>
+          <span>-60</span>
+          <span>-30</span>
+          <span>0 dB</span>
         </div>
         <MD3Slider
           id="inSens"

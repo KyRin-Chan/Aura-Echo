@@ -4,7 +4,6 @@ import logging
 from safetensors import safe_open
 from const import EnumInferenceTypes
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
-from voice_changer.common.TorchUtils import StaticCUDAGraphRunner
 from voice_changer.RVC.inferencer.Inferencer import Inferencer
 from .rvc_models.infer_pack.models import SynthesizerTrnMs768NSFsid_nono
 from voice_changer.common.SafetensorsUtils import load_model
@@ -37,6 +36,8 @@ class RVCInferencerv2Nono(Inferencer):
         except Exception:
             model.remove_weight_norm()
 
+        model.eval()
+
         if is_half:
             model = model.half()
 
@@ -50,32 +51,9 @@ class RVCInferencerv2Nono(Inferencer):
                 self.use_jit = False
 
         self.model = model
-        self._cuda_graph_runner = (
-            StaticCUDAGraphRunner(self._graph_infer_fn, warmup_steps=2, name="RVCv2Nono")
-            if dev.type == "cuda"
-            else None
-        )
         return self
 
-    def _graph_infer_fn(
-        self,
-        feats: torch.Tensor,
-        pitch_length: torch.Tensor,
-        sid: torch.Tensor,
-        skip_head: int,
-        return_length: int,
-        formant_length: int,
-    ) -> torch.Tensor:
-        res = self.model.infer(
-            feats,
-            pitch_length,
-            sid,
-            skip_head=skip_head,
-            return_length=return_length,
-            formant_length=formant_length,
-        )
-        return res[0][0, 0]
-
+    @torch.no_grad()
     def infer(
         self,
         feats: torch.Tensor,
@@ -88,19 +66,13 @@ class RVCInferencerv2Nono(Inferencer):
         formant_length: int,
     ) -> torch.Tensor:
         with torch.jit.optimized_execution(self.use_jit):
-            if self._cuda_graph_runner is not None and feats.device.type == "cuda":
-                res = self._cuda_graph_runner.run(
-                    (feats, pitch_length, sid),
-                    (skip_head, return_length, formant_length),
-                )
-            else:
-                out = self.model.infer(
-                    feats,
-                    pitch_length,
-                    sid,
-                    skip_head=skip_head,
-                    return_length=return_length,
-                    formant_length=formant_length,
-                )
-                res = out[0][0, 0]
+            out = self.model.infer(
+                feats,
+                pitch_length,
+                sid,
+                skip_head=skip_head,
+                return_length=return_length,
+                formant_length=formant_length,
+            )
+            res = out[0][0, 0]
         return torch.clip(res, -1.0, 1.0, out=res)

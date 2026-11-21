@@ -9,24 +9,58 @@ export const useAudioConfig = (): AudioConfigState => {
     const [audioContext, setAudioContext] = useState<AudioContext | null>(null)
 
     // ---------------- Hooks ----------------
-    // Create audio context on first render (browser safety options require interaction to initialize audio context)
+    // Create AudioContext immediately on mount so signaling channels initialize,
+    // and resume it on first user gesture if the browser starts it suspended.
     useEffect(() => {
-        const createAudioContext = () => {
-            const url = new URL(window.location.href);
-            const sampleRate = url.searchParams.get('sample_rate')
-            const ctx: AudioContext = sampleRate
-                ? new AudioContext({ sampleRate: Number(sampleRate) })
-                : new AudioContext({ sampleRate: 48000 })
+        const url = new URL(window.location.href);
+        const sampleRateParam = url.searchParams.get('sample_rate');
+        const sampleRate = sampleRateParam ? Number(sampleRateParam) : 48000;
 
-            console.log('Base context', ctx)
-            setAudioContext(ctx)
-
-            document.removeEventListener('touchstart', createAudioContext);
-            document.removeEventListener('mousedown', createAudioContext);
+        let ctx: AudioContext | null = null;
+        try {
+            ctx = new AudioContext({ sampleRate });
+            setAudioContext(ctx);
+        } catch (err) {
+            console.warn('Initial AudioContext creation deferred until user gesture:', err);
         }
-        document.addEventListener('touchstart', createAudioContext, false);
-        document.addEventListener('mousedown', createAudioContext, false);
-    }, [])
+
+        const unlockAudioContext = () => {
+            if (!ctx) {
+                try {
+                    ctx = new AudioContext({ sampleRate });
+                    setAudioContext(ctx);
+                } catch (err) {
+                    console.error('Failed to create AudioContext on user gesture:', err);
+                    return;
+                }
+            }
+            if (ctx.state === 'suspended') {
+                ctx.resume()
+                    .then(() => {
+                        if (ctx && ctx.state === 'running') {
+                            removeListeners();
+                        }
+                    })
+                    .catch(() => {});
+            } else if (ctx.state === 'running') {
+                removeListeners();
+            }
+        };
+
+        const removeListeners = () => {
+            document.removeEventListener('touchstart', unlockAudioContext);
+            document.removeEventListener('mousedown', unlockAudioContext);
+            document.removeEventListener('keydown', unlockAudioContext);
+        };
+
+        document.addEventListener('touchstart', unlockAudioContext, false);
+        document.addEventListener('mousedown', unlockAudioContext, false);
+        document.addEventListener('keydown', unlockAudioContext, false);
+
+        return () => {
+            removeListeners();
+        };
+    }, []);
 
     return {
         audioContext

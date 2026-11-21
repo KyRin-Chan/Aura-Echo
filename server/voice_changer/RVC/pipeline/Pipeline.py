@@ -386,6 +386,7 @@ class Pipeline:
                     self._embedder_stream.wait_stream(torch.cuda.current_stream(self.device))
                 fut_feats = self._executor.submit(_run_feats_worker)
 
+                pitch_ok = False
                 try:
                     if self._pitch_stream is not None:
                         cur = torch.cuda.current_stream(self.device)
@@ -411,10 +412,22 @@ class Pipeline:
                             pitch_scratch=pitch_scratch,
                             pitchf_scratch=pitchf_scratch,
                         )
+                    pitch_ok = True
                 finally:
-                    feats = fut_feats.result()
-                    if self._embedder_stream is not None:
-                        torch.cuda.current_stream(self.device).wait_stream(self._embedder_stream)
+                    if pitch_ok:
+                        feats = fut_feats.result()
+                        if self._embedder_stream is not None:
+                            torch.cuda.current_stream(self.device).wait_stream(self._embedder_stream)
+                    else:
+                        try:
+                            fut_feats.result()
+                        except Exception as feats_err:
+                            logger.debug(f"Embedder worker also failed during pitch error cleanup: {feats_err}")
+                        if self._embedder_stream is not None:
+                            try:
+                                torch.cuda.current_stream(self.device).wait_stream(self._embedder_stream)
+                            except Exception:
+                                pass
             else:
                 pitch, pitchf = None, None
                 feats = self.embedder.extract_features(audio.view(1, -1), embOutputLayer, useFinalProj)

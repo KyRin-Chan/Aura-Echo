@@ -41,8 +41,9 @@ class TextEncoder(nn.Module):
         self.emb_phone = nn.Linear(in_channels, hidden_channels)
         self.sqrt_hidden_channels = math.sqrt(self.hidden_channels)
         self.lrelu = nn.LeakyReLU(0.1, inplace=True)
-        if f0 == True:
-            self.emb_pitch = nn.Embedding(256, hidden_channels)  # pitch 256
+        self.emb_pitch: Optional[nn.Embedding] = (
+            nn.Embedding(256, hidden_channels) if f0 else None  # pitch 256
+        )
         self.encoder = attentions.Encoder(
             hidden_channels,
             filter_channels,
@@ -56,21 +57,19 @@ class TextEncoder(nn.Module):
     def forward(
         self,
         phone: torch.Tensor,
-        pitch: torch.Tensor,
+        pitch: Optional[torch.Tensor],
         lengths: torch.Tensor,
         skip_head: Optional[int] = None,
     ):
         # Clamp pitch values to valid range to prevent index out of bounds
-        if pitch is not None and hasattr(self, 'emb_pitch'):
+        if pitch is not None and self.emb_pitch is not None:
             max_pitch_idx = self.emb_pitch.num_embeddings - 1
             pitch = torch.clamp(pitch, 0, max_pitch_idx)
-        
-        if pitch is None:
-            x = self.emb_phone(phone)
-        else:
             phone_emb = self.emb_phone(phone)
             pitch_emb = self.emb_pitch(pitch)
             x = phone_emb + pitch_emb
+        else:
+            x = self.emb_phone(phone)
             
         x = x * self.sqrt_hidden_channels  # [b, t, h]
         x = self.lrelu(x)

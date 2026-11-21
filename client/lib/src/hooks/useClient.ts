@@ -192,7 +192,7 @@ export const useClient = (props: UseClientProps): ClientState => {
         const audio = document.getElementById(elemId) as HTMLAudioElement;
         if (audio.paused) {
             audio.srcObject = voiceChangerClientRef.current.stream;
-            audio.play();
+            audio.play().catch(() => {});
         }
     };
 
@@ -204,7 +204,7 @@ export const useClient = (props: UseClientProps): ClientState => {
         const audio = document.getElementById(elemId) as HTMLAudioElement;
         if (audio.paused) {
             audio.srcObject = voiceChangerClientRef.current.monitorStream;
-            audio.play();
+            audio.play().catch(() => {});
         }
     };
 
@@ -243,6 +243,19 @@ export const useClient = (props: UseClientProps): ClientState => {
         _setSetting({ ...setting });
     };
 
+    const stop = useMemo(() => {
+        return async () => {
+            await voiceChangerClientSetting.stop();
+            setPerformance({
+                vol: 0,
+                responseTime: 0,
+                preprocessTime: 0,
+                mainprocessTime: 0,
+                postprocessTime: 0,
+            });
+        };
+    }, [voiceChangerClientSetting.stop]);
+
     return {
         initialized,
         setting,
@@ -250,7 +263,7 @@ export const useClient = (props: UseClientProps): ClientState => {
         setVoiceChangerClientSetting,
         setServerUrl: voiceChangerClientSetting.setServerUrl,
         start: voiceChangerClientSetting.start,
-        stop: voiceChangerClientSetting.stop,
+        stop,
         reloadClientSetting: voiceChangerClientSetting.reloadClientSetting,
 
         setWorkletNodeSetting,
