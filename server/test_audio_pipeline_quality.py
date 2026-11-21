@@ -29,6 +29,7 @@ from voice_changer.common.AudioDSP import (
 )
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.Local.ServerAudio import Float32RingBuffer, ServerAudio
+from voice_changer.pitch_extractor.RMVPEFcpePitchExtractor import RMVPEFcpePitchExtractor
 from voice_changer.RVC.pipeline.Pipeline import Pipeline
 from voice_changer.RVC.RVCr2 import BypassResampler, RVCr2
 from voice_changer.vocoder.RefineGANVocoder import _RefineGANGenerator
@@ -1231,6 +1232,98 @@ class TestAudioPipelineQuality(unittest.TestCase):
         # Live streaming state and buffers remain untouched
         self.assertEqual(float(rvc.convert_buffer.abs().max().item()), 0.0)
         self.assertEqual(mock_pipeline.last_f0_smoothed, 123.45)
+
+    def test_pipeline_stabilize_f0_gap_bridging_and_median(self):
+        # 1-frame interior gap -> geometric mean
+        f0_1 = torch.tensor([200.0, 200.0, 0.0, 220.0, 220.0], dtype=torch.float32)
+        out_1 = Pipeline._stabilize_f0(f0_1)
+        self.assertAlmostEqual(float(out_1[2].item()), math.sqrt(200.0 * 220.0), places=3)
+
+        # 2-frame interior gap -> log-linear interpolation
+        f0_2 = torch.tensor([200.0, 200.0, 0.0, 0.0, 240.0, 240.0], dtype=torch.float32)
+        out_2 = Pipeline._stabilize_f0(f0_2)
+        exp2_a = math.exp((2.0 / 3.0) * math.log(200.0) + (1.0 / 3.0) * math.log(240.0))
+        exp2_b = math.exp((1.0 / 3.0) * math.log(200.0) + (2.0 / 3.0) * math.log(240.0))
+        self.assertAlmostEqual(float(out_2[2].item()), exp2_a, places=3)
+        self.assertAlmostEqual(float(out_2[3].item()), exp2_b, places=3)
+
+        # 3-frame interior gap -> log-linear interpolation
+        f0_3 = torch.tensor([200.0, 200.0, 0.0, 0.0, 0.0, 240.0, 240.0], dtype=torch.float32)
+        out_3 = Pipeline._stabilize_f0(f0_3)
+        for idx, w in [(2, 0.25), (3, 0.50), (4, 0.75)]:
+            expected = math.exp((1.0 - w) * math.log(200.0) + w * math.log(240.0))
+            self.assertAlmostEqual(float(out_3[idx].item()), expected, places=3)
+
+        # 4-frame interior gap -> remains unvoiced (0.0)
+        f0_4 = torch.tensor([200.0, 200.0, 0.0, 0.0, 0.0, 0.0, 220.0, 220.0], dtype=torch.float32)
+        out_4 = Pipeline._stabilize_f0(f0_4)
+        self.assertTrue(torch.all(out_4[2:6] == 0.0))
+
+        # Gap with > 4 semitones pitch jump (e.g. 200 -> 0 -> 400 Hz) -> not bridged
+        f0_jump = torch.tensor([200.0, 200.0, 0.0, 400.0, 400.0], dtype=torch.float32)
+        out_jump = Pipeline._stabilize_f0(f0_jump)
+        self.assertEqual(float(out_jump[2].item()), 0.0)
+
+        # Leading/trailing unvoiced frames stay 0.0
+        f0_edges = torch.tensor([0.0, 0.0, 210.0, 210.0, 0.0, 0.0], dtype=torch.float32)
+        out_edges = Pipeline._stabilize_f0(f0_edges)
+        self.assertTrue(torch.all(out_edges[:2] == 0.0))
+        self.assertTrue(torch.all(out_edges[-2:] == 0.0))
+        self.assertTrue(torch.all(out_edges[2:4] == 210.0))
+
+        # Single-frame octave spike removed by 3-frame voiced median filter
+        f0_spike = torch.tensor([220.0, 220.0, 440.0, 220.0, 220.0], dtype=torch.float32)
+        out_spike = Pipeline._stabilize_f0(f0_spike)
+        self.assertTrue(torch.allclose(out_spike, torch.full((5,), 220.0)))
+
+        # Monotonic glide and V/UV boundary frames preserved
+        f0_glide = torch.tensor([0.0, 200.0, 210.0, 220.0, 230.0, 0.0], dtype=torch.float32)
+        out_glide = Pipeline._stabilize_f0(f0_glide)
+        self.assertTrue(torch.allclose(out_glide, f0_glide))
+
+    def test_rmvpe_fcpe_hysteresis_and_cross_chunk_continuity(self):
+        # 1. Sustain band (conf between sustain=0.020 and onset=0.032) stays voiced when preceded by voiced frames
+        f0_r = torch.tensor([220.0, 220.0, 222.0, 224.0, 225.0], dtype=torch.float32)
+        conf_r = torch.tensor([0.20, 0.20, 0.029, 0.029, 0.20], dtype=torch.float32)
+        f0_f = torch.tensor([220.0, 220.0, 222.0, 224.0, 225.0], dtype=torch.float32)
+        conf_f = torch.tensor([0.05, 0.05, 0.0045, 0.0045, 0.05], dtype=torch.float32)
+
+        fused_sustain = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_r, conf_r, f0_f, conf_f, initial_prev_cent=0.0
+        )
+        self.assertTrue(torch.all(fused_sustain > 0.0))
+        self.assertAlmostEqual(float(fused_sustain[2].item()), 222.0, delta=1.5)
+
+        # 2. Same sustain-band confidence starting from silence (initial_prev_cent=0.0) is rejected
+        f0_cold = torch.tensor([220.0, 222.0, 220.0, 220.0], dtype=torch.float32)
+        conf_r_cold = torch.tensor([0.029, 0.029, 0.20, 0.20], dtype=torch.float32)
+        conf_f_cold = torch.tensor([0.0045, 0.0045, 0.05, 0.05], dtype=torch.float32)
+
+        fused_cold = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_cold, conf_r_cold, f0_cold, conf_f_cold, initial_prev_cent=0.0
+        )
+        self.assertEqual(float(fused_cold[0].item()), 0.0)
+        self.assertEqual(float(fused_cold[1].item()), 0.0)
+        self.assertGreater(float(fused_cold[2].item()), 200.0)
+
+        # 3. Passing initial_prev_cent from a prior chunk allows frame 0 in sustain band to stay voiced
+        prev_cent_220 = 1200.0 * math.log2(220.0 / 10.0)
+        fused_cont = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_cold, conf_r_cold, f0_cold, conf_f_cold, initial_prev_cent=prev_cent_220
+        )
+        self.assertGreater(float(fused_cont[0].item()), 210.0)
+        self.assertGreater(float(fused_cont[1].item()), 210.0)
+
+        # 4. Large octave divergence still hard-switches via causal continuity (never averages to ~330 Hz)
+        f0_r_oct = torch.tensor([220.0, 220.0, 440.0, 220.0], dtype=torch.float32)
+        conf_r_oct = torch.tensor([0.20, 0.20, 0.15, 0.20], dtype=torch.float32)
+        f0_f_oct = torch.tensor([220.0, 220.0, 220.0, 220.0], dtype=torch.float32)
+        conf_f_oct = torch.tensor([0.05, 0.05, 0.05, 0.05], dtype=torch.float32)
+
+        fused_oct = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_r_oct, conf_r_oct, f0_f_oct, conf_f_oct, initial_prev_cent=0.0
+        )
+        self.assertLess(abs(float(fused_oct[2].item()) - 220.0), 15.0)
 
 
 if __name__ == "__main__":

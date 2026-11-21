@@ -208,6 +208,63 @@ class Pipeline:
         f0_out[-new_frames:] = torch.tensor(smoothed_list, dtype=f0.dtype, device=f0.device)
         return f0_out
 
+    @staticmethod
+    def _stabilize_f0(
+        f0: torch.Tensor, max_gap_frames: int = 3, max_gap_semitones: float = 4.0
+    ) -> torch.Tensor:
+        """Bridge short interior V-UV-V dropouts via log-linear interpolation and apply 3-frame voiced median filtering."""
+        T = f0.shape[0]
+        if T < 3:
+            return f0
+
+        x = f0.float().clone()
+        orig = x.clone()
+        max_ratio = 2.0 ** (max_gap_semitones / 12.0)
+        inv_max_ratio = 1.0 / max_ratio
+
+        # Step A: Bridge short V-UV-V gaps (1..3 frames) using immutable `orig` masks
+        if max_gap_frames >= 1 and T >= 3:
+            l1, m1, r1 = orig[:-2], orig[1:-1], orig[2:]
+            ratio1 = r1 / torch.clamp(l1, min=1e-6)
+            mask1 = (l1 > 0) & (m1 == 0) & (r1 > 0) & (ratio1 >= inv_max_ratio) & (ratio1 <= max_ratio)
+            interp1 = torch.sqrt(torch.clamp(l1 * r1, min=1e-12))
+            x[1:-1] = torch.where(mask1, interp1, x[1:-1])
+
+        if max_gap_frames >= 2 and T >= 4:
+            l2, m2a, m2b, r2 = orig[:-3], orig[1:-2], orig[2:-1], orig[3:]
+            ratio2 = r2 / torch.clamp(l2, min=1e-6)
+            mask2 = (l2 > 0) & (m2a == 0) & (m2b == 0) & (r2 > 0) & (ratio2 >= inv_max_ratio) & (ratio2 <= max_ratio)
+            log_l2 = torch.log(torch.clamp(l2, min=1e-6))
+            log_r2 = torch.log(torch.clamp(r2, min=1e-6))
+            x[1:-2] = torch.where(mask2, torch.exp((2.0 / 3.0) * log_l2 + (1.0 / 3.0) * log_r2), x[1:-2])
+            x[2:-1] = torch.where(mask2, torch.exp((1.0 / 3.0) * log_l2 + (2.0 / 3.0) * log_r2), x[2:-1])
+
+        if max_gap_frames >= 3 and T >= 5:
+            l3, m3a, m3b, m3c, r3 = orig[:-4], orig[1:-3], orig[2:-2], orig[3:-1], orig[4:]
+            ratio3 = r3 / torch.clamp(l3, min=1e-6)
+            mask3 = (
+                (l3 > 0)
+                & (m3a == 0)
+                & (m3b == 0)
+                & (m3c == 0)
+                & (r3 > 0)
+                & (ratio3 >= inv_max_ratio)
+                & (ratio3 <= max_ratio)
+            )
+            log_l3 = torch.log(torch.clamp(l3, min=1e-6))
+            log_r3 = torch.log(torch.clamp(r3, min=1e-6))
+            x[1:-3] = torch.where(mask3, torch.exp(0.75 * log_l3 + 0.25 * log_r3), x[1:-3])
+            x[2:-2] = torch.where(mask3, torch.exp(0.50 * log_l3 + 0.50 * log_r3), x[2:-2])
+            x[3:-1] = torch.where(mask3, torch.exp(0.25 * log_l3 + 0.75 * log_r3), x[3:-1])
+
+        # Step B: 3-frame median filter strictly on fully-voiced windows (preserves V/UV edges)
+        left, mid, right = x[:-2], x[1:-1], x[2:]
+        all_voiced = (left > 0) & (mid > 0) & (right > 0)
+        med = torch.median(torch.stack([left, mid, right], dim=0), dim=0).values
+        out = x.clone()
+        out[1:-1] = torch.where(all_voiced, med, mid)
+        return out.to(dtype=f0.dtype)
+
     def extract_pitch(
         self,
         audio: torch.Tensor,
@@ -224,6 +281,7 @@ class Pipeline:
             WINDOW_SIZE,
         )
         f0 = f0 * (2 ** (f0_up_key / 12))
+        f0 = self._stabilize_f0(f0)
 
         auto_tune_effect = self._get_active_autotune()
         hop_frames = (

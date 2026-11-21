@@ -295,6 +295,8 @@ class RVCr2(VoiceChangerModel):
             self.formant_filter.reset()
         if self.pipeline is not None:
             self.pipeline.last_f0_smoothed = None
+            if hasattr(self.pipeline.pitchExtractor, "reset"):
+                self.pipeline.pitchExtractor.reset()
 
     def _sync_formant_filter(self) -> None:
         self.formant_filter.update_config(
@@ -330,6 +332,8 @@ class RVCr2(VoiceChangerModel):
             self.pitchf_buffer[-hop:].zero_()
         if self.pipeline is not None:
             self.pipeline.last_f0_smoothed = None
+            if hasattr(self.pipeline.pitchExtractor, "reset"):
+                self.pipeline.pitchExtractor.reset()
 
     def _prepare_16k_input(self, audio_in: AudioInOutFloat) -> tuple[torch.Tensor, int]:
         audio_in_t = torch.as_tensor(audio_in, dtype=torch.float32, device=self.device_manager.device)
@@ -445,6 +449,9 @@ class RVCr2(VoiceChangerModel):
 
         saved_last_f0 = self.pipeline.last_f0_smoothed
         self.pipeline.last_f0_smoothed = None
+        saved_pe_cent = getattr(self.pipeline.pitchExtractor, "_last_voiced_cent", None)
+        if hasattr(self.pipeline.pitchExtractor, "reset"):
+            self.pipeline.pitchExtractor.reset()
         try:
             for k in range(n_chunks):
                 pos_16k = k * step_16k
@@ -519,6 +526,8 @@ class RVCr2(VoiceChangerModel):
                         )
         finally:
             self.pipeline.last_f0_smoothed = saved_last_f0
+            if saved_pe_cent is not None:
+                self.pipeline.pitchExtractor._last_voiced_cent = saved_pe_cent
 
         out_np = out_buf[:target_out_len].detach().cpu().numpy().astype(np.float32, copy=False)
         return out_np, out_sr
@@ -541,6 +550,8 @@ class RVCr2(VoiceChangerModel):
                 self._gate_hangover_chunks -= 1
             else:
                 self.feed_context(audio_in)
+                if hasattr(self.pipeline.pitchExtractor, "reset"):
+                    self.pipeline.pitchExtractor.reset()
                 if self._rms_gain_ema_t is not None:
                     self._rms_gain_ema_t = 0.9 * self._rms_gain_ema_t + 0.1
 

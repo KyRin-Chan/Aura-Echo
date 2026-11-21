@@ -20,8 +20,11 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
 
         device_manager = DeviceManager.get_instance()
         self.device = device_manager.device
-        self.rmvpe_threshold = 0.045
+        self.rmvpe_threshold = 0.032
         self.fcpe_threshold = 0.006
+        self.rmvpe_sustain_threshold = 0.020
+        self.fcpe_sustain_threshold = 0.004
+        self._last_voiced_cent: float = 0.0
 
         self.rmvpe = RMVPE(
             model_path=rmvpe_file,
@@ -50,6 +53,10 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             torch.cuda.Stream(device=self.device) if self.device.type == "cuda" else None
         )
 
+    def reset(self) -> None:
+        """Reset cross-chunk F0 continuity state."""
+        self._last_voiced_cent = 0.0
+
     @staticmethod
     def _calibrate_confidence(
         conf: torch.Tensor, threshold: float, scale_k: float
@@ -65,10 +72,13 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         conf_rmvpe: torch.Tensor,
         f0_fcpe: torch.Tensor,
         conf_fcpe: torch.Tensor,
-        rmvpe_threshold: float = 0.045,
+        rmvpe_threshold: float = 0.032,
         fcpe_threshold: float = 0.006,
+        rmvpe_sustain_threshold: float = 0.020,
+        fcpe_sustain_threshold: float = 0.004,
+        initial_prev_cent: float = 0.0,
     ) -> torch.Tensor:
-        """Fuse RMVPE and FCPE F0/confidence predictions without averaging octave divergences."""
+        """Fuse RMVPE and FCPE F0/confidence predictions with hysteresis and causal continuity."""
         f1 = f0_rmvpe.reshape(-1).float()
         c1 = conf_rmvpe.reshape(-1).float()
         f2 = f0_fcpe.reshape(-1).float()
@@ -90,9 +100,9 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
                 f2 = torch.zeros_like(f1)
                 c2 = torch.zeros_like(c1)
 
-        # Calibrate both models onto a comparable [0, 1] scale
-        s1 = cls._calibrate_confidence(c1, rmvpe_threshold, 0.08)
-        s2 = cls._calibrate_confidence(c2, fcpe_threshold, 0.035)
+        # Calibrate relative to sustain thresholds so sustain-band frames retain positive weights
+        s1 = cls._calibrate_confidence(c1, rmvpe_sustain_threshold, 0.08)
+        s2 = cls._calibrate_confidence(c2, fcpe_sustain_threshold, 0.035)
 
         # Gently boost FCPE on the rightmost 4 frames (40ms) where RMVPE's backward BiGRU lacks future context
         tail_len = min(4, T)
@@ -103,56 +113,54 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             s2 = s2.clone()
             s2[-tail_len:] = torch.clamp(s2[-tail_len:] * ramp, max=1.0)
 
-        v1 = f1 > 0.0
-        v2 = f2 > 0.0
-        both_voiced = v1 & v2
+        v1_high = (f1 > 0.0) & (c1 >= rmvpe_threshold)
+        v2_high = (f2 > 0.0) & (c2 >= fcpe_threshold)
+        v1_low = (f1 > 0.0) & (c1 >= rmvpe_sustain_threshold)
+        v2_low = (f2 > 0.0) & (c2 >= fcpe_sustain_threshold)
+        both_high = v1_high & v2_high
 
         cent1 = torch.where(
-            v1, 1200.0 * torch.log2(torch.clamp(f1, min=10.0) / 10.0), torch.zeros_like(f1)
+            v1_low, 1200.0 * torch.log2(torch.clamp(f1, min=10.0) / 10.0), torch.zeros_like(f1)
         )
         cent2 = torch.where(
-            v2, 1200.0 * torch.log2(torch.clamp(f2, min=10.0) / 10.0), torch.zeros_like(f2)
+            v2_low, 1200.0 * torch.log2(torch.clamp(f2, min=10.0) / 10.0), torch.zeros_like(f2)
         )
         diff_cents = torch.abs(cent1 - cent2)
 
         w_sum = torch.clamp(s1 + s2, min=1e-6)
         cent_fused = (s1 * cent1 + s2 * cent2) / w_sum
 
-        need_arb = (both_voiced & (diff_cents > 50.0)) | (v1 ^ v2)
+        need_arb = (both_high & (diff_cents > 50.0)) | (v1_low ^ v2_low) | ((v1_low | v2_low) & ~both_high)
         if not bool(torch.any(need_arb).item()):
             return torch.where(
-                both_voiced,
+                both_high,
                 10.0 * torch.pow(2.0, cent_fused / 1200.0),
                 torch.zeros_like(f1),
             )
 
-        cent_out = torch.where(both_voiced, cent_fused, torch.where(v1, cent1, cent2))
-        voiced_out = v1 | v2
+        cent_out = torch.where(v1_low & v2_low, cent_fused, torch.where(v1_low, cent1, cent2))
+        voiced_out = torch.zeros_like(v1_low)
 
-        v1_l = v1.tolist()
-        v2_l = v2.tolist()
-        both_l = both_voiced.tolist()
+        v1_high_l = v1_high.tolist()
+        v2_high_l = v2_high.tolist()
+        v1_low_l = v1_low.tolist()
+        v2_low_l = v2_low.tolist()
         cent1_l = cent1.tolist()
         cent2_l = cent2.tolist()
         diff_l = diff_cents.tolist()
         s1_l = s1.tolist()
         s2_l = s2.tolist()
+        cent_fused_l = cent_fused.tolist()
         cent_out_l = cent_out.tolist()
         voiced_out_l = voiced_out.tolist()
 
-        prev_cent = 0.0
-        unvoiced_run = 0
+        prev_cent = float(initial_prev_cent) if initial_prev_cent > 0.0 else 0.0
+        unvoiced_run = 0 if prev_cent > 0.0 else 4
 
         for t in range(T):
-            if not v1_l[t] and not v2_l[t]:
-                unvoiced_run += 1
-                if unvoiced_run > 3:
-                    prev_cent = 0.0
-                continue
-
-            if both_l[t]:
+            if v1_high_l[t] and v2_high_l[t]:
                 if diff_l[t] <= 50.0:
-                    c_val = cent_out_l[t]
+                    c_val = cent_fused_l[t]
                 else:
                     # Large divergence (e.g. octave error): never average; hard-switch using causal continuity
                     if prev_cent > 0.0:
@@ -164,29 +172,75 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
                         score1 = s1_l[t]
                         score2 = s2_l[t]
                     c_val = cent1_l[t] if score1 >= score2 else cent2_l[t]
-                    cent_out_l[t] = c_val
+                cent_out_l[t] = c_val
+                voiced_out_l[t] = True
                 prev_cent = c_val
                 unvoiced_run = 0
                 continue
 
-            # Single-voiced frame (V/UV boundary or breathy tail): complement only if continuous or high confidence
-            c_act = cent1_l[t] if v1_l[t] else cent2_l[t]
-            s_act = s1_l[t] if v1_l[t] else s2_l[t]
-            if prev_cent > 0.0 and abs(c_act - prev_cent) <= 150.0:
-                accept = s_act >= 0.22
-            else:
-                accept = s_act >= 0.55
+            if v1_high_l[t] or v2_high_l[t]:
+                if v1_low_l[t] and v2_low_l[t] and diff_l[t] <= 50.0:
+                    c_val = cent_fused_l[t]
+                    cent_out_l[t] = c_val
+                    voiced_out_l[t] = True
+                    prev_cent = c_val
+                    unvoiced_run = 0
+                else:
+                    c_act = cent1_l[t] if v1_high_l[t] else cent2_l[t]
+                    s_act = s1_l[t] if v1_high_l[t] else s2_l[t]
+                    if prev_cent > 0.0 and abs(c_act - prev_cent) <= 180.0:
+                        accept = s_act >= 0.18
+                    else:
+                        accept = s_act >= 0.45
 
-            if accept:
-                cent_out_l[t] = c_act
-                voiced_out_l[t] = True
-                prev_cent = c_act
-                unvoiced_run = 0
-            else:
-                voiced_out_l[t] = False
-                unvoiced_run += 1
-                if unvoiced_run > 3:
-                    prev_cent = 0.0
+                    if accept:
+                        cent_out_l[t] = c_act
+                        voiced_out_l[t] = True
+                        prev_cent = c_act
+                        unvoiced_run = 0
+                    else:
+                        voiced_out_l[t] = False
+                        unvoiced_run += 1
+                        if unvoiced_run > 3:
+                            prev_cent = 0.0
+                continue
+
+            if v1_low_l[t] or v2_low_l[t]:
+                # Hysteresis sustain band: allow keeping voice alive when continuous with active pitch
+                accepted = False
+                c_cand = 0.0
+                if prev_cent > 0.0 and unvoiced_run <= 2:
+                    if v1_low_l[t] and v2_low_l[t] and diff_l[t] <= 60.0:
+                        c_cand = cent_fused_l[t]
+                        accepted = abs(c_cand - prev_cent) <= 160.0
+                    else:
+                        if v1_low_l[t] and v2_low_l[t]:
+                            if abs(cent1_l[t] - prev_cent) <= abs(cent2_l[t] - prev_cent):
+                                c_cand, s_cand = cent1_l[t], s1_l[t]
+                            else:
+                                c_cand, s_cand = cent2_l[t], s2_l[t]
+                        elif v1_low_l[t]:
+                            c_cand, s_cand = cent1_l[t], s1_l[t]
+                        else:
+                            c_cand, s_cand = cent2_l[t], s2_l[t]
+                        accepted = abs(c_cand - prev_cent) <= 140.0 and s_cand >= 0.08
+
+                if accepted:
+                    cent_out_l[t] = c_cand
+                    voiced_out_l[t] = True
+                    prev_cent = c_cand
+                    unvoiced_run = 0
+                else:
+                    voiced_out_l[t] = False
+                    unvoiced_run += 1
+                    if unvoiced_run > 3:
+                        prev_cent = 0.0
+                continue
+
+            voiced_out_l[t] = False
+            unvoiced_run += 1
+            if unvoiced_run > 3:
+                prev_cent = 0.0
 
         cent_final = torch.tensor(cent_out_l, dtype=torch.float32, device=f1.device)
         voiced_final = torch.tensor(voiced_out_l, dtype=torch.bool, device=f1.device)
@@ -210,22 +264,22 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             with torch.cuda.stream(self._fcpe_stream):
                 mel_fcpe = self.fcpe_mel_extractor(audio.unsqueeze(0).float())
                 f0_fcpe, conf_fcpe = self.fcpe.infer_with_confidence(
-                    mel_fcpe, threshold=self.fcpe_threshold
+                    mel_fcpe, threshold=self.fcpe_sustain_threshold
                 )
                 f0_fcpe.record_stream(cur_stream)
                 conf_fcpe.record_stream(cur_stream)
 
             f0_rmvpe, conf_rmvpe = self.rmvpe.infer_from_audio_t_with_confidence(
-                audio, threshold=self.rmvpe_threshold
+                audio, threshold=self.rmvpe_sustain_threshold
             )
             cur_stream.wait_stream(self._fcpe_stream)
         else:
             f0_rmvpe, conf_rmvpe = self.rmvpe.infer_from_audio_t_with_confidence(
-                audio, threshold=self.rmvpe_threshold
+                audio, threshold=self.rmvpe_sustain_threshold
             )
             mel_fcpe = self.fcpe_mel_extractor(audio.unsqueeze(0).float())
             f0_fcpe, conf_fcpe = self.fcpe.infer_with_confidence(
-                mel_fcpe, threshold=self.fcpe_threshold
+                mel_fcpe, threshold=self.fcpe_sustain_threshold
             )
 
         f0_out = self.fuse_predictions(
@@ -235,5 +289,22 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             conf_fcpe,
             rmvpe_threshold=self.rmvpe_threshold,
             fcpe_threshold=self.fcpe_threshold,
+            rmvpe_sustain_threshold=self.rmvpe_sustain_threshold,
+            fcpe_sustain_threshold=self.fcpe_sustain_threshold,
+            initial_prev_cent=self._last_voiced_cent,
         )
+
+        if f0_out.numel() > 0:
+            tail_l = f0_out[-min(4, f0_out.shape[0]):].tolist()
+            last_hz = 0.0
+            for val in reversed(tail_l):
+                if val > 0.0:
+                    last_hz = float(val)
+                    break
+            self._last_voiced_cent = (
+                1200.0 * math.log2(max(last_hz, 10.0) / 10.0) if last_hz > 0.0 else 0.0
+            )
+        else:
+            self._last_voiced_cent = 0.0
+
         return f0_out.to(dtype=audio.dtype)
