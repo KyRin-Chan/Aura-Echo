@@ -193,8 +193,10 @@ class ServerAudio:
         self._out_last_sample = 0.0
         self._out_has_started = False
         self._out_target_cushion = 0
+        self._out_min_cushion = 0
         self._out_cushion_step = 2048
         self._out_max_cushion = 4096
+        self._comm_active = False
         self._out_stable_callbacks = 0
         self._out_decay_threshold = 234
         self._out_trim_pending = False
@@ -501,7 +503,10 @@ class ServerAudio:
             if got == frames:
                 self._out_last_sample = float(buf[frames - 1])
                 self._out_stable_callbacks += 1
-                min_cushion = self._out_cushion_step if self._out_underrun_count >= 2 else 0
+                min_cushion = max(
+                    self._out_min_cushion,
+                    self._out_cushion_step if self._out_underrun_count >= 2 else 0,
+                )
                 if (
                     self._out_target_cushion > min_cushion
                     and self._out_stable_callbacks >= self._out_decay_threshold
@@ -660,10 +665,12 @@ class ServerAudio:
 
         self._sync_audio_processing_state(active=True)
 
+        self._comm_active = comm_active
         self._out_underrun = True
         self._out_last_sample = 0.0
         self._out_has_started = False
-        self._out_target_cushion = 0
+        self._out_min_cushion = block_frame if comm_active else 0
+        self._out_target_cushion = self._out_min_cushion
         self._out_cushion_step = block_frame
         self._out_max_cushion = block_frame * 2
         self._out_stable_callbacks = 0
@@ -1013,6 +1020,14 @@ class ServerAudio:
     ###########################################
     def get_info(self):
         data = {}
+        if (
+            self.running
+            and self.serverAudioInputDevices is not None
+            and self.serverAudioOutputDevices is not None
+        ):
+            data["serverAudioInputDevices"] = self.serverAudioInputDevices
+            data["serverAudioOutputDevices"] = self.serverAudioOutputDevices
+            return data
         try:
             audioinput, audiooutput = list_audio_device()
             self.serverAudioInputDevices = audioinput

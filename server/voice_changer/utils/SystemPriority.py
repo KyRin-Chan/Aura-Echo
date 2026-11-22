@@ -7,11 +7,17 @@ from ctypes import wintypes
 logger = logging.getLogger(__name__)
 
 _thread_local = threading.local()
+_process_priority_set = False
+
+_AVRT_PRIORITY_CRITICAL = 2
+
 
 def set_high_process_priority():
     """Elevates the current process priority to HIGH on Windows."""
-    if os.name != 'nt':
+    global _process_priority_set
+    if os.name != 'nt' or _process_priority_set:
         return
+    _process_priority_set = True
     try:
         kernel32 = ctypes.windll.kernel32
         kernel32.GetCurrentProcess.restype = wintypes.HANDLE
@@ -60,10 +66,14 @@ def register_current_thread_mmcss():
             avrt = ctypes.WinDLL("Avrt.dll")
             avrt.AvSetMmThreadCharacteristicsW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
             avrt.AvSetMmThreadCharacteristicsW.restype = wintypes.HANDLE
+            avrt.AvSetMmThreadPriority.argtypes = [wintypes.HANDLE, ctypes.c_int]
+            avrt.AvSetMmThreadPriority.restype = wintypes.BOOL
             
             task_index = wintypes.DWORD(0)
             handle = avrt.AvSetMmThreadCharacteristicsW("Pro Audio", ctypes.byref(task_index))
             if handle:
+                if not avrt.AvSetMmThreadPriority(handle, _AVRT_PRIORITY_CRITICAL):
+                    logger.debug(f"AvSetMmThreadPriority returned False (GetLastError: {kernel32.GetLastError()})")
                 _thread_local.mmcss_registered = True
                 _thread_local.mmcss_handle = handle
                 logger.info(f"Registered thread {threading.current_thread().name} (TID {tid}) to Windows MMCSS 'Pro Audio'")

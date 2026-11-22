@@ -84,6 +84,10 @@ class VoiceChangerManager(ServerAudioCallbacks):
             self.settings.set_properties(settings)
         except:
             pass
+
+        if self.settings.enableServerAudio:
+            self.settings.inputSampleRate = self.settings.serverAudioSampleRate
+            self.settings.outputSampleRate = self.settings.serverAudioSampleRate
             
         # Set the VoiceChangerSettings instance in ModelManager
         from downloader.ModelManager import set_voice_changer_settings

@@ -633,6 +633,41 @@ class TestAudioPipelineQuality(unittest.TestCase):
         self.assertEqual(sa._out_target_cushion, block_frame)
         self.assertEqual(sa.out_ring.available(), block_frame)
 
+        # Async comm_active mode initializes and preserves a 1-block cushion floor even with 0 underruns
+        mock_comm_cap = MagicMock()
+        mock_comm_cap.start.return_value = True
+        mock_comm_cap.is_running = True
+        mock_comm_cap.os_aec_active = True
+        mock_comm_cap.os_ns_active = True
+        with patch("voice_changer.Local.ServerAudio.WasapiCommCapture", return_value=mock_comm_cap):
+            comm_active = sa._start_worker_and_rings(
+                block_frame, has_monitor=False, sample_rate=48000, use_win_comm_aec=True
+            )
+        sa._stop_event.set()
+        sa._in_event.set()
+        sa._worker_thread.join(timeout=2.0)
+        self.assertTrue(comm_active)
+        self.assertEqual(sa._out_min_cushion, block_frame)
+        self.assertEqual(sa._out_target_cushion, block_frame)
+
+        out_only = np.zeros((block_frame, 1), dtype=np.float32)
+        sa.out_ring.write(voiced_block)
+        sa.audio_output_only_callback(out_only, block_frame, None, None)
+        self.assertTrue(sa._out_underrun)
+        self.assertTrue(np.allclose(out_only, 0.0))
+
+        sa.out_ring.write(voiced_block)
+        sa.audio_output_only_callback(out_only, block_frame, None, None)
+        self.assertFalse(sa._out_underrun)
+        self.assertEqual(sa.out_ring.available(), block_frame)
+
+        for _ in range(sa._out_decay_threshold + 2):
+            sa.out_ring.write(quiet_block)
+            sa.audio_output_only_callback(out_only, block_frame, None, None)
+        self.assertEqual(sa._out_underrun_count, 0)
+        self.assertEqual(sa._out_target_cushion, block_frame)
+        self.assertEqual(sa.out_ring.available(), block_frame)
+
     def test_server_audio_out_ring_high_water_crossfade(self):
         settings = VoiceChangerSettings()
         settings.serverInputAudioGain = 1.0
@@ -805,6 +840,14 @@ class TestAudioPipelineQuality(unittest.TestCase):
         settings.serverReadChunkSize = 48
         vc.update_settings("serverReadChunkSize", 48, 24)
         self.assertEqual(vc.block_frame, 6144)
+        self.assertEqual(progress_events, [(1, 1, "Compiling & warming up...")])
+        self.assertEqual(stub_pipeline.exec.call_count, 1)
+
+        # 4. formantShift warms up with 1/1
+        progress_events.clear()
+        stub_pipeline.exec.reset_mock()
+        settings.formantShift = 2.0
+        vc.update_settings("formantShift", 2.0, 0.0)
         self.assertEqual(progress_events, [(1, 1, "Compiling & warming up...")])
         self.assertEqual(stub_pipeline.exec.call_count, 1)
 

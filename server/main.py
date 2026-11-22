@@ -202,6 +202,13 @@ async def main():
     global logger
     logger = setup_logging(args.log_level)
 
+    # Elevate process priority to HIGH on Windows (covers both main.py and client.py entrypoints)
+    try:
+        from voice_changer.utils.SystemPriority import set_high_process_priority
+        set_high_process_priority()
+    except Exception as priority_err:
+        logger.warning(f"Could not import or set high process priority: {priority_err}")
+
     # Apply selected boot mode to settings
     settings.host = boot_host
     if boot_mode == 'https':

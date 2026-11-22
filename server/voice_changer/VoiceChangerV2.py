@@ -220,7 +220,7 @@ class VoiceChangerV2:
                 self.warmup(step=5, total=5)
             elif key == 'f0Detector':
                 self.warmup(step=2, total=2)
-            elif key in {'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'inputSampleRate', 'outputSampleRate'}:
+            elif key in {'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'inputSampleRate', 'outputSampleRate', 'formantShift', 'indexRatio'}:
                 self.warmup(step=1, total=1)
 
     def _generate_strength(self):
