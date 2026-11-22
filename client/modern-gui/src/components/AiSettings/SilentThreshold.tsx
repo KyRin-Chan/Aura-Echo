@@ -1,5 +1,4 @@
 import MD3Slider from "../Helpers/MD3Slider";
-import MD3Switch from "../Helpers/MD3Switch";
 import { ClientState } from "@dannadori/voice-changer-client-js";
 import { CSS_CLASSES } from "../../styles/constants";
 import { useEffect, useState } from "react";
@@ -53,15 +52,6 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting?.serverSetting,
       silentThreshold: value
-    });
-  };
-
-  // Handle power saving mode change
-  const handlePowerSavingChange = (checked: boolean) => {
-    const enabled = checked ? 1 : 0;
-    appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting?.serverSetting,
-      powerSavingMode: enabled
     });
   };
 
@@ -124,15 +114,6 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
           onChange={handleChangeSilentThreshold}
           showValue={true}
           valueFormatter={(val) => `${val} dB`}
-        />
-      </div>
-
-      <div className="pt-1">
-        <MD3Switch
-          id="powerSavingMode"
-          checked={appState.serverSetting?.serverSetting?.powerSavingMode === 1}
-          onChange={handlePowerSavingChange}
-          label={t('powerSavingModeLabel')}
         />
       </div>
     </div>

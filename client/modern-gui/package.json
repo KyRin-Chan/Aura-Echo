@@ -1,6 +1,6 @@
 {
   "name": "modern-gui",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "dependencies": {
     "@dannadori/voice-changer-client-js": "1.0.180",

@@ -26,13 +26,14 @@ jobs:
       id: tag
       shell: bash
       run: |
+        BASE_VERSION=$(tr -d '[:space:]' < VERSION)
         BUILD_NUMBER="$(git rev-list --count HEAD)"
         SHORT_HASH="$(git rev-parse --short=7 HEAD)"
         if [[ "${{ env.BRANCH_NAME }}" == "master-custom" ]]; then
-          echo "name=b${BUILD_NUMBER}" >> $GITHUB_OUTPUT
+          echo "name=v${BASE_VERSION}-b${BUILD_NUMBER}-${SHORT_HASH}" >> $GITHUB_OUTPUT
         else
           SAFE_NAME=$(echo "${{ env.BRANCH_NAME }}" | tr '/' '-')
-          echo "name=${SAFE_NAME}-b${BUILD_NUMBER}-${SHORT_HASH}" >> $GITHUB_OUTPUT
+          echo "name=v${BASE_VERSION}-${SAFE_NAME}-b${BUILD_NUMBER}-${SHORT_HASH}" >> $GITHUB_OUTPUT
         fi
 
     - name: Create release
@@ -53,6 +54,7 @@ jobs:
         build_type: [patch, full]
     env:
       BACKEND: cuda
+      APP_VERSION: ${{ needs.create-tag.outputs.name }}
       BUILD_NAME: ${{ needs.create-tag.outputs.name }}
     steps:
     - uses: actions/checkout@v4

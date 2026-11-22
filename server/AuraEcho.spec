@@ -3,20 +3,52 @@ from PyInstaller.utils.hooks import collect_data_files, collect_all, collect_dyn
 import sys
 import os.path
 import site
+import subprocess
 
 sys.setrecursionlimit(sys.getrecursionlimit() * 5)
 
 backend = os.environ.get('BACKEND', 'cuda')
 
-with open('edition.txt', 'w') as f:
+with open('edition.txt', 'w', encoding='utf-8') as f:
     f.write('Nvidia-CUDA')
 
-datas = [('../client/modern-gui/dist', './dist'), ('./edition.txt', '.')]
+def _resolve_spec_version():
+    env_ver = (os.environ.get('APP_VERSION') or os.environ.get('BUILD_NAME') or '').strip()
+    if env_ver:
+        return env_ver
+    repo_root = os.path.abspath('..')
+    version_path = os.path.join(repo_root, 'VERSION')
+    base = '1.0.0'
+    if os.path.exists(version_path):
+        with open(version_path, 'r', encoding='utf-8') as f:
+            base = f.read().strip() or base
+    try:
+        count = subprocess.check_output(
+            ['git', 'rev-list', '--count', 'HEAD'],
+            cwd=repo_root,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        ).strip()
+        short_hash = subprocess.check_output(
+            ['git', 'rev-parse', '--short=7', 'HEAD'],
+            cwd=repo_root,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        ).strip()
+        if count and short_hash:
+            return f"v{base}-b{count}-{short_hash}"
+        if short_hash:
+            return f"v{base}-{short_hash}"
+    except Exception:
+        pass
+    return f"v{base}"
 
-if 'BUILD_NAME' in os.environ:
-  with open('version.txt', 'w') as f:
-      f.write(os.environ['BUILD_NAME'])
-  datas += [('./version.txt', '.')]
+with open('version.txt', 'w', encoding='utf-8') as f:
+    f.write(_resolve_spec_version())
+
+datas = [('../client/modern-gui/dist', './dist'), ('./edition.txt', '.'), ('./version.txt', '.')]
 
 binaries = []
 hiddenimports = ['app', 'torchgen']

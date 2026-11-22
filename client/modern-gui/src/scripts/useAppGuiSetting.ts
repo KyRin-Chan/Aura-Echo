@@ -19,7 +19,7 @@ export type AppGuiSettingState = {
 // Custom hook to fetch app GUI settings and server info
 export const useAppGuiSetting = (): AppGuiSettingState => {
     // ---------------- State ----------------
-    const [appGuiSetting, setAppGuiSetting] = useState<AppGuiSetting>({ version: "", edition: "" })
+    const [appGuiSetting, setAppGuiSetting] = useState<AppGuiSetting>({ version: __APP_VERSION__, edition: "Web Version" })
     const [serverInfo, setServerInfo] = useState<ServerInfo>({ version: "", edition: "" })
 
     // ---------------- Hooks ----------------
@@ -37,8 +37,8 @@ export const useAppGuiSetting = (): AppGuiSettingState => {
                     fetchNoCache('/version'),
                     fetchNoCache('/edition')
                 ]);
-                const version = await versionRes.text();
-                const edition = await editionRes.text();
+                const version = (await versionRes.text()).trim();
+                const edition = (await editionRes.text()).trim();
                 setServerInfo({ version, edition });
             } catch (e) {
                 console.error("Failed to load server info:", e);
@@ -56,7 +56,7 @@ export const useAppGuiSetting = (): AppGuiSettingState => {
         });
         const appSetting = await res.json() as AppGuiSetting;
 
-        setAppGuiSetting(appSetting);
+        setAppGuiSetting({ ...appSetting, version: __APP_VERSION__ });
     }
 
     return {

@@ -4,7 +4,7 @@ from typing import NamedTuple, Dict, Any
 import logging
 logger = logging.getLogger(__name__)
 
-IGNORED_KEYS = { 'version' }
+IGNORED_KEYS = { 'version', 'powerSavingMode' }
 STATEFUL_KEYS = [
     'serverAudioStated',
     'passThrough',
@@ -344,7 +344,6 @@ class VoiceChangerSettings:
     _useONNX: int = 0
 
     _silentThreshold: int = -90
-    _powerSavingMode: int = 0
 
     _indexRatio: float = 0
     _protect: float = 0.33
@@ -398,14 +397,6 @@ class VoiceChangerSettings:
     @silentThreshold.setter
     def silentThreshold(self, threshold: str):
         self._silentThreshold = int(threshold)
-
-    @property
-    def powerSavingMode(self):
-        return self._powerSavingMode
-
-    @powerSavingMode.setter
-    def powerSavingMode(self, enabled: str):
-        self._powerSavingMode = int(enabled)
 
     @property
     def indexRatio(self):

@@ -153,7 +153,6 @@ export const ServerSettingKey = {
     useONNX: "useONNX",
 
     silentThreshold: "silentThreshold",
-    powerSavingMode: "powerSavingMode",
     extraConvertSize: "extraConvertSize",
 
     indexRatio: "indexRatio",
@@ -240,7 +239,6 @@ export type VoiceChangerServerSetting = {
     useONNX: number;
 
     silentThreshold: number;
-    powerSavingMode: number;
     extraConvertSize: number;
 
     indexRatio: number; // RVC
@@ -417,7 +415,6 @@ export const DefaultServerSetting: ServerInfo = {
     useONNX: 0,
 
     silentThreshold: 0,
-    powerSavingMode: 0,
     extraConvertSize: 0,
 
     indexRatio: 0,

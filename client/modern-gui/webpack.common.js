@@ -1,7 +1,43 @@
 const path = require("path");
+const fs = require("fs");
+const { execFileSync } = require("child_process");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyPlugin = require("copy-webpack-plugin");
 const webpack = require("webpack");
+
+function resolveAppVersion() {
+    const envVer = (process.env.APP_VERSION || process.env.BUILD_NAME || "").trim();
+    if (envVer) {
+        return envVer;
+    }
+    const repoRoot = path.resolve(__dirname, "../..");
+    const versionFile = path.join(repoRoot, "VERSION");
+    let base = "1.0.0";
+    try {
+        const raw = fs.readFileSync(versionFile, "utf8").trim();
+        if (raw) base = raw;
+    } catch (_) {}
+
+    try {
+        const count = execFileSync("git", ["rev-list", "--count", "HEAD"], {
+            cwd: repoRoot,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        const shortHash = execFileSync("git", ["rev-parse", "--short=7", "HEAD"], {
+            cwd: repoRoot,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        if (count && shortHash) {
+            return `v${base}-b${count}-${shortHash}`;
+        }
+        if (shortHash) {
+            return `v${base}-${shortHash}`;
+        }
+    } catch (_) {}
+    return `v${base}`;
+}
 
 module.exports = {
     mode: "production",
@@ -47,6 +83,9 @@ module.exports = {
         clean: true,
     },
     plugins: [
+        new webpack.DefinePlugin({
+            __APP_VERSION__: JSON.stringify(resolveAppVersion()),
+        }),
         new webpack.ProvidePlugin({
             Buffer: ["buffer", "Buffer"],
             React: "react",

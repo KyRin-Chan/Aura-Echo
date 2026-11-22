@@ -69,6 +69,7 @@ class VoiceChangerManager(ServerAudioCallbacks):
     ############################
     def __init__(self):
         logger.info("Initializing...")
+        VoiceChangerManager._instance = self
         self.emitToFuncs = []
         self.progressEmitFuncs = []
         self.params = get_settings()

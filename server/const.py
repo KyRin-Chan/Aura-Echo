@@ -1,5 +1,7 @@
 from enum import Enum
+import functools
 import os
+import subprocess
 import sys
 
 # Prevent Intel OpenMP / LLVM OpenMP duplicate runtime warnings
@@ -75,13 +77,60 @@ ServerAudioDeviceType: TypeAlias = Literal["audioinput", "audiooutput"]
 def get_edition():
     if not os.path.exists(EDITION_FILE):
         return 'Nvidia-CUDA'
-    with open(EDITION_FILE, 'r') as f:
-        return f.read()
+    with open(EDITION_FILE, 'r', encoding='utf-8') as f:
+        return f.read().strip() or 'Nvidia-CUDA'
+
+
+@functools.lru_cache(maxsize=1)
+def _resolve_version() -> str:
+    if os.path.exists(VERSION_FILE):
+        with open(VERSION_FILE, 'r', encoding='utf-8') as f:
+            ver = f.read().strip()
+            if ver:
+                return ver
+
+    env_ver = (os.environ.get('APP_VERSION') or os.environ.get('BUILD_NAME') or '').strip()
+    if env_ver:
+        return env_ver
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    version_path = os.path.join(repo_root, 'VERSION')
+    base = '1.0.0'
+    if os.path.exists(version_path):
+        with open(version_path, 'r', encoding='utf-8') as f:
+            base = f.read().strip() or base
+
+    count = ''
+    short_hash = ''
+    try:
+        count = subprocess.check_output(
+            ['git', 'rev-list', '--count', 'HEAD'],
+            cwd=repo_root,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        ).strip()
+    except Exception:
+        pass
+    try:
+        short_hash = subprocess.check_output(
+            ['git', 'rev-parse', '--short=7', 'HEAD'],
+            cwd=repo_root,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        ).strip()
+    except Exception:
+        pass
+
+    if count and short_hash:
+        return f"v{base}-b{count}-{short_hash}"
+    if short_hash:
+        return f"v{base}-{short_hash}"
+    return f"v{base}"
+
 
 def get_version():
-    if not os.path.exists(VERSION_FILE):
-        return 'Development'
-    with open(VERSION_FILE, 'r') as f:
-        return f.read()
+    return _resolve_version()
 
 MAX_SLOT_NUM = 500

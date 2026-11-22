@@ -19,7 +19,6 @@ on:
 
 env:
   BACKEND: cuda
-  BUILD_NAME: cuda
   PYTHONWARNINGS: ignore
   PYINSTALLER_CACHE_DIR: ${{ github.workspace }}/.pyinstaller_cache
 
@@ -30,6 +29,22 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+
+    - name: Determine App Version
+      shell: bash
+      run: |
+        BASE_VERSION=$(tr -d '[:space:]' < VERSION)
+        BUILD_NUMBER=$(git rev-list --count HEAD)
+        SHORT_HASH=$(git rev-parse --short=7 HEAD)
+        BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+        if [ "$BRANCH_NAME" = "master-custom" ]; then
+          APP_VERSION="v${BASE_VERSION}-b${BUILD_NUMBER}-${SHORT_HASH}"
+        else
+          SAFE_NAME=$(echo "$BRANCH_NAME" | tr '/' '-')
+          APP_VERSION="v${BASE_VERSION}-${SAFE_NAME}-b${BUILD_NUMBER}-${SHORT_HASH}"
+        fi
+        echo "APP_VERSION=${APP_VERSION}" >> $GITHUB_ENV
+        echo "BUILD_NAME=${APP_VERSION}" >> $GITHUB_ENV
 
     - name: Determine Build Type
       id: determine_build

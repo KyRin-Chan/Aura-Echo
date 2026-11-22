@@ -60,8 +60,6 @@ class RVCr2(VoiceChangerModel):
         self._convert_scratch: torch.Tensor | None = None
         self._pitch_scratch: torch.Tensor | None = None
         self._pitchf_scratch: torch.Tensor | None = None
-        self._keepalive_a: torch.Tensor | None = None
-        self._keepalive_b: torch.Tensor | None = None
 
         self.return_length = 0
         self.skip_head = 0
@@ -261,13 +259,6 @@ class RVCr2(VoiceChangerModel):
         self._convert_scratch = torch.empty_like(self.convert_buffer)
         self._pitch_scratch = torch.empty_like(self.pitch_buffer)
         self._pitchf_scratch = torch.empty_like(self.pitchf_buffer)
-
-        if dev.type == 'cuda':
-            self._keepalive_a = torch.ones((64, 64), dtype=self.dtype, device=dev)
-            self._keepalive_b = torch.ones((64, 64), dtype=self.dtype, device=dev)
-        else:
-            self._keepalive_a = None
-            self._keepalive_b = None
 
         self._pitch_sample_acc = 0
         self._rms_gain_ema_t = None
@@ -554,12 +545,6 @@ class RVCr2(VoiceChangerModel):
                     self.pipeline.pitchExtractor.reset()
                 if self._rms_gain_ema_t is not None:
                     self._rms_gain_ema_t = 0.9 * self._rms_gain_ema_t + 0.1
-
-                # Lightweight CUDA clock keepalive instead of running full RVC pipeline on silence
-                dev = self.device_manager.device
-                if getattr(self.settings, 'powerSavingMode', 0) == 0 and dev.type == 'cuda':
-                    if self._keepalive_a is not None and self._keepalive_b is not None:
-                        _ = torch.mm(self._keepalive_a, self._keepalive_b)
                 return None, vol
 
         audio_in_16k, pitch_hop_frames = self._prepare_16k_input(audio_in)
