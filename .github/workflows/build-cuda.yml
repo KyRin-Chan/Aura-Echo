@@ -66,8 +66,8 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
           
-          if echo "$CHANGED_FILES" | grep -qE "requirements.*\.txt|AuraEcho\.spec|\.github/workflows/"; then
-            echo "Build configuration or dependency file changed. Selecting FULL build."
+          if echo "$CHANGED_FILES" | grep -qE "requirements.*\.txt"; then
+            echo "Dependency file changed. Selecting FULL build."
             BUILD_TYPE="full"
           elif [ "$CHANGED_FILES" = "ALL" ]; then
             echo "Could not fetch diff. Selecting FULL build as fallback."
