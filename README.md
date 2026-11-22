@@ -2,7 +2,7 @@
 
 # AuraEcho
 
-**Real-time voice conversion powered by RVC, tuned for NVIDIA RTX GPUs on Windows.**
+**Real-time voice conversion powered by RVC, tuned for CUDA on Windows.**
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
@@ -22,7 +22,7 @@ AuraEcho is a customized fork of [deiteris/voice-changer](https://github.com/dei
 This edition focuses on a single, well-tuned configuration for **NVIDIA RTX GPUs**, with acceleration via **CUDA / TensorRT / ONNX**.
 
 > [!IMPORTANT]
-> Only **Windows 10/11** with **NVIDIA GPUs (CUDA)** is supported. DirectML, CPU-only, ROCm, macOS, and Linux are not supported on this branch.
+> Only **Windows 10/11** with **NVIDIA GPUs (CUDA)** is supported. DirectML, CPU-only, ROCm, macOS, and Linux are not tested on this branch.
 
 ## System Requirements
 
