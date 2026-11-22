@@ -55,6 +55,12 @@ export const mergeLoadedClientSettings = (
     ) {
         loadedVc.noiseSuppression = server.noiseSuppression;
     }
+    if (
+        typeof server?.noiseSuppression2 === "boolean" &&
+        (server.enableServerAudio === 1 || stored?.voiceChangerClientSetting?.noiseSuppression2 === undefined)
+    ) {
+        loadedVc.noiseSuppression2 = server.noiseSuppression2;
+    }
 
     return {
         workletSetting: {

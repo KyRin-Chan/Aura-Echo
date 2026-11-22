@@ -1,6 +1,6 @@
-# Voice Changer Server
+# AuraEcho Server
 
-This directory contains the backend server for the Voice Changer application, which provides real-time voice conversion using RVC (Retrieval-based Voice Conversion) models.
+This directory contains the backend server for AuraEcho, which provides real-time voice conversion using RVC (Retrieval-based Voice Conversion) models.
 
 ## Architecture Overview
 
@@ -217,7 +217,7 @@ Voice feature extraction:
 | File | Purpose |
 |------|---------|
 | `requirements-*.txt` | Python dependencies for different platforms |
-| `MMVCServerSIO.spec` | PyInstaller specification |
+| `AuraEcho.spec` | PyInstaller specification |
 | `edition.txt` | Application edition identifier |
 | `stored_setting.json` | Persistent user settings |
 | `vcclient.log` | Application logs |

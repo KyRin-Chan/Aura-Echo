@@ -51,7 +51,7 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
           
-          if echo "$CHANGED_FILES" | grep -qE "requirements.*\.txt|MMVCServerSIO\.spec|\.github/workflows/"; then
+          if echo "$CHANGED_FILES" | grep -qE "requirements.*\.txt|AuraEcho\.spec|\.github/workflows/"; then
             echo "Build configuration or dependency file changed. Selecting FULL build."
             BUILD_TYPE="full"
           elif [ "$CHANGED_FILES" = "ALL" ]; then
@@ -136,7 +136,7 @@ jobs:
     - name: Building executable
       working-directory: ./server
       run: |
-        ..\.venv\Scripts\python -m PyInstaller --clean -y --dist ./dist MMVCServerSIO.spec
+        ..\.venv\Scripts\python -m PyInstaller --clean -y --dist ./dist AuraEcho.spec
 
 
     - name: Copy utils
@@ -147,7 +147,7 @@ jobs:
       shell: bash
       run: |
         mkdir ./server/artifacts
-        ARCHIVE_NAME="voice-changer-windows-amd64-cuda"
+        ARCHIVE_NAME="AuraEcho-windows-amd64-cuda"
         EXTRA_7Z_ARGS="-mx=3 -mmt=on"
         VOLUME_ARG="-v2000m"
         if [ "${{ steps.determine_build.outputs.build_type }}" = "full-patch" ]; then

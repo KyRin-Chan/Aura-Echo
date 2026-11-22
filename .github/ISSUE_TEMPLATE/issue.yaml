@@ -4,13 +4,13 @@ title: "[ISSUE]: "
 body:
   - type: markdown
     attributes:
-      value: Please read our [FAQ](https://github.com/w-okada/voice-changer/blob/master/.github/FAQ.md) before making a bug report!
+      value: Please read the [Troubleshooting](https://github.com/KyRin-Chan/Aura-Echo#troubleshooting) section before making a bug report!
   - type: input
     id: vc-client-version
     attributes:
-      label: Voice Changer Version
-      description: Downloaded File Name (.zip)
-      placeholder: MMVCServerSIO_xxx_yyyy-zzzz_v.x.x.x.x.zip
+      label: AuraEcho Version
+      description: Release tag or downloaded file name (.7z)
+      placeholder: AuraEcho-windows-amd64-cuda.7z (e.g. b123)
     validations:
       required: true
   - type: input
@@ -37,13 +37,13 @@ body:
         - label: Sample/Default Models are working
         - label: I've tried to change the Chunk Size
         - label: GUI was successfully launched
-        - label: I've read the [tutorial](https://github.com/w-okada/voice-changer/blob/master/tutorials/tutorial_rvc_en_latest.md)
-        - label: I've tried to extract to another folder (or re-extract) the .zip file
+        - label: I've read the [Quick Start guide](https://github.com/KyRin-Chan/Aura-Echo#quick-start)
+        - label: I've tried to extract to another folder (or re-extract) the .7z archive
   - type: input
     id: vc-type
     attributes:
       label: Model Type
-      description: MMVC, so-vits-rvc, RVC, DDSP-SVC
+      description: RVC model variant (e.g. RVC v2, ONNX)
       placeholder: RVC
     validations:
       required: true

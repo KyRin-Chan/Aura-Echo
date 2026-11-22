@@ -1,4 +1,4 @@
-import { VoiceChangerServerSetting, ServerInfo, OnnxExporterInfo, MergeModelRequest, VoiceChangerType } from "../const";
+import { VoiceChangerServerSetting, ServerInfo, OnnxExporterInfo, MergeModelRequest, VoiceChangerType, TensorRTStatus } from "../const";
 import { VoiceChangerClient } from "../VoiceChangerClient";
 export declare const ModelAssetName: {
     readonly iconFile: "iconFile";
@@ -68,5 +68,9 @@ export type ServerSettingState = {
     uploadAssets: (slot: number, name: ModelAssetName, file: File) => Promise<void>;
     downloadPretrained: (model_key: string) => Promise<ServerInfo>;
     deletePretrained: (model_key: string) => Promise<ServerInfo>;
+    getTensorRTStatus: () => Promise<TensorRTStatus>;
+    downloadTensorRT: () => Promise<TensorRTStatus>;
+    cancelTensorRTDownload: () => Promise<TensorRTStatus>;
+    deleteTensorRT: () => Promise<TensorRTStatus>;
 };
 export declare const useServerSetting: (props: UseServerSettingProps) => ServerSettingState;

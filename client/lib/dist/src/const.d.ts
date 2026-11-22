@@ -113,6 +113,7 @@ export declare const ServerSettingKey: {
     readonly asioOutputChannel: "asioOutputChannel";
     readonly echoCancel: "echoCancel";
     readonly noiseSuppression: "noiseSuppression";
+    readonly noiseSuppression2: "noiseSuppression2";
     readonly tran: "tran";
     readonly formantShift: "formantShift";
     readonly useONNX: "useONNX";
@@ -186,6 +187,7 @@ export type VoiceChangerServerSetting = {
     asioOutputChannel: number;
     echoCancel: boolean;
     noiseSuppression: boolean;
+    noiseSuppression2: boolean;
     tran: number;
     formantShift: number;
     useONNX: number;
@@ -223,6 +225,26 @@ export interface ModelInfo {
 export type ModelInfoDict = {
     [key: string]: ModelInfo;
 };
+export type TensorRTDownloadState = "idle" | "resolving" | "downloading" | "verifying" | "extracting" | "installed" | "error" | "cancelled";
+export interface TensorRTStatus {
+    supported: boolean;
+    installed: boolean;
+    managed: boolean;
+    source: "managed" | "system" | "none";
+    version: string;
+    targetVersion: string;
+    installDir: string;
+    sizeBytes: number;
+    pendingDelete: boolean;
+    state: TensorRTDownloadState;
+    progress: number;
+    downloadedBytes: number;
+    totalBytes: number;
+    speedBytesPerSec: number;
+    error: string | null;
+    status?: string;
+    message?: string;
+}
 export declare const embedders: ModelInfoDict;
 export declare const pitchExtractors: ModelInfoDict;
 export declare const vocoders: ModelInfoDict;

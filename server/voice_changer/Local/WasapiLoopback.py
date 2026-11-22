@@ -127,7 +127,7 @@ def _get_device_id(device_ptr: ctypes.c_void_p, ole32) -> Optional[str]:
         pass
     finally:
         if dev_id_ptr.value:
-            ole32.CoTaskMemFree(dev_id_ptr.value)
+            ole32.CoTaskMemFree(dev_id_ptr)
     return None
 
 

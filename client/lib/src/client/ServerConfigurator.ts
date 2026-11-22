@@ -84,4 +84,18 @@ export class ServerConfigurator {
     deletePretrained = async (model_key: string) => {
         return this.restClient.deletePretrained(model_key);
     };
+
+    //-------------- TensorRT Runtime --------------
+    getTensorRTStatus = async () => {
+        return this.restClient.getTensorRTStatus();
+    };
+    downloadTensorRT = async () => {
+        return this.restClient.downloadTensorRT();
+    };
+    cancelTensorRTDownload = async () => {
+        return this.restClient.cancelTensorRTDownload();
+    };
+    deleteTensorRT = async () => {
+        return this.restClient.deleteTensorRT();
+    };
 }

@@ -199,6 +199,30 @@ describe("VoiceChangerClient audio gain & settings sync", () => {
         expect(merged.voiceChangerClientSetting.inputGain).toBe(1.4);
         expect(merged.voiceChangerClientSetting.outputGain).toBe(0.8);
         expect(merged.voiceChangerClientSetting.monitorGain).toBe(0);
+
+        const serverModeMerged = lib.mergeLoadedClientSettings(
+            {
+                enableServerAudio: 1,
+                echoCancel: true,
+                noiseSuppression: false,
+                noiseSuppression2: true,
+            },
+            {
+                voiceChangerClientSetting: {
+                    ...lib.DefaultClientSettng.voiceChangerClientSetting,
+                    echoCancel: false,
+                    noiseSuppression: true,
+                    noiseSuppression2: false,
+                },
+            },
+            {},
+            {},
+            {}
+        );
+
+        expect(serverModeMerged.voiceChangerClientSetting.echoCancel).toBe(true);
+        expect(serverModeMerged.voiceChangerClientSetting.noiseSuppression).toBe(false);
+        expect(serverModeMerged.voiceChangerClientSetting.noiseSuppression2).toBe(true);
     });
 
     test("mergeLoadedClientSettings falls back to stored/default gains when server gains are missing or invalid", () => {
@@ -234,6 +258,7 @@ describe("VoiceChangerClient audio gain & settings sync", () => {
             ...lib.DefaultServerSetting,
             echoCancel: false,
             noiseSuppression: false,
+            noiseSuppression2: false,
         };
 
         const firstUpdates = lib.collectServerSettingUpdates(baseServer, { echoCancel: true });
@@ -245,5 +270,12 @@ describe("VoiceChangerClient audio gain & settings sync", () => {
         };
         const secondUpdates = lib.collectServerSettingUpdates(afterFirst, { noiseSuppression: true });
         expect(secondUpdates).toEqual([{ key: "noiseSuppression", value: "true" }]);
+
+        const afterSecond = {
+            ...afterFirst,
+            noiseSuppression: true,
+        };
+        const thirdUpdates = lib.collectServerSettingUpdates(afterSecond, { noiseSuppression2: true });
+        expect(thirdUpdates).toEqual([{ key: "noiseSuppression2", value: "true" }]);
     });
 });

@@ -10,7 +10,7 @@ interface NoiseReductionProps {
 function NoiseReduction({ appState }: NoiseReductionProps) {
   const isServerAudio = appState.serverSetting.serverSetting.enableServerAudio === 1;
 
-  const handleToggle = (key: 'echoCancel' | 'noiseSuppression', value: boolean) => {
+  const handleToggle = (key: 'echoCancel' | 'noiseSuppression' | 'noiseSuppression2', value: boolean) => {
     if (isServerAudio) {
       appState.serverSetting.updateServerSettings({ [key]: value });
     } else {
@@ -21,20 +21,15 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
     }
   };
 
-  // Handle Noise Reduction 2 Change
-  const handleChangeNoiseSuppression2 = (value: boolean) => {
-    appState.setVoiceChangerClientSetting((prev) => ({
-      ...prev,
-      noiseSuppression2: value
-    }));
-  };
-
   const echoCancelChecked = (isServerAudio
     ? appState.serverSetting.serverSetting.echoCancel
     : appState.setting.voiceChangerClientSetting.echoCancel) ?? false;
   const noiseSuppressionChecked = (isServerAudio
     ? appState.serverSetting.serverSetting.noiseSuppression
     : appState.setting.voiceChangerClientSetting.noiseSuppression) ?? false;
+  const noiseSuppression2Checked = (isServerAudio
+    ? appState.serverSetting.serverSetting.noiseSuppression2
+    : appState.setting.voiceChangerClientSetting.noiseSuppression2) ?? false;
 
   return (
     <div className="flex flex-col space-y-2">
@@ -51,9 +46,8 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
           label={t('noiseSuppressionLabel')}
         />
         <MD3Switch
-          checked={appState.setting.voiceChangerClientSetting.noiseSuppression2 ?? false}
-          onChange={handleChangeNoiseSuppression2}
-          disabled={isServerAudio}
+          checked={noiseSuppression2Checked}
+          onChange={(val) => handleToggle('noiseSuppression2', val)}
           label={t('noiseSuppression2Label')}
         />
       </div>

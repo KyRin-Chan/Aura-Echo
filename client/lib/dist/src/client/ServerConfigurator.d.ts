@@ -21,4 +21,8 @@ export declare class ServerConfigurator {
     updateModelInfo: (slot: number, key: string, val: string) => Promise<import("../const").ServerInfo>;
     downloadPretrained: (model_key: string) => Promise<import("../const").ServerInfo>;
     deletePretrained: (model_key: string) => Promise<import("../const").ServerInfo>;
+    getTensorRTStatus: () => Promise<import("../const").TensorRTStatus>;
+    downloadTensorRT: () => Promise<import("../const").TensorRTStatus>;
+    cancelTensorRTDownload: () => Promise<import("../const").TensorRTStatus>;
+    deleteTensorRT: () => Promise<import("../const").TensorRTStatus>;
 }

@@ -1,4 +1,5 @@
 import logging
+import sys
 import threading
 from time import monotonic
 from typing import Optional, Protocol, Union
@@ -13,8 +14,9 @@ from voice_changer.Local.AudioDeviceList import (
     list_audio_device,
     reinitialize_portaudio,
 )
-from voice_changer.Local.WasapiLoopback import WasapiLoopbackCapture
+from voice_changer.Local.WasapiCommCapture import WasapiCommCapture
 from voice_changer.common.ServerAEC import ServerAEC
+from voice_changer.common.ServerGTCRN import ServerGTCRN
 from voice_changer.utils.SystemPriority import register_current_thread_mmcss
 from voice_changer.utils.VoiceChangerModel import AudioInOutFloat
 from voice_changer.VoiceChangerSettings import VoiceChangerSettings
@@ -165,7 +167,6 @@ class ServerAudio:
         self._has_monitor = False
 
         self.in_ring: Optional[Float32RingBuffer] = None
-        self.ref_ring: Optional[Float32RingBuffer] = None
         self.out_ring: Optional[Float32RingBuffer] = None
         self.mon_ring: Optional[Float32RingBuffer] = None
 
@@ -175,18 +176,15 @@ class ServerAudio:
 
         # Preallocated scratch arrays for callbacks & worker
         self._cb_out_buf = np.zeros(16384, dtype=np.float32)
-        self._cb_ref_buf = np.zeros(16384, dtype=np.float32)
         self._mon_out_buf = np.zeros(16384, dtype=np.float32)
         self._out_xfade_scratch = np.zeros(128, dtype=np.float32)
         self._mon_xfade_scratch = np.zeros(128, dtype=np.float32)
         self._worker_in_buf = np.zeros(2048, dtype=np.float32)
         self._worker_skip_buf = np.zeros(2048, dtype=np.float32)
-        self._worker_ref_buf = np.zeros(2048, dtype=np.float32)
-        self._worker_skip_ref_buf = np.zeros(2048, dtype=np.float32)
         self._aec_lock = threading.Lock()
-        self._loopback_capture: Optional[WasapiLoopbackCapture] = None
-        self._aec: Optional[ServerAEC] = None
-        self._aec_first_cb_sync: bool = False
+        self._comm_capture: Optional[WasapiCommCapture] = None
+        self._ns_processor: Optional[ServerAEC] = None
+        self._gtcrn: Optional[ServerGTCRN] = None
 
         self._fade_in_64 = np.linspace(0.0, 1.0, 64, dtype=np.float32)
         self._fade_out_128 = np.linspace(1.0, 0.0, 128, dtype=np.float32)
@@ -233,123 +231,88 @@ class ServerAudio:
     # Inference Worker Section
     ###########################################
 
-    def _sync_echo_cancel_state(self, active: bool) -> None:
-        want_aec = active and bool(getattr(self.settings, 'echoCancel', False))
-        want_ns = active and bool(getattr(self.settings, 'noiseSuppression', False))
-
-        if not want_aec and not want_ns:
+    def _sync_audio_processing_state(self, active: bool) -> None:
+        if not active:
             with self._aec_lock:
-                old_cap = self._loopback_capture
-                self._loopback_capture = None
-                self._aec = None
-                self._aec_first_cb_sync = False
-            if old_cap is not None:
-                old_cap.stop()
+                self._ns_processor = None
+                self._gtcrn = None
             return
 
+        want_ns1 = bool(getattr(self.settings, 'noiseSuppression', False))
+        want_ns2 = bool(getattr(self.settings, 'noiseSuppression2', False))
+
         with self._aec_lock:
-            cur_cap = self._loopback_capture
-            cur_aec = self._aec
-            cap_ok = (
-                cur_cap is not None
-                and cur_cap.sample_rate == self._out_sr
-                and cur_cap.is_running
-            )
-            aec_sr_ok = cur_aec is not None and cur_aec.sample_rate == self._out_sr
-            aec_exact_ok = (
-                aec_sr_ok
-                and cur_aec.echo_cancellation == want_aec
-                and cur_aec.noise_suppression == want_ns
-            )
-            if aec_exact_ok and (not want_aec or cap_ok):
-                return
-            if aec_sr_ok and cur_aec.echo_cancellation == want_aec and (not want_aec or cap_ok):
-                cur_aec.set_noise_suppression(want_ns)
-                logger.info(
-                    f"[ServerAudio] Audio processing active (backend={cur_aec.backend}, "
-                    f"aec={want_aec}, ns={want_ns}, sr={self._out_sr})"
-                )
-                return
+            comm_cap = self._comm_capture
+            cur_ns = self._ns_processor
+            cur_gtcrn = self._gtcrn
 
-        new_cap = None
-        stop_old_cap = None
-        effective_aec = want_aec
+        if comm_cap is not None and comm_cap.is_running:
+            comm_cap.set_deep_noise_suppression(want_ns1)
 
-        if want_aec:
-            if not cap_ok:
-                candidate = WasapiLoopbackCapture(
+        win_apo_handles_ns1 = (
+            comm_cap is not None
+            and comm_cap.is_running
+            and (comm_cap.os_aec_active or comm_cap.os_ns_active)
+        )
+        need_webrtc_ns1 = want_ns1 and not win_apo_handles_ns1
+
+        if need_webrtc_ns1:
+            if (
+                cur_ns is None
+                or cur_ns.sample_rate != self._out_sr
+                or cur_ns.echo_cancellation
+                or not cur_ns.noise_suppression
+            ):
+                new_ns = ServerAEC(
                     sample_rate=self._out_sr,
-                    min_buffer_samples=max(self._block_frame * 4, 8192),
+                    echo_cancellation=False,
+                    noise_suppression=True,
                 )
-                if candidate.start():
-                    new_cap = candidate
-                else:
-                    logger.warning("[ServerAudio] Failed to start default playback loopback; AEC disabled.")
-                    effective_aec = False
+            else:
+                new_ns = cur_ns
         else:
-            with self._aec_lock:
-                stop_old_cap = self._loopback_capture
-                self._loopback_capture = None
-                self._aec_first_cb_sync = False
+            new_ns = None
 
-        if not effective_aec and not want_ns:
-            with self._aec_lock:
-                if stop_old_cap is None:
-                    stop_old_cap = self._loopback_capture
-                self._loopback_capture = None
-                self._aec = None
-                self._aec_first_cb_sync = False
-            if stop_old_cap is not None:
-                stop_old_cap.stop()
-            return
+        if want_ns2:
+            if cur_gtcrn is None or cur_gtcrn.sample_rate != self._out_sr:
+                new_gtcrn = ServerGTCRN(sample_rate=self._out_sr)
+            else:
+                new_gtcrn = cur_gtcrn
+        else:
+            new_gtcrn = None
 
-        new_aec = ServerAEC(
-            sample_rate=self._out_sr,
-            echo_cancellation=effective_aec,
-            noise_suppression=want_ns,
-        )
-        logger.info(
-            f"[ServerAudio] Audio processing active (backend={new_aec.backend}, "
-            f"aec={effective_aec}, ns={want_ns}, sr={self._out_sr})"
-        )
         with self._aec_lock:
-            if new_cap is not None:
-                stop_old_cap = self._loopback_capture
-                self._aec_first_cb_sync = True
-                self._loopback_capture = new_cap
-            elif not effective_aec:
-                if stop_old_cap is None:
-                    stop_old_cap = self._loopback_capture
-                self._loopback_capture = None
-                self._aec_first_cb_sync = False
-            self._aec = new_aec
-        if stop_old_cap is not None:
-            stop_old_cap.stop()
+            self._ns_processor = new_ns
+            self._gtcrn = new_gtcrn
+
+        logger.info(
+            f"[ServerAudio] Input processing state: win_comm_aec={comm_cap is not None and comm_cap.is_running}, "
+            f"os_aec={comm_cap.os_aec_active if comm_cap is not None else False}, "
+            f"ns1={'os_apo' if (want_ns1 and win_apo_handles_ns1) else ('webrtc' if new_ns is not None else 'off')}, "
+            f"ns2={'gtcrn' if (new_gtcrn is not None and new_gtcrn.available) else ('unavailable' if want_ns2 else 'off')}, "
+            f"sr={self._out_sr}"
+        )
 
     def _apply_input_gain(self, mic_buf: np.ndarray) -> None:
         in_gain = float(self.settings.serverInputAudioGain)
         if in_gain != 1.0:
             mic_buf *= np.float32(in_gain)
 
-    def _apply_aec(self, mic_buf: np.ndarray, ref_buf: np.ndarray, ref_from_ring: bool = False) -> None:
-        if not (
-            bool(getattr(self.settings, 'echoCancel', False))
-            or bool(getattr(self.settings, 'noiseSuppression', False))
-        ):
-            return
+    def _apply_input_processing(self, mic_buf: np.ndarray) -> None:
         with self._aec_lock:
-            cap = self._loopback_capture
-            aec = self._aec
-            if aec is None:
-                return
-            if aec.echo_cancellation:
-                if not ref_from_ring:
-                    if cap is None:
-                        return
-                    cap.read_chunk(mic_buf.shape[0], out_buf=ref_buf)
-                mic_buf[:] = aec.process(mic_buf, ref_buf)
-            else:
-                mic_buf[:] = aec.process(mic_buf, None)
+            ns_proc = self._ns_processor
+            gtcrn = self._gtcrn
+            if ns_proc is not None:
+                mic_buf[:] = ns_proc.process(mic_buf, None)
+            if gtcrn is not None and gtcrn.available:
+                mic_buf[:] = gtcrn.process(mic_buf)
+        self._apply_input_gain(mic_buf)
+
+    def _on_comm_input_frames(self, mono: np.ndarray) -> None:
+        in_ring = self.in_ring
+        if in_ring is not None and mono.size > 0:
+            in_ring.write(mono)
+            self._in_event.set()
 
     def _maybe_log_diagnostics(self, now: float) -> None:
         if now - self._last_diag_log_ts < 3.0:
@@ -425,20 +388,7 @@ class ServerAudio:
                             break
                         if not in_ring.read_exact_into(self._worker_skip_buf):
                             break
-                        if self._worker_skip_ref_buf.shape[0] != block_frame:
-                            self._worker_skip_ref_buf = np.zeros(block_frame, dtype=np.float32)
-                        has_ring_ref = False
-                        if self.ref_ring is not None:
-                            got_ref = self.ref_ring.read_into(self._worker_skip_ref_buf)
-                            if got_ref < block_frame:
-                                self._worker_skip_ref_buf[got_ref:] = 0.0
-                            has_ring_ref = True
-                        self._apply_aec(
-                            self._worker_skip_buf,
-                            self._worker_skip_ref_buf,
-                            ref_from_ring=has_ring_ref,
-                        )
-                        self._apply_input_gain(self._worker_skip_buf)
+                        self._apply_input_processing(self._worker_skip_buf)
                         if skip_cb is not None:
                             try:
                                 skip_cb(self._worker_skip_buf)
@@ -451,20 +401,7 @@ class ServerAudio:
                 if not in_ring.read_exact_into(self._worker_in_buf):
                     break
 
-                if self._worker_ref_buf.shape[0] != block_frame:
-                    self._worker_ref_buf = np.zeros(block_frame, dtype=np.float32)
-                has_ring_ref = False
-                if self.ref_ring is not None:
-                    got_ref = self.ref_ring.read_into(self._worker_ref_buf)
-                    if got_ref < block_frame:
-                        self._worker_ref_buf[got_ref:] = 0.0
-                    has_ring_ref = True
-                self._apply_aec(
-                    self._worker_in_buf,
-                    self._worker_ref_buf,
-                    ref_from_ring=has_ring_ref,
-                )
-                self._apply_input_gain(self._worker_in_buf)
+                self._apply_input_processing(self._worker_in_buf)
 
                 try:
                     out_wav, vol, perf, err = self.callbacks.on_audio(self._worker_in_buf)
@@ -509,6 +446,84 @@ class ServerAudio:
         else:
             buf[got:frames] = 0.0
 
+    def _fill_output_buffer(self, outdata: np.ndarray, frames: int) -> None:
+        if frames > self._cb_out_buf.shape[0]:
+            self._cb_out_buf = np.zeros(frames, dtype=np.float32)
+
+        buf = self._cb_out_buf[:frames]
+        out_ring = self.out_ring
+        avail = out_ring.available() if out_ring is not None else 0
+
+        if self._out_underrun:
+            needed = frames + self._out_target_cushion
+            if out_ring is None or avail < needed:
+                buf.fill(0.0)
+                self._out_last_sample = 0.0
+            else:
+                got = out_ring.read_into(buf)
+                if got == frames:
+                    fi_len = min(64, frames)
+                    buf[:fi_len] *= self._fade_in_64[:fi_len]
+                    self._out_underrun = False
+                    self._out_has_started = True
+                    self._out_stable_callbacks = 0
+                    self._out_trim_pending = False
+                    self._out_last_sample = float(buf[frames - 1])
+                else:
+                    if got > 0:
+                        fi_len = min(64, got)
+                        buf[:fi_len] *= self._fade_in_64[:fi_len]
+                    self._fill_underrun_tail(buf, got, frames, self._out_last_sample)
+                    self._out_last_sample = 0.0
+        else:
+            target_avail = frames + self._out_target_cushion
+            high_water = target_avail + max(frames * 2, self._block_frame * 2, int(self._out_sr * 0.08))
+            xfade_copied = 0
+            if out_ring is not None and (
+                avail > high_water or (self._out_trim_pending and avail > target_avail)
+            ):
+                drop_n = avail - target_avail
+                xfade_copied = out_ring.drop_with_crossfade(drop_n, self._out_xfade_scratch)
+            self._out_trim_pending = False
+
+            got = out_ring.read_into(buf) if out_ring is not None else 0
+            if xfade_copied > 0 and got > 0:
+                blend_len = min(xfade_copied, got, 128)
+                alpha = (
+                    self._xfade_alpha_128
+                    if blend_len == 128
+                    else np.linspace(0.0, 1.0, blend_len, dtype=np.float32)
+                )
+                buf[:blend_len] = (
+                    buf[:blend_len] * alpha + self._out_xfade_scratch[:blend_len] * (1.0 - alpha)
+                )
+
+            if got == frames:
+                self._out_last_sample = float(buf[frames - 1])
+                self._out_stable_callbacks += 1
+                if (
+                    self._out_target_cushion > 0
+                    and self._out_stable_callbacks >= self._out_decay_threshold
+                    and float(np.max(np.abs(buf))) < 1e-3
+                ):
+                    self._out_target_cushion = max(0, self._out_target_cushion - self._out_cushion_step)
+                    self._out_stable_callbacks = 0
+                    self._out_trim_pending = True
+            else:
+                self._fill_underrun_tail(buf, got, frames, self._out_last_sample)
+                self._out_underrun = True
+                self._out_last_sample = 0.0
+                self._out_stable_callbacks = 0
+                self._out_trim_pending = False
+                if self._out_has_started:
+                    self._out_underrun_count += 1
+                    self._out_target_cushion = min(
+                        self._out_max_cushion,
+                        self._out_target_cushion + self._out_cushion_step,
+                    )
+
+        outdata[:] = buf[:, None] * np.float32(self.settings.serverOutputAudioGain)
+
     def audio_stream_callback(self, indata: np.ndarray, outdata: np.ndarray, frames, times, status):
         try:
             self._last_cb_frames = int(frames)
@@ -518,103 +533,23 @@ class ServerAudio:
                 if getattr(status, "output_underflow", False):
                     self._cb_out_underflows += 1
 
-            # Fast mono mixdown without librosa overhead (gain is applied post-AEC/NS in worker)
+            # Fast mono mixdown without librosa overhead (gain is applied post-denoising in worker)
             mono = indata[:, 0] if indata.shape[1] == 1 else indata.mean(axis=1)
-
-            if self.ref_ring is not None:
-                if frames > self._cb_ref_buf.shape[0]:
-                    self._cb_ref_buf = np.zeros(frames, dtype=np.float32)
-                ref_slice = self._cb_ref_buf[:frames]
-                cap = self._loopback_capture
-                if cap is not None and cap.is_running:
-                    if self._aec_first_cb_sync:
-                        self._aec_first_cb_sync = False
-                        cap.flush_to_latest(keep_samples=frames + int(round(self._out_sr * 0.010)))
-                    cap.read_chunk(frames, out_buf=ref_slice)
-                else:
-                    ref_slice.fill(0.0)
-                self.ref_ring.write(ref_slice)
-
             if self.in_ring is not None:
                 self.in_ring.write(mono)
                 self._in_event.set()
 
-            if frames > self._cb_out_buf.shape[0]:
-                self._cb_out_buf = np.zeros(frames, dtype=np.float32)
+            self._fill_output_buffer(outdata, frames)
+        except Exception as e:
+            outdata.fill(0.0)
+            logger.exception(e)
 
-            buf = self._cb_out_buf[:frames]
-            out_ring = self.out_ring
-            avail = out_ring.available() if out_ring is not None else 0
-
-            if self._out_underrun:
-                needed = frames + self._out_target_cushion
-                if out_ring is None or avail < needed:
-                    buf.fill(0.0)
-                    self._out_last_sample = 0.0
-                else:
-                    got = out_ring.read_into(buf)
-                    if got == frames:
-                        fi_len = min(64, frames)
-                        buf[:fi_len] *= self._fade_in_64[:fi_len]
-                        self._out_underrun = False
-                        self._out_has_started = True
-                        self._out_stable_callbacks = 0
-                        self._out_trim_pending = False
-                        self._out_last_sample = float(buf[frames - 1])
-                    else:
-                        if got > 0:
-                            fi_len = min(64, got)
-                            buf[:fi_len] *= self._fade_in_64[:fi_len]
-                        self._fill_underrun_tail(buf, got, frames, self._out_last_sample)
-                        self._out_last_sample = 0.0
-            else:
-                target_avail = frames + self._out_target_cushion
-                high_water = target_avail + max(frames * 2, self._block_frame * 2, int(self._out_sr * 0.08))
-                xfade_copied = 0
-                if out_ring is not None and (
-                    avail > high_water or (self._out_trim_pending and avail > target_avail)
-                ):
-                    drop_n = avail - target_avail
-                    xfade_copied = out_ring.drop_with_crossfade(drop_n, self._out_xfade_scratch)
-                self._out_trim_pending = False
-
-                got = out_ring.read_into(buf) if out_ring is not None else 0
-                if xfade_copied > 0 and got > 0:
-                    blend_len = min(xfade_copied, got, 128)
-                    alpha = (
-                        self._xfade_alpha_128
-                        if blend_len == 128
-                        else np.linspace(0.0, 1.0, blend_len, dtype=np.float32)
-                    )
-                    buf[:blend_len] = (
-                        buf[:blend_len] * alpha + self._out_xfade_scratch[:blend_len] * (1.0 - alpha)
-                    )
-
-                if got == frames:
-                    self._out_last_sample = float(buf[frames - 1])
-                    self._out_stable_callbacks += 1
-                    if (
-                        self._out_target_cushion > 0
-                        and self._out_stable_callbacks >= self._out_decay_threshold
-                        and float(np.max(np.abs(buf))) < 1e-3
-                    ):
-                        self._out_target_cushion = max(0, self._out_target_cushion - self._out_cushion_step)
-                        self._out_stable_callbacks = 0
-                        self._out_trim_pending = True
-                else:
-                    self._fill_underrun_tail(buf, got, frames, self._out_last_sample)
-                    self._out_underrun = True
-                    self._out_last_sample = 0.0
-                    self._out_stable_callbacks = 0
-                    self._out_trim_pending = False
-                    if self._out_has_started:
-                        self._out_underrun_count += 1
-                        self._out_target_cushion = min(
-                            self._out_max_cushion,
-                            self._out_target_cushion + self._out_cushion_step,
-                        )
-
-            outdata[:] = buf[:, None] * np.float32(self.settings.serverOutputAudioGain)
+    def audio_output_only_callback(self, outdata: np.ndarray, frames, times, status):
+        try:
+            self._last_cb_frames = int(frames)
+            if status and getattr(status, "output_underflow", False):
+                self._cb_out_underflows += 1
+            self._fill_output_buffer(outdata, frames)
         except Exception as e:
             outdata.fill(0.0)
             logger.exception(e)
@@ -676,7 +611,9 @@ class ServerAudio:
         has_monitor: bool,
         sample_rate: Optional[int] = None,
         mon_sample_rate: Optional[int] = None,
-    ) -> None:
+        input_device_name: Optional[str] = None,
+        use_win_comm_aec: bool = False,
+    ) -> bool:
         self._block_frame = block_frame
         self._has_monitor = has_monitor
         self._out_sr = int(
@@ -694,17 +631,30 @@ class ServerAudio:
             self._worker_in_buf = np.zeros(block_frame, dtype=np.float32)
         if self._worker_skip_buf.shape[0] != block_frame:
             self._worker_skip_buf = np.zeros(block_frame, dtype=np.float32)
-        if self._worker_ref_buf.shape[0] != block_frame:
-            self._worker_ref_buf = np.zeros(block_frame, dtype=np.float32)
-        if self._worker_skip_ref_buf.shape[0] != block_frame:
-            self._worker_skip_ref_buf = np.zeros(block_frame, dtype=np.float32)
-
-        self._sync_echo_cancel_state(active=True)
 
         self.in_ring = Float32RingBuffer(max(block_frame * 8, 32768))
-        self.ref_ring = Float32RingBuffer(max(block_frame * 8, 32768))
         self.out_ring = Float32RingBuffer(max(block_frame * 8, 32768))
         self.mon_ring = Float32RingBuffer(max(block_frame * 12, int(self._mon_sr * 0.5))) if has_monitor else None
+
+        comm_active = False
+        if use_win_comm_aec:
+            comm_cap = WasapiCommCapture(
+                device_name=input_device_name,
+                sample_rate=self._out_sr,
+                on_audio=self._on_comm_input_frames,
+                enable_deep_ns=bool(getattr(self.settings, 'noiseSuppression', False)),
+            )
+            if comm_cap.start():
+                with self._aec_lock:
+                    self._comm_capture = comm_cap
+                comm_active = True
+            else:
+                logger.warning(
+                    "[ServerAudio] Failed to start Windows Communications AEC capture; "
+                    "falling back to standard duplex stream."
+                )
+
+        self._sync_audio_processing_state(active=True)
 
         self._out_underrun = True
         self._out_last_sample = 0.0
@@ -738,6 +688,41 @@ class ServerAudio:
             daemon=True,
         )
         self._worker_thread.start()
+        return comm_active
+
+    def _open_primary_stream(
+        self,
+        block_frame: int,
+        inputMaxChannel: int,
+        outputMaxChannel: int,
+        inputExtraSetting,
+        outputExtraSetting,
+        in_dev: int,
+        out_dev: int,
+        sr: int,
+        comm_active: bool,
+    ):
+        if comm_active:
+            return sd.OutputStream(
+                callback=self.audio_output_only_callback,
+                latency='low',
+                dtype="float32",
+                device=out_dev,
+                blocksize=block_frame,
+                samplerate=sr,
+                channels=outputMaxChannel,
+                extra_settings=outputExtraSetting,
+            )
+        return sd.Stream(
+            callback=self.audio_stream_callback,
+            latency='low',
+            dtype="float32",
+            device=(in_dev, out_dev),
+            blocksize=block_frame,
+            samplerate=sr,
+            channels=(inputMaxChannel, outputMaxChannel),
+            extra_settings=(inputExtraSetting, outputExtraSetting),
+        )
 
     def run_no_monitor(
         self,
@@ -749,21 +734,30 @@ class ServerAudio:
         inputDeviceId: Optional[int] = None,
         outputDeviceId: Optional[int] = None,
         sampleRate: Optional[int] = None,
+        inputDeviceName: Optional[str] = None,
+        useWinCommAec: bool = False,
     ):
         in_dev = self.settings.serverInputDeviceId if inputDeviceId is None else inputDeviceId
         out_dev = self.settings.serverOutputDeviceId if outputDeviceId is None else outputDeviceId
         sr = self.settings.serverInputAudioSampleRate if sampleRate is None else sampleRate
-        self._start_worker_and_rings(block_frame, has_monitor=False, sample_rate=sr)
+        comm_active = self._start_worker_and_rings(
+            block_frame,
+            has_monitor=False,
+            sample_rate=sr,
+            input_device_name=inputDeviceName,
+            use_win_comm_aec=useWinCommAec,
+        )
         with PORTAUDIO_LOCK:
-            self.stream = sd.Stream(
-                callback=self.audio_stream_callback,
-                latency='low',
-                dtype="float32",
-                device=(in_dev, out_dev),
-                blocksize=block_frame,
-                samplerate=sr,
-                channels=(inputMaxChannel, outputMaxChannel),
-                extra_settings=(inputExtraSetting, outputExtraSetting)
+            self.stream = self._open_primary_stream(
+                block_frame,
+                inputMaxChannel,
+                outputMaxChannel,
+                inputExtraSetting,
+                outputExtraSetting,
+                in_dev,
+                out_dev,
+                sr,
+                comm_active,
             )
             self.stream.start()
 
@@ -780,23 +774,33 @@ class ServerAudio:
         outputDeviceId: Optional[int] = None,
         monitorDeviceId: Optional[int] = None,
         sampleRate: Optional[int] = None,
+        inputDeviceName: Optional[str] = None,
+        useWinCommAec: bool = False,
     ):
         in_dev = self.settings.serverInputDeviceId if inputDeviceId is None else inputDeviceId
         out_dev = self.settings.serverOutputDeviceId if outputDeviceId is None else outputDeviceId
         mon_dev = self.settings.serverMonitorDeviceId if monitorDeviceId is None else monitorDeviceId
         sr = self.settings.serverInputAudioSampleRate if sampleRate is None else sampleRate
         mon_sr = self.settings.serverMonitorAudioSampleRate if sampleRate is None else sampleRate
-        self._start_worker_and_rings(block_frame, has_monitor=True, sample_rate=sr, mon_sample_rate=mon_sr)
+        comm_active = self._start_worker_and_rings(
+            block_frame,
+            has_monitor=True,
+            sample_rate=sr,
+            mon_sample_rate=mon_sr,
+            input_device_name=inputDeviceName,
+            use_win_comm_aec=useWinCommAec,
+        )
         with PORTAUDIO_LOCK:
-            self.stream = sd.Stream(
-                callback=self.audio_stream_callback,
-                latency='low',
-                dtype="float32",
-                device=(in_dev, out_dev),
-                blocksize=block_frame,
-                samplerate=sr,
-                channels=(inputMaxChannel, outputMaxChannel),
-                extra_settings=(inputExtraSetting, outputExtraSetting)
+            self.stream = self._open_primary_stream(
+                block_frame,
+                inputMaxChannel,
+                outputMaxChannel,
+                inputExtraSetting,
+                outputExtraSetting,
+                in_dev,
+                out_dev,
+                sr,
+                comm_active,
             )
             self.monitor = sd.OutputStream(
                 callback=self.audio_monitor_callback,
@@ -818,6 +822,15 @@ class ServerAudio:
             self._stop_event.set()
             self._in_event.set()
 
+            with self._aec_lock:
+                old_comm = self._comm_capture
+                self._comm_capture = None
+            if old_comm is not None:
+                try:
+                    old_comm.stop()
+                except Exception:
+                    pass
+
             if self.stream is not None or self.monitor is not None:
                 with PORTAUDIO_LOCK:
                     if self.stream is not None:
@@ -835,17 +848,14 @@ class ServerAudio:
                 self._worker_thread.join(timeout=2.0)
             self._worker_thread = None
 
-            self._sync_echo_cancel_state(active=False)
+            self._sync_audio_processing_state(active=False)
 
             if self.in_ring is not None:
                 self.in_ring.clear()
-            if self.ref_ring is not None:
-                self.ref_ring.clear()
             if self.out_ring is not None:
                 self.out_ring.clear()
             if self.mon_ring is not None:
                 self.mon_ring.clear()
-            self._aec_first_cb_sync = False
 
     ###########################################
     # Start Section
@@ -944,6 +954,19 @@ class ServerAudio:
                     int(round((self.settings.serverReadChunkSize * 128 / 48000.0) * sample_rate)),
                 )
 
+                want_echo_cancel = bool(getattr(self.settings, 'echoCancel', False))
+                use_win_aec = (
+                    sys.platform == "win32"
+                    and want_echo_cancel
+                    and "ASIO" not in serverInputAudioDevice.hostAPI
+                    and not wasapiExclusiveMode
+                )
+                if want_echo_cancel and not use_win_aec:
+                    logger.warning(
+                        "[ServerAudio] Windows native AEC requires Windows shared mode (non-ASIO, non-exclusive); "
+                        "echo cancellation disabled for current driver/mode."
+                    )
+
                 try:
                     if serverMonitorAudioDevice is None:
                         self.run_no_monitor(
@@ -955,6 +978,8 @@ class ServerAudio:
                             inputDeviceId=input_dev_id,
                             outputDeviceId=output_dev_id,
                             sampleRate=sample_rate,
+                            inputDeviceName=serverInputAudioDevice.name,
+                            useWinCommAec=use_win_aec,
                         )
                     else:
                         self.run_with_monitor(
@@ -969,6 +994,8 @@ class ServerAudio:
                             outputDeviceId=output_dev_id,
                             monitorDeviceId=monitor_dev_id,
                             sampleRate=sample_rate,
+                            inputDeviceName=serverInputAudioDevice.name,
+                            useWinCommAec=use_win_aec,
                         )
                     self.running = True
                     self.settings.serverAudioStated = 1
@@ -1005,11 +1032,11 @@ class ServerAudio:
             if key == 'enableServerAudio' and not val:
                 self.stop()
                 return
-            if key in {'echoCancel', 'noiseSuppression'}:
+            if key in {'noiseSuppression', 'noiseSuppression2'}:
                 if self.running:
-                    self._sync_echo_cancel_state(active=True)
+                    self._sync_audio_processing_state(active=True)
                 return
-            if self.running and key in {'serverInputDeviceId', 'serverOutputDeviceId', 'serverMonitorDeviceId', 'serverReadChunkSize', 'serverAudioSampleRate', 'asioInputChannel', 'asioOutputChannel'}:
+            if self.running and key in {'echoCancel', 'exclusiveMode', 'serverInputDeviceId', 'serverOutputDeviceId', 'serverMonitorDeviceId', 'serverReadChunkSize', 'serverAudioSampleRate', 'asioInputChannel', 'asioOutputChannel'}:
                 if key in {'serverInputDeviceId', 'serverOutputDeviceId'} and (val is None or int(val) < 0):
                     self.stop()
                 else:

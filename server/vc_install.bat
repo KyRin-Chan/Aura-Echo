@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo ===============================================
-echo Voice Changer Server Installation Script (CUDA)
+echo AuraEcho Server Installation Script (CUDA)
 echo ===============================================
 echo.
 
@@ -126,7 +126,7 @@ echo ===============================================
 echo Installation completed successfully!
 echo ===============================================
 echo.
-echo To start the voice changer server:
+echo To start the AuraEcho server:
 echo.
 echo Run .\vc_startup.bat
 echo.

@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from "react";
-import { VoiceChangerServerSetting, ServerInfo, ServerSettingKey, OnnxExporterInfo, MergeModelRequest, VoiceChangerType, DefaultServerSetting } from "../const";
+import { VoiceChangerServerSetting, ServerInfo, ServerSettingKey, OnnxExporterInfo, MergeModelRequest, VoiceChangerType, DefaultServerSetting, TensorRTStatus } from "../const";
 import { VoiceChangerClient } from "../VoiceChangerClient";
 
 export const ModelAssetName = {
@@ -131,6 +131,12 @@ export type ServerSettingState = {
     //Pretrained
     downloadPretrained: (model_key: string) => Promise<ServerInfo>;
     deletePretrained: (model_key: string) => Promise<ServerInfo>;
+
+    //TensorRT
+    getTensorRTStatus: () => Promise<TensorRTStatus>;
+    downloadTensorRT: () => Promise<TensorRTStatus>;
+    cancelTensorRTDownload: () => Promise<TensorRTStatus>;
+    deleteTensorRT: () => Promise<TensorRTStatus>;
 };
 
 export const useServerSetting = (props: UseServerSettingProps): ServerSettingState => {
@@ -363,6 +369,18 @@ export const useServerSetting = (props: UseServerSettingProps): ServerSettingSta
         setServerSetting(serverInfo);
         return serverInfo;
     };
+    const getTensorRTStatus = async () => {
+        return await props.voiceChangerClient!.getTensorRTStatus();
+    };
+    const downloadTensorRT = async () => {
+        return await props.voiceChangerClient!.downloadTensorRT();
+    };
+    const cancelTensorRTDownload = async () => {
+        return await props.voiceChangerClient!.cancelTensorRTDownload();
+    };
+    const deleteTensorRT = async () => {
+        return await props.voiceChangerClient!.deleteTensorRT();
+    };
 
     return {
         serverSetting,
@@ -381,6 +399,10 @@ export const useServerSetting = (props: UseServerSettingProps): ServerSettingSta
         uploadAssets,
         downloadPretrained,
         deletePretrained,
+        getTensorRTStatus,
+        downloadTensorRT,
+        cancelTensorRTDownload,
+        deleteTensorRT,
         deleteModel,
     };
 };

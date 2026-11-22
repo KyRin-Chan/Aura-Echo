@@ -1,6 +1,6 @@
 # CUDA 12.8 Requirements
 --extra-index-url https://download.pytorch.org/whl/cu128
---extra-index-url https://pypi.nvidia.com
+# TensorRT runtime DLLs (tensorrt-cu12-libs==10.8.0.43) are downloaded on demand from the UI into tensorrt_libs/
 torch==2.7.1
 torchaudio==2.7.1
 faiss-cpu==1.11.0; sys_platform!='linux'
@@ -10,8 +10,6 @@ onnx==1.16.0
 onnxscript==0.2.6
 onnxslim==0.1.72
 onnxruntime-gpu==1.20.0
-tensorrt==10.8.0.43; sys_platform=='win32'
-tensorrt-cu12-libs==10.8.0.43; sys_platform=='win32'
 torchcrepe==0.0.24
 torchfcpe==0.0.4
 safetensors==0.5.3

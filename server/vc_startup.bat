@@ -2,7 +2,7 @@
 setlocal
 
 echo ===============================================
-echo Voice Changer Server Startup Script
+echo AuraEcho Server Startup Script
 echo ===============================================
 echo.
 
@@ -50,7 +50,7 @@ goto start_app
 REM Function to start the application
 :start_app
 echo.
-echo Starting Voice Changer Server...
+echo Starting AuraEcho Server...
 echo Press Ctrl+C to stop the server
 echo.
 
@@ -59,13 +59,13 @@ python main.py
 
 REM This will be reached when the server stops
 echo.
-echo Voice Changer Server has stopped
+echo AuraEcho Server has stopped
 goto cleanup
 
 REM Function to handle cleanup
 :cleanup
 echo.
-echo Shutting down Voice Changer Server...
+echo Shutting down AuraEcho Server...
 echo Goodbye!
 echo.
 echo Press any key to exit...
@@ -74,7 +74,7 @@ exit /b 0
 
 REM Main startup process
 :main
-echo Starting Voice Changer Server...
+echo Starting AuraEcho Server...
 echo.
 
 REM Check if we're in the server directory

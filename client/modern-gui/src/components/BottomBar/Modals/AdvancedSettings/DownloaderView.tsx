@@ -2,9 +2,10 @@ import { JSX, useState, useEffect, useCallback } from 'react';
 import { useAppState } from '../../../../context/AppContext';
 import { useUIContext } from '../../../../context/UIContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDownload, faTrash, faSpinner, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faDownload, faTrash, faSpinner, faCheck, faTimes } from '@fortawesome/free-solid-svg-icons';
 import { ModelInfoDict } from '@dannadori/voice-changer-client-js';
 import { t } from '../../../../locales';
+import { useTensorRT, formatBytes, getTensorRTPhaseText } from '../../../../scripts/useTensorRT';
 
 interface DownloaderViewProps {
   onDownloadStateChange?: (isDownloading: boolean) => void;
@@ -21,6 +22,15 @@ const DownloaderView = (props: DownloaderViewProps) => {
   const [pitchExtractors, setPitchExtractors] = useState<ModelInfoDict>(
     appState.serverSetting.serverSetting.pitchExtractors || {}
   );
+  const {
+    status: trtStatus,
+    isActive: isTrtActive,
+    isSubmitting: isTrtSubmitting,
+    isDeleting: isTrtDeleting,
+    startDownload: startTrtDownload,
+    cancelDownload: cancelTrtDownload,
+    deleteRuntime: deleteTrtRuntime
+  } = useTensorRT();
 
   // Update local state when server settings change
   useEffect(() => {
@@ -226,9 +236,108 @@ const DownloaderView = (props: DownloaderViewProps) => {
 
   const sortedEmbedders = sortItems(embedders);
   const sortedPitchExtractors = sortItems(pitchExtractors);
+  const isTrtInUse = appState.serverSetting.serverSetting.useTensorRT === 1;
 
   return (
     <div className="space-y-6 max-h-[500px] overflow-y-auto pr-1.5">
+      <div>
+        <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 pl-1">
+          {t('runtimeAcceleratorsTitle')}
+        </h3>
+        <div className="bg-surface-container-low rounded-lg border border-outline-variant overflow-hidden">
+          <div className="p-4 space-y-2.5 hover:bg-primary/4 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex-1 min-w-0 pr-4">
+                <div className="flex items-center flex-wrap gap-2">
+                  <span className="font-semibold text-on-surface text-sm">{t('tensorRtRuntimeName')}</span>
+                  {isTrtInUse && (
+                    <span className="px-2.5 py-0.5 text-[10px] font-semibold bg-secondary-container text-on-secondary-container rounded-full">
+                      {t('inUseLabel')}
+                    </span>
+                  )}
+                  {trtStatus?.pendingDelete && (
+                    <span className="px-2.5 py-0.5 text-[10px] font-semibold bg-error/10 text-error rounded-full">
+                      {t('tensorRtPendingDeleteLabel')}
+                    </span>
+                  )}
+                </div>
+                {trtStatus && !trtStatus.installed && trtStatus.supported && !isTrtActive && !trtStatus.pendingDelete && (trtStatus.state === 'idle' || trtStatus.state === 'cancelled') && (
+                  <p className="text-[11px] text-on-surface-variant/75 mt-1">{t('tensorRtNotInstalledHint')}</p>
+                )}
+                {trtStatus?.state === 'error' && trtStatus.error && (
+                  <p className="text-[11px] text-error mt-1 break-words">{trtStatus.error}</p>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2.5 shrink-0">
+                {trtStatus?.pendingDelete ? null : isTrtActive ? (
+                  <button
+                    onClick={cancelTrtDownload}
+                    disabled={isTrtSubmitting}
+                    className="px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 flex items-center bg-surface-container-highest text-on-surface hover:bg-error/15 hover:text-error disabled:opacity-50"
+                  >
+                    <FontAwesomeIcon icon={faTimes} className="mr-1.5" />
+                    {t('tensorRtCancelBtn')}
+                  </button>
+                ) : trtStatus?.installed ? (
+                  <>
+                    <span className="inline-flex items-center px-2.5 py-0.5 text-[10px] font-semibold text-on-primary-container bg-primary-container rounded-full">
+                      <FontAwesomeIcon icon={faCheck} className="mr-1" />
+                      {trtStatus.source === 'system' ? t('tensorRtSystemLabel') : t('installedLabel')}
+                      {trtStatus.sizeBytes > 0 ? ` · ${formatBytes(trtStatus.sizeBytes)}` : ''}
+                    </span>
+                    {trtStatus.managed && !uiState.isConverting && !isTrtInUse && (
+                      <button
+                        onClick={deleteTrtRuntime}
+                        disabled={isTrtDeleting}
+                        className="px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 flex items-center bg-error/10 text-error hover:bg-error/20 disabled:opacity-50"
+                      >
+                        <FontAwesomeIcon icon={isTrtDeleting ? faSpinner : faTrash} className={isTrtDeleting ? 'animate-spin mr-1' : 'mr-1'} />
+                        {t('deleteTooltip')}
+                      </button>
+                    )}
+                  </>
+                ) : trtStatus && !trtStatus.supported ? (
+                  <span className="inline-flex items-center px-2.5 py-0.5 text-[10px] font-semibold bg-surface-container-highest text-on-surface-variant rounded-full">
+                    {t('tensorRtUnsupportedLabel')}
+                  </span>
+                ) : trtStatus && trtStatus.supported ? (
+                  <button
+                    onClick={startTrtDownload}
+                    disabled={isTrtSubmitting}
+                    className="px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 flex items-center bg-primary text-on-primary hover:shadow-elevation-1 active:scale-97 disabled:opacity-50"
+                  >
+                    <FontAwesomeIcon icon={isTrtSubmitting ? faSpinner : faDownload} className={isTrtSubmitting ? 'animate-spin mr-1' : 'mr-1'} />
+                    {trtStatus.state === 'error' ? t('tensorRtRetryBtn') : t('tensorRtDownloadBtn')}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {isTrtActive && trtStatus && (
+              <div className="space-y-1.5 pt-1">
+                <div
+                  className="w-full h-1 rounded-full bg-surface-container-highest overflow-hidden"
+                  role="progressbar"
+                  aria-valuenow={Math.round(trtStatus.progress)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-300"
+                    style={{ width: `${Math.min(100, Math.max(0, trtStatus.progress))}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-on-surface-variant">
+                  <span>{getTensorRTPhaseText(trtStatus)}</span>
+                  <span className="font-semibold text-primary tabular-nums">{Math.round(trtStatus.progress)}%</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div>
         <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 pl-1">{t('embeddersTitle')}</h3>
         <div className="space-y-3">

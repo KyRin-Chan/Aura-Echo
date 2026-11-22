@@ -1,6 +1,6 @@
 <div align="center">
 
-# Voice Changer
+# AuraEcho
 
 **Real-time voice conversion powered by RVC, tuned for NVIDIA RTX GPUs on Windows.**
 
@@ -17,7 +17,7 @@
 
 ## Overview
 
-This project is a customized fork of [deiteris/voice-changer](https://github.com/deiteris/voice-changer), providing low-latency, real-time voice conversion based on Retrieval-based Voice Conversion (RVC).
+AuraEcho is a customized fork of [deiteris/voice-changer](https://github.com/deiteris/voice-changer), providing low-latency, real-time voice conversion based on Retrieval-based Voice Conversion (RVC).
 
 This edition focuses on a single, well-tuned configuration for **NVIDIA RTX GPUs**, with acceleration via **CUDA / TensorRT / ONNX**.
 
@@ -41,13 +41,13 @@ This edition focuses on a single, well-tuned configuration for **NVIDIA RTX GPUs
 
 - An archiver such as [7-Zip](https://www.7-zip.org/) or [WinRAR](https://www.win-rar.com/).
 - A virtual audio cable, e.g. [VAC Lite by Muzychenko](https://software.muzychenko.net/freeware/vac470lite.zip).
-- The latest release package, `voice-changer-windows-amd64-cuda.7z`, from the **Releases** page.
+- The latest release package, `AuraEcho-windows-amd64-cuda.7z`, from the **Releases** page.
 
 ### 2. Run
 
 1. Extract the `.7z` archive to a directory of your choice.
-2. Open the extracted folder, then the `MMVCServerSIO` directory.
-3. Launch `MMVCServerSIO.exe`.
+2. Open the extracted folder, then the `AuraEcho` directory.
+3. Launch `AuraEcho.exe`.
 4. Wait for the initial download of pre-trained weights to finish. Keep the console window open until it completes.
 5. Your default browser will open the web interface automatically.
 
@@ -119,8 +119,8 @@ Turn **Passthrough** off in the web UI. The button is yellow while active; click
 2. Clone the repository and run the installer, which creates a virtual environment and installs the CUDA dependencies:
 
    ```cmd
-   git clone <repo-url>
-   cd rvc-custom/server
+   git clone https://github.com/KyRin-Chan/Aura-Echo.git
+   cd Aura-Echo/server
    .\vc_install.bat
    ```
 
@@ -136,7 +136,7 @@ Then open the address printed in the console (typically `http://localhost:18950`
 
 ```cmd
 pip install --upgrade pip wheel setuptools pyinstaller
-pyinstaller --clean -y --dist ./dist --workpath /tmp MMVCServerSIO.spec
+pyinstaller --clean -y --dist ./dist --workpath /tmp AuraEcho.spec
 ```
 
 The output is written to the `dist` directory.

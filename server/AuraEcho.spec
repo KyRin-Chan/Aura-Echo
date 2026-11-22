@@ -21,20 +21,8 @@ if 'BUILD_NAME' in os.environ:
 binaries = []
 hiddenimports = ['app', 'torchgen']
 
-# Collect TensorRT dynamic libraries and data
+# Collect onnxscript data files (TensorRT runtime DLLs are downloaded on demand into tensorrt_libs/)
 datas += collect_data_files('onnxscript', include_py_files=True)
-try:
-    trt_ret = collect_all('tensorrt')
-    datas += trt_ret[0]
-    binaries += trt_ret[1]
-    hiddenimports += trt_ret[2]
-except Exception as e:
-    print(f"Warning: Could not collect tensorrt: {e}")
-
-try:
-    binaries += collect_dynamic_libs('tensorrt_libs')
-except Exception as e:
-    print(f"Warning: Could not collect tensorrt_libs: {e}")
 
 hiddenimports += collect_submodules('scipy') # Fix "ModuleNotFoundError: No module named 'scipy._lib.*'"
 
@@ -63,6 +51,7 @@ excludes_list = [
     'torch.utils.tensorboard',
     'tkinter', 'tcl', 'tk',
     'matplotlib', 'IPython', 'ipykernel', 'notebook', 'jinja2',
+    'tensorrt', 'tensorrt_libs', 'tensorrt_cu12', 'tensorrt_cu12_libs', 'tensorrt_cu12_bindings',
 ]
 
 a = Analysis(
@@ -105,6 +94,14 @@ def filter_unwanted(collected_list):
         # Exclude ONNX Runtime TensorRT provider in non-TRT builds
         if not is_trt_build and 'onnxruntime_providers_tensorrt' in src_lower:
             continue
+
+        # Exclude bundled TensorRT runtime DLLs (downloaded on demand into tensorrt_libs/)
+        if (
+            'tensorrt_libs' in src_lower
+            or ('nvinfer' in src_lower and 'onnxruntime_providers_tensorrt' not in src_lower)
+            or 'nvonnxparser' in src_lower
+        ):
+            continue
             
         filtered.append(item)
     return filtered
@@ -119,7 +116,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='MMVCServerSIO',
+    name='AuraEcho',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -139,5 +136,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='MMVCServerSIO',
+    name='AuraEcho',
 )

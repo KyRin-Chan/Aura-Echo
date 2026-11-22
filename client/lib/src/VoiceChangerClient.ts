@@ -446,6 +446,20 @@ export class VoiceChangerClient {
         return this.configurator.deletePretrained(model_key);
     };
 
+    //-------------- TensorRT Runtime --------------
+    getTensorRTStatus = () => {
+        return this.configurator.getTensorRTStatus();
+    };
+    downloadTensorRT = () => {
+        return this.configurator.downloadTensorRT();
+    };
+    cancelTensorRTDownload = () => {
+        return this.configurator.cancelTensorRTDownload();
+    };
+    deleteTensorRT = () => {
+        return this.configurator.deleteTensorRT();
+    };
+
     //##  Worklet ##//
     configureWorklet = (setting: WorkletSetting) => {
         this.vcInNode.configure(setting);

@@ -55,6 +55,10 @@ export declare class VoiceChangerClient {
     deleteSound: (slot: string) => Promise<import("./const").ServerInfo>;
     downloadPretrained: (model_key: string) => Promise<import("./const").ServerInfo>;
     deletePretrained: (model_key: string) => Promise<import("./const").ServerInfo>;
+    getTensorRTStatus: () => Promise<import("./const").TensorRTStatus>;
+    downloadTensorRT: () => Promise<import("./const").TensorRTStatus>;
+    cancelTensorRTDownload: () => Promise<import("./const").TensorRTStatus>;
+    deleteTensorRT: () => Promise<import("./const").TensorRTStatus>;
     configureWorklet: (setting: WorkletSetting) => void;
     startOutputRecording: () => void;
     stopOutputRecording: () => Float32Array;

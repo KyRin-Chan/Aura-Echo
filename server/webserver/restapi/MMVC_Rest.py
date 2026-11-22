@@ -73,7 +73,7 @@ class MMVC_Rest:
             soundsApi = MMVC_Rest_Sounds(voiceChangerManager)
             app_fastapi.include_router(soundsApi.router)
 
-            pretrainDownloader = MMVC_Rest_PretrainDownloader()
+            pretrainDownloader = MMVC_Rest_PretrainDownloader(voiceChangerManager)
             app_fastapi.include_router(pretrainDownloader.router)
 
             # Raw high-performance WebSocket route for binary audio streaming

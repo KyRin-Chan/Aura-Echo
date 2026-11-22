@@ -1,6 +1,6 @@
 {
-  "short_name": "RVC Modern User Interface",
-  "name": "Implementation of RVC Modern User Interface",
+  "short_name": "AuraEcho",
+  "name": "AuraEcho Voice Changer",
   "icons": [
     {
       "src": "favicon.ico",

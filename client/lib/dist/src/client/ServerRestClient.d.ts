@@ -1,4 +1,4 @@
-import { MergeModelRequest, OnnxExporterInfo, ServerInfo, ServerSettingKey } from "../const";
+import { MergeModelRequest, OnnxExporterInfo, ServerInfo, ServerSettingKey, TensorRTStatus } from "../const";
 export declare class ServerRestClient {
     private serverUrl;
     constructor(serverUrl: string);
@@ -22,5 +22,10 @@ export declare class ServerRestClient {
     deleteSound: (soundId: string) => Promise<ServerInfo>;
     downloadPretrained: (model_key: string) => Promise<ServerInfo>;
     deletePretrained: (model_key: string) => Promise<ServerInfo>;
+    private requestTensorRT;
+    getTensorRTStatus: () => Promise<TensorRTStatus>;
+    downloadTensorRT: () => Promise<TensorRTStatus>;
+    cancelTensorRTDownload: () => Promise<TensorRTStatus>;
+    deleteTensorRT: () => Promise<TensorRTStatus>;
     postVoice: (timestamp: number, buffer: ArrayBuffer) => Promise<any>;
 }

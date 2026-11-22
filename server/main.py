@@ -48,7 +48,7 @@ def setup_logging(log_level: str = 'info'):
 
 def setup_arg_parser():
     """Set up and return the argument parser."""
-    parser = argparse.ArgumentParser(description="Run the voice changer server.")
+    parser = argparse.ArgumentParser(description="Run the AuraEcho voice changer server.")
     parser.add_argument(
         "--log-level", 
         type=str, 
@@ -212,12 +212,16 @@ async def main():
         logger.info(f"Selected Boot Mode: HTTP (Unencrypted) on {boot_host}")
     
     logger.info(f"Python: {sys.version}")
-    logger.info(f"Voice changer version: {get_version()} {get_edition()}")
+    logger.info(f"AuraEcho version: {get_version()} {get_edition()}")
     
     # Create necessary directories
     os.makedirs(settings.model_dir, exist_ok=True)
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     os.makedirs(TMP_DIR, exist_ok=True)
+
+    # Apply any deferred TensorRT cleanup before VoiceChangerManager / DeviceManager load DLLs
+    from downloader.TensorRTManager import TensorRTManager
+    TensorRTManager.apply_pending_delete()
     
     logger.info(f"Server settings: {settings}")
     

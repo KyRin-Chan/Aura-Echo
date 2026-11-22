@@ -103,6 +103,11 @@ class VoiceChangerManager(ServerAudioCallbacks):
         except Exception:
             # In case of any unexpected structure, still default to CPU
             self.settings.gpu = -1
+
+        if self.settings.useTensorRT == 1 and not self.device_manager.is_tensorrt_available():
+            logger.warning("Stored setting had useTensorRT=1, but TensorRT runtime libraries are not available. Resetting useTensorRT to 0.")
+            self.settings._useTensorRT = 0
+
         self.device_manager.initialize(
             self.settings.gpu,
             self.settings.forceFp32,
@@ -287,6 +292,11 @@ class VoiceChangerManager(ServerAudioCallbacks):
         # TODO: This is required to get type-casted setting. But maybe this should be done prior to setting.
         val = self.settings.get_property(key)
         if old_value == val:
+            return self.get_info()
+        if key == 'useTensorRT' and bool(val) and not self.device_manager.refresh_tensorrt_libs():
+            logger.warning("Cannot enable TensorRT: TensorRT runtime libraries are not installed.")
+            self.settings._useTensorRT = 0
+            self.store_setting()
             return self.get_info()
         # TODO: Storing settings on each change is suboptimal. Maybe timed autosave?
         self.store_setting()

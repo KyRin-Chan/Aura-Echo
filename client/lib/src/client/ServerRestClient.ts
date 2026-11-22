@@ -1,4 +1,4 @@
-import { MergeModelRequest, OnnxExporterInfo, ServerInfo, ServerSettingKey } from "../const";
+import { MergeModelRequest, OnnxExporterInfo, ServerInfo, ServerSettingKey, TensorRTStatus } from "../const";
 import { pack, unpack } from 'msgpackr';
 
 type FileChunk = {
@@ -355,6 +355,41 @@ export class ServerRestClient {
             resolve(res);
         });
         return info;
+    };
+
+    //-------------- TensorRT Runtime --------------
+    private requestTensorRT = async (path: string, method: "GET" | "POST"): Promise<TensorRTStatus> => {
+        const url = method === "GET" ? this.buildCacheBustedUrl(path) : this.serverUrl + path;
+        const res = await fetch(url, {
+            method,
+            cache: "no-store",
+        });
+        let data: any = null;
+        try {
+            data = await res.json();
+        } catch {
+            // ignore non-JSON body
+        }
+        if (!res.ok) {
+            throw new Error(data?.detail || res.statusText || `HTTP ${res.status}`);
+        }
+        return data as TensorRTStatus;
+    };
+
+    getTensorRTStatus = async (): Promise<TensorRTStatus> => {
+        return this.requestTensorRT("/tensorrt/status", "GET");
+    };
+
+    downloadTensorRT = async (): Promise<TensorRTStatus> => {
+        return this.requestTensorRT("/tensorrt/download", "POST");
+    };
+
+    cancelTensorRTDownload = async (): Promise<TensorRTStatus> => {
+        return this.requestTensorRT("/tensorrt/cancel", "POST");
+    };
+
+    deleteTensorRT = async (): Promise<TensorRTStatus> => {
+        return this.requestTensorRT("/tensorrt/delete", "POST");
     };
 
     // VoiceChangerWorkletNodeから呼び出される

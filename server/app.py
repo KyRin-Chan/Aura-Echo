@@ -14,6 +14,9 @@ os.environ['CUDNN_PATH'] = ''
 # https://github.com/facebookresearch/faiss/issues/53#issuecomment-288351188
 os.environ['OMP_WAIT_POLICY'] = 'PASSIVE'
 
+from downloader.TensorRTManager import TensorRTManager
+TensorRTManager.apply_pending_delete()
+
 from voice_changer.VoiceChangerManager import VoiceChangerManager
 from webserver.sio.MMVC_SocketIOApp import MMVC_SocketIOApp
 from webserver.restapi.MMVC_Rest import MMVC_Rest

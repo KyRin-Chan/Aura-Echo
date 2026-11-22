@@ -7,7 +7,7 @@ import re
 import threading
 from typing import TypedDict, Literal, Optional
 from enum import IntFlag
-from const import TMP_DIR
+from const import TMP_DIR, TENSORRT_LIBS_DIR
 
 try:
     import torch_directml
@@ -163,7 +163,7 @@ class DeviceManager(object):
         return devices
 
     def _find_tensorrt_lib_dirs(self) -> list[str]:
-        candidates = []
+        candidates = [TENSORRT_LIBS_DIR]
         try:
             candidates.extend(site.getsitepackages())
         except Exception:
@@ -183,26 +183,54 @@ class DeviceManager(object):
 
         trt_dirs = []
         seen = set()
+        managed_norm = os.path.normcase(os.path.abspath(TENSORRT_LIBS_DIR))
         for base in candidates:
             if not base:
                 continue
-            for path in (os.path.join(base, "tensorrt_libs"), base):
+            base_norm = os.path.normcase(os.path.abspath(base))
+            paths = (base,) if base_norm == managed_norm else (os.path.join(base, "tensorrt_libs"), base)
+            for path in paths:
                 norm = os.path.normcase(os.path.abspath(path))
-                if norm not in seen and os.path.isdir(path):
-                    seen.add(norm)
-                    trt_dirs.append(path)
+                if norm in seen or not os.path.isdir(path):
+                    continue
+                if os.path.exists(os.path.join(path, ".pending_delete")):
+                    continue
+                seen.add(norm)
+                trt_dirs.append(path)
         return trt_dirs
 
     @staticmethod
     def _dir_has_nvinfer_dll(directory: str) -> bool:
         try:
-            for file in os.listdir(directory):
-                name = file.lower()
-                if name.startswith("nvinfer") and name.endswith(".dll"):
-                    return True
+            if os.path.exists(os.path.join(directory, ".pending_delete")):
+                return False
+            entries = {
+                file.lower()
+                for file in os.listdir(directory)
+                if os.path.isfile(os.path.join(directory, file))
+            }
+            managed_norm = os.path.normcase(os.path.abspath(TENSORRT_LIBS_DIR))
+            dir_norm = os.path.normcase(os.path.abspath(directory))
+            if dir_norm == managed_norm:
+                required = ("nvinfer_10.dll", "nvinfer_plugin_10.dll", "nvonnxparser_10.dll")
+                return all(dll in entries for dll in required)
+            return any(name.startswith("nvinfer") and name.endswith(".dll") for name in entries)
         except Exception:
-            pass
-        return False
+            return False
+
+    def is_tensorrt_available(self) -> bool:
+        return self._is_tensorrt_available()
+
+    def refresh_tensorrt_libs(self) -> bool:
+        self._register_tensorrt_libs()
+        return self._is_tensorrt_available()
+
+    def is_tensorrt_supported(self) -> bool:
+        return (
+            sys.platform == "win32"
+            and self.cuda_enabled
+            and ("TensorrtExecutionProvider" in onnxruntime.get_available_providers())
+        )
 
     def _register_tensorrt_libs(self) -> None:
         current_path = os.environ.get("PATH", "")

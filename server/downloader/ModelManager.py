@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import Dict, Any, Optional, TypedDict, Union, TYPE_CHECKING
-from .PretrainList import pitch_extractors, embedders
+from .PretrainList import pitch_extractors, embedders, denoisers
 
 if TYPE_CHECKING:
     from voice_changer.VoiceChangerSettings import VoiceChangerSettings
@@ -35,7 +35,11 @@ class ModelManager:
         Returns:
             Dictionary with model IDs as keys and model info as values.
         """
-        return {**ModelManager.get_pitch_extractors(), **ModelManager.get_embedders()}
+        return {
+            **ModelManager.get_pitch_extractors(),
+            **ModelManager.get_embedders(),
+            **ModelManager.get_denoisers(),
+        }
     
     @staticmethod
     def get_pitch_extractors() -> Dict[str, Dict[str, Any]]:
@@ -66,6 +70,15 @@ class ModelManager:
             Dictionary with embedder model IDs as keys and model info as values.
         """
         return ModelManager._add_download_status(dict(embedders))
+
+    @staticmethod
+    def get_denoisers() -> Dict[str, Dict[str, Any]]:
+        """Get denoiser models with their information and download status.
+
+        Returns:
+            Dictionary with denoiser model IDs as keys and model info as values.
+        """
+        return ModelManager._add_download_status(dict(denoisers))
 
     
     @staticmethod
@@ -108,7 +121,7 @@ class ModelManager:
         
         settings = get_settings()
         is_directml = settings.edition.lower() == 'directml'
-        all_models = {**pitch_extractors, **embedders}
+        all_models = {**pitch_extractors, **embedders, **denoisers}
         
         # Filter models based on edition and mandatory status
         models_to_check = {
@@ -165,6 +178,10 @@ class ModelManager:
         # Then try to find in embedders
         if model_key in embedders:
             return embedders[model_key], 'embedder'
+
+        # Then try to find in denoisers
+        if model_key in denoisers:
+            return denoisers[model_key], 'denoiser'
 
         return None, None
         

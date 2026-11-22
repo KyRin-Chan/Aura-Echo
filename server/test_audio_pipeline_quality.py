@@ -1468,72 +1468,135 @@ class TestAudioPipelineQuality(unittest.TestCase):
         settings = VoiceChangerSettings()
         self.assertFalse(settings.echoCancel)
         self.assertFalse(settings.noiseSuppression)
+        self.assertFalse(settings.noiseSuppression2)
         settings.echoCancel = "true"
         settings.noiseSuppression = "1"
+        settings.noiseSuppression2 = "1"
         self.assertTrue(settings.echoCancel)
         self.assertTrue(settings.noiseSuppression)
+        self.assertTrue(settings.noiseSuppression2)
         settings.echoCancel = "0"
         settings.noiseSuppression = "false"
+        settings.noiseSuppression2 = "off"
         self.assertFalse(settings.echoCancel)
         self.assertFalse(settings.noiseSuppression)
+        self.assertFalse(settings.noiseSuppression2)
 
         sa = ServerAudio(MagicMock(), settings)
         sa.running = True
         sa._out_sr = 48000
         sa._block_frame = 2048
         sa._worker_in_buf = np.zeros(2048, dtype=np.float32)
-        sa._worker_ref_buf = np.zeros(2048, dtype=np.float32)
 
-        mock_cap = MagicMock()
-        mock_cap.sample_rate = 48000
-        mock_cap.is_running = True
-        mock_cap.start.return_value = True
+        mock_comm = MagicMock()
+        mock_comm.is_running = True
+        mock_comm.os_aec_active = True
+        mock_comm.os_ns_active = True
+        mock_comm.start.return_value = True
 
-        def _fake_read_chunk(n, out_buf=None):
-            if out_buf is None:
-                out_buf = np.zeros(n, dtype=np.float32)
-            out_buf[:n] = 0.1
-            return out_buf
+        mock_gtcrn = MagicMock()
+        mock_gtcrn.available = True
+        mock_gtcrn.process.side_effect = lambda x: x * 0.5
 
-        mock_cap.read_chunk.side_effect = _fake_read_chunk
+        with (
+            patch("voice_changer.Local.ServerAudio.WasapiCommCapture", return_value=mock_comm) as mock_comm_cls,
+            patch("voice_changer.Local.ServerAudio.ServerGTCRN", return_value=mock_gtcrn),
+            patch("voice_changer.Local.ServerAudio.sd.OutputStream") as mock_out_stream,
+            patch("voice_changer.Local.ServerAudio.sd.Stream") as mock_duplex_stream,
+        ):
+            # 1. Windows Communications capture mode opens OutputStream with audio_output_only_callback
+            sa._open_primary_stream(2048, 1, 1, None, None, 0, 1, 48000, True)
+            mock_out_stream.assert_called_once()
+            self.assertEqual(
+                mock_out_stream.call_args.kwargs["callback"],
+                sa.audio_output_only_callback,
+            )
+            mock_duplex_stream.assert_not_called()
 
-        with patch("voice_changer.Local.ServerAudio.WasapiLoopbackCapture", return_value=mock_cap):
-            settings.echoCancel = True
-            sa.update_settings("echoCancel", True, False)
-            mock_cap.start.assert_called_once()
-            self.assertIsNotNone(sa._aec)
-            self.assertTrue(sa._aec.echo_cancellation)
-            self.assertIsNotNone(sa._loopback_capture)
+            # Non-Comm mode falls back to duplex sd.Stream
+            sa._open_primary_stream(2048, 1, 1, None, None, 0, 1, 48000, False)
+            mock_duplex_stream.assert_called_once()
 
-            # Applying AEC invokes loopback read_chunk and ServerAEC
-            sa._worker_in_buf[:] = 0.2
-            sa._apply_aec(sa._worker_in_buf, sa._worker_ref_buf)
-            mock_cap.read_chunk.assert_called_once()
+            try:
+                # 2. echoCancel=True starts WasapiCommCapture via _start_worker_and_rings
+                sa.running = True
+                settings.echoCancel = True
+                comm_active = sa._start_worker_and_rings(
+                    2048,
+                    False,
+                    sample_rate=48000,
+                    input_device_name="Mic 1",
+                    use_win_comm_aec=True,
+                )
+                self.assertTrue(comm_active)
+                mock_comm_cls.assert_called_once()
+                mock_comm.start.assert_called_once()
+                self.assertIs(sa._comm_capture, mock_comm)
+                self.assertIsNone(sa._ns_processor)
+                self.assertIsNone(sa._gtcrn)
 
-            # Toggling noiseSuppression on while echoCancel is on preserves running loopback
-            settings.noiseSuppression = True
-            sa.update_settings("noiseSuppression", True, False)
-            mock_cap.start.assert_called_once()
-            self.assertTrue(sa._aec.echo_cancellation)
-            self.assertTrue(sa._aec.noise_suppression)
+                # 3. noiseSuppression=True updates Windows DEEP_NS when OS APO is active without stacking WebRTC NS1
+                settings.noiseSuppression = True
+                sa.update_settings("noiseSuppression", True, False)
+                mock_comm.set_deep_noise_suppression.assert_called_with(True)
+                self.assertIsNone(sa._ns_processor)
 
-            # Toggling echoCancel off while noiseSuppression remains on stops loopback only
-            settings.echoCancel = False
-            sa.update_settings("echoCancel", False, True)
-            mock_cap.stop.assert_called_once()
-            self.assertIsNone(sa._loopback_capture)
-            self.assertIsNotNone(sa._aec)
-            self.assertFalse(sa._aec.echo_cancellation)
-            self.assertTrue(sa._aec.noise_suppression)
+                # 4. noiseSuppression2=True activates streaming ServerGTCRN
+                settings.noiseSuppression2 = True
+                sa.update_settings("noiseSuppression2", True, False)
+                self.assertIs(sa._gtcrn, mock_gtcrn)
+                sa._worker_in_buf[:] = 0.4
+                sa._apply_input_processing(sa._worker_in_buf)
+                mock_gtcrn.process.assert_called_once()
+                self.assertAlmostEqual(float(sa._worker_in_buf[0]), 0.2, places=5)
 
-            sa._apply_aec(sa._worker_in_buf, sa._worker_ref_buf)
-            self.assertEqual(mock_cap.read_chunk.call_count, 1)
+                # 5. Disabling noiseSuppression2 clears GTCRN
+                settings.noiseSuppression2 = False
+                sa.update_settings("noiseSuppression2", False, True)
+                self.assertIsNone(sa._gtcrn)
 
-            # Turning noiseSuppression off too clears ServerAEC
-            settings.noiseSuppression = False
-            sa.update_settings("noiseSuppression", False, True)
-            self.assertIsNone(sa._aec)
-            self.assertIsNone(sa._loopback_capture)
+                # 6. Virtual device without OS APO falls back to WebRTC NS1 even while Comm capture runs
+                mock_comm.os_aec_active = False
+                mock_comm.os_ns_active = False
+                sa._sync_audio_processing_state(True)
+                self.assertIsNotNone(sa._ns_processor)
+                self.assertFalse(sa._ns_processor.echo_cancellation)
+                self.assertTrue(sa._ns_processor.noise_suppression)
+
+                # 7. Toggling echoCancel off while running restarts via sa.start()
+                with patch.object(sa, "start") as mock_restart:
+                    settings.echoCancel = False
+                    sa.update_settings("echoCancel", False, True)
+                    mock_restart.assert_called_once()
+
+                # 8. stop() tears down Comm capture and input processors
+                sa.stop()
+                mock_comm.stop.assert_called_once()
+                self.assertIsNone(sa._comm_capture)
+                self.assertIsNone(sa._ns_processor)
+                self.assertIsNone(sa._gtcrn)
+
+                # 9. Starting with use_win_comm_aec=False uses standalone WebRTC NS1; toggling off clears it
+                settings.noiseSuppression = True
+                sa.running = True
+                comm_active2 = sa._start_worker_and_rings(
+                    2048,
+                    False,
+                    sample_rate=48000,
+                    input_device_name="Mic 1",
+                    use_win_comm_aec=False,
+                )
+                self.assertFalse(comm_active2)
+                self.assertIsNone(sa._comm_capture)
+                self.assertIsNotNone(sa._ns_processor)
+                self.assertFalse(sa._ns_processor.echo_cancellation)
+                self.assertTrue(sa._ns_processor.noise_suppression)
+
+                settings.noiseSuppression = False
+                sa.update_settings("noiseSuppression", False, True)
+                self.assertIsNone(sa._ns_processor)
+            finally:
+                sa.stop()
 
     def test_server_aec_48k_and_44k_noise_suppression_quality(self):
         from voice_changer.common.ServerAEC import ServerAEC
@@ -1648,25 +1711,13 @@ class TestAudioPipelineQuality(unittest.TestCase):
         l_echo = 43 * ms  # +33ms true delay relative to loopback packet arrival
         startup_gap_ms = 50
 
-        settings = VoiceChangerSettings()
-        settings.echoCancel = True
-        settings.noiseSuppression = False
-        sa = ServerAudio(MagicMock(), settings)
-        sa._out_sr = sr
-        sa._block_frame = block_frame
-        sa.in_ring = Float32RingBuffer(block_frame * 8)
-        sa.ref_ring = Float32RingBuffer(block_frame * 8)
-        sa.out_ring = Float32RingBuffer(block_frame * 8)
-
         sim_cap = WasapiLoopbackCapture(sr)
         sim_ring = sim_cap._ensure_ring()
         sim_cap._running = True
         sim_cap._thread = MagicMock(is_alive=lambda: True)
-        sa._loopback_capture = sim_cap
-        sa._aec = ServerAEC(sr, echo_cancellation=True, noise_suppression=False)
-        sa._aec_first_cb_sync = True
+        aec = ServerAEC(sr, echo_cancellation=True, noise_suppression=False)
 
-        # Pre-accumulate 50ms of loopback audio before first PortAudio callback
+        # Pre-accumulate 50ms of loopback audio before streaming starts
         for t_ms in range(startup_gap_ms):
             s0 = t_ms * ms - l_loop
             pkt = np.zeros(ms, dtype=np.float32)
@@ -1674,11 +1725,14 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 pkt[:] = far_src[s0 : s0 + ms]
             sim_ring.write(pkt)
 
-        outdata = np.zeros((block_frame, 1), dtype=np.float32)
+        # Trim stale startup loopback backlog, keeping 20ms so mic echo remains causal (+13ms)
+        sim_cap.flush_to_latest(20 * ms)
+
         mic_acc = []
         out_acc = []
         cb_accum = 0
         cb_indata = np.zeros((block_frame, 1), dtype=np.float32)
+        r_blk = np.zeros(block_frame, dtype=np.float32)
 
         for t_ms in range(startup_gap_ms, sim_ms):
             lb_s = t_ms * ms - l_loop
@@ -1690,15 +1744,12 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 cb_indata[cb_accum, 0] = mic_ms[idx_s]
                 cb_accum += 1
                 if cb_accum == block_frame:
-                    sa.audio_stream_callback(cb_indata, outdata, block_frame, None, None)
                     cb_accum = 0
-                    m_blk = np.zeros(block_frame, dtype=np.float32)
-                    r_blk = np.zeros(block_frame, dtype=np.float32)
-                    sa.in_ring.read_exact_into(m_blk)
-                    sa.ref_ring.read_exact_into(r_blk)
-                    mic_acc.append(m_blk.copy())
-                    sa._apply_aec(m_blk, r_blk, ref_from_ring=True)
-                    out_acc.append(m_blk)
+                    m_blk = cb_indata[:, 0].copy()
+                    sim_cap.read_chunk(block_frame, out_buf=r_blk)
+                    mic_acc.append(m_blk)
+                    proc = aec.process(m_blk, r_blk)
+                    out_acc.append(proc)
 
         mic_all = np.concatenate(mic_acc)
         out_all = np.concatenate(out_acc)
@@ -1711,8 +1762,9 @@ class TestAudioPipelineQuality(unittest.TestCase):
 
     def test_server_audio_post_aec_gain_and_backlog_ref_lockstep(self):
         settings = VoiceChangerSettings()
-        settings.echoCancel = True
-        settings.noiseSuppression = False
+        settings.echoCancel = False
+        settings.noiseSuppression = True
+        settings.noiseSuppression2 = True
         settings.serverInputAudioGain = 2.0
         block_frame = 512
 
@@ -1720,48 +1772,42 @@ class TestAudioPipelineQuality(unittest.TestCase):
         sa._out_sr = 48000
         sa._block_frame = block_frame
         sa.in_ring = Float32RingBuffer(block_frame * 8)
-        sa.ref_ring = Float32RingBuffer(block_frame * 8)
         sa.out_ring = Float32RingBuffer(block_frame * 8)
         sa._worker_in_buf = np.zeros(block_frame, dtype=np.float32)
         sa._worker_skip_buf = np.zeros(block_frame, dtype=np.float32)
-        sa._worker_ref_buf = np.zeros(block_frame, dtype=np.float32)
-        sa._worker_skip_ref_buf = np.zeros(block_frame, dtype=np.float32)
         sa._last_diag_log_ts = -10.0
 
-        seen_aec_pairs = []
+        seen_ns_vals = []
+        seen_gtcrn_vals = []
         audio_peaks = []
         skip_peaks = []
 
-        stub_aec = MagicMock()
-        stub_aec.backend = "webrtc"
-        stub_aec.sample_rate = 48000
-        stub_aec.echo_cancellation = True
-        stub_aec.noise_suppression = False
+        stub_ns = MagicMock()
+        stub_ns.backend = "webrtc"
+        stub_ns.sample_rate = 48000
+        stub_ns.echo_cancellation = False
+        stub_ns.noise_suppression = True
 
-        def _fake_aec_process(mic, ref):
-            seen_aec_pairs.append((float(mic[0]), float(ref[0])))
+        def _fake_ns_process(mic, ref):
+            seen_ns_vals.append(float(mic[0]))
             return mic.copy()
 
-        stub_aec.process.side_effect = _fake_aec_process
+        stub_ns.process.side_effect = _fake_ns_process
 
-        mock_cap = MagicMock()
-        mock_cap.sample_rate = 48000
-        mock_cap.is_running = True
-        cap_tags = iter([0.1, 0.2, 0.3])
+        stub_gtcrn = MagicMock()
+        stub_gtcrn.available = True
 
-        def _fake_read_chunk(n, out_buf=None):
-            val = next(cap_tags)
-            out_buf[:n] = val
-            return out_buf
+        def _fake_gtcrn_process(mic):
+            seen_gtcrn_vals.append(float(mic[0]))
+            return mic.copy()
 
-        mock_cap.read_chunk.side_effect = _fake_read_chunk
-        sa._loopback_capture = mock_cap
-        sa._aec = stub_aec
+        stub_gtcrn.process.side_effect = _fake_gtcrn_process
 
-        outdata = np.zeros((block_frame, 1), dtype=np.float32)
+        sa._ns_processor = stub_ns
+        sa._gtcrn = stub_gtcrn
+
         for tag in (0.1, 0.2, 0.3):
-            indata = np.full((block_frame, 1), tag, dtype=np.float32)
-            sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+            sa._on_comm_input_frames(np.full(block_frame, tag, dtype=np.float32))
 
         def _on_skip(buf):
             skip_peaks.append(float(buf[0]))
@@ -1783,33 +1829,105 @@ class TestAudioPipelineQuality(unittest.TestCase):
         with self.assertLogs("voice_changer.Local.ServerAudio", level="WARNING"):
             sa._inference_worker_loop()
 
-        # AEC sees un-gained raw mic values paired 1:1 with ref values; gain (2.0x) applies AFTER AEC
-        self.assertEqual(len(seen_aec_pairs), 3)
-        for expected_tag, (m_val, r_val) in zip((0.1, 0.2, 0.3), seen_aec_pairs):
-            self.assertAlmostEqual(m_val, expected_tag, places=5)
-            self.assertAlmostEqual(r_val, expected_tag, places=5)
+        # NS1 & GTCRN see un-gained raw mic values in chronological order; gain (2.0x) applies AFTER denoisers
+        self.assertEqual([round(x, 4) for x in seen_ns_vals], [0.1, 0.2, 0.3])
+        self.assertEqual([round(x, 4) for x in seen_gtcrn_vals], [0.1, 0.2, 0.3])
         self.assertEqual([round(x, 4) for x in skip_peaks], [0.2, 0.4])
         self.assertEqual([round(x, 4) for x in audio_peaks], [0.6])
 
-        # Toggling noiseSuppression preserves existing ServerAEC instance in-place
+        # Live settings toggles: echoCancel triggers stream restart, NS1/NS2 sync in-place without restart
         sa2 = ServerAudio(MagicMock(), VoiceChangerSettings())
         sa2.running = True
         sa2._out_sr = 48000
         sa2._block_frame = 2048
-        mock_cap2 = MagicMock()
-        mock_cap2.sample_rate = 48000
-        mock_cap2.is_running = True
-        mock_cap2.start.return_value = True
-        with patch("voice_changer.Local.ServerAudio.WasapiLoopbackCapture", return_value=mock_cap2):
-            sa2.settings.echoCancel = True
-            sa2.update_settings("echoCancel", True, False)
-            orig_aec = sa2._aec
+        with (
+            patch.object(sa2, "start") as mock_start,
+            patch.object(sa2, "_sync_audio_processing_state") as mock_sync,
+        ):
             sa2.settings.noiseSuppression = True
             sa2.update_settings("noiseSuppression", True, False)
-            self.assertIs(sa2._aec, orig_aec)
-            self.assertTrue(sa2._aec.noise_suppression)
-            self.assertTrue(sa2._aec.echo_cancellation)
-            mock_cap2.start.assert_called_once()
+            sa2.settings.noiseSuppression2 = True
+            sa2.update_settings("noiseSuppression2", True, False)
+            mock_start.assert_not_called()
+            self.assertEqual(mock_sync.call_count, 2)
+
+            sa2.settings.echoCancel = True
+            sa2.update_settings("echoCancel", True, False)
+            mock_start.assert_called_once()
+
+    def test_server_gtcrn_streaming_denoising_and_sample_rates(self):
+        import time
+        from voice_changer.common.ServerGTCRN import ServerGTCRN
+
+        for sr, chunk_size in ((16000, 128), (48000, 2048), (44100, 5645)):
+            gtcrn = ServerGTCRN(sample_rate=sr, auto_download=False)
+            self.assertTrue(
+                gtcrn.available,
+                f"ServerGTCRN should initialize cleanly from local pretrain weights at sr={sr}",
+            )
+
+            dur_s = 2.5
+            n_total = int(round(dur_s * sr))
+            noise_end = int(1.0 * sr)
+            t_all = np.arange(n_total, dtype=np.float32) / float(sr)
+
+            rng = np.random.default_rng(1234 + sr)
+            noise = rng.normal(0.0, 0.03, size=n_total).astype(np.float32)
+
+            # Modulated harmonic speech-like burst from 1.0s to 2.5s
+            speech = np.zeros(n_total, dtype=np.float32)
+            t_sp = t_all[noise_end:] - 1.0
+            f0 = 150.0 + 45.0 * np.sin(2.0 * np.pi * 1.4 * t_sp) + 20.0 * np.sin(2.0 * np.pi * 3.1 * t_sp)
+            phase = 2.0 * np.pi * np.cumsum(f0) / float(sr)
+            env = np.clip(0.35 + 0.65 * np.sin(2.0 * np.pi * 3.5 * t_sp), 0.1, 1.0)
+            speech[noise_end:] = (
+                (0.45 * np.sin(phase) + 0.30 * np.sin(2.0 * phase) + 0.20 * np.sin(3.0 * phase))
+                * env
+                * 0.45
+            ).astype(np.float32)
+
+            noisy = (noise + speech).astype(np.float32)
+            chunks_out = []
+            t0 = time.perf_counter()
+            for start_idx in range(0, n_total, chunk_size):
+                blk = noisy[start_idx : min(n_total, start_idx + chunk_size)]
+                out_blk = gtcrn.process(blk)
+                self.assertEqual(len(out_blk), len(blk))
+                self.assertEqual(out_blk.dtype, np.float32)
+                self.assertTrue(np.all(np.isfinite(out_blk)))
+                chunks_out.append(out_blk)
+            elapsed_s = time.perf_counter() - t0
+            rtf = elapsed_s / dur_s
+
+            out_all = np.concatenate(chunks_out)
+            self.assertEqual(len(out_all), n_total)
+
+            noise_win = slice(int(0.4 * sr), int(0.95 * sr))
+            speech_win = slice(int(1.2 * sr), int(2.3 * sr))
+
+            in_noise_pwr = float(np.mean(noisy[noise_win] ** 2)) + 1e-12
+            out_noise_pwr = float(np.mean(out_all[noise_win] ** 2)) + 1e-12
+            supp_db = 10.0 * math.log10(in_noise_pwr / out_noise_pwr)
+
+            clean_sp_rms = float(np.sqrt(np.mean(speech[speech_win] ** 2))) + 1e-12
+            out_sp_rms = float(np.sqrt(np.mean(out_all[speech_win] ** 2)))
+            speech_rms_ratio = out_sp_rms / clean_sp_rms
+
+            self.assertGreaterEqual(
+                supp_db,
+                12.0,
+                f"GTCRN noise suppression too weak at sr={sr}, chunk={chunk_size}: {supp_db:.2f} dB",
+            )
+            self.assertGreater(
+                speech_rms_ratio,
+                0.55,
+                f"GTCRN attenuated speech too aggressively at sr={sr}, chunk={chunk_size}: ratio={speech_rms_ratio:.3f}",
+            )
+            self.assertLess(
+                rtf,
+                0.25,
+                f"GTCRN CPU RTF too slow at sr={sr}, chunk={chunk_size}: {rtf:.4f}",
+            )
 
 
 if __name__ == "__main__":
