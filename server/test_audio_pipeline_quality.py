@@ -283,6 +283,32 @@ class TestAudioPipelineQuality(unittest.TestCase):
         self.assertGreater(float(rvc.convert_buffer[-1024:].abs().max().item()), 1e-4)
         self.assertGreater(float(rvc.resampler_in.history.abs().max().item()), 1e-4)
 
+        # 4. Late-in-chunk onset (silent first ~90%, voiced last 20ms) opens gate despite low full-chunk RMS
+        rvc.realloc(9216, int(0.1 * 48000), int(0.04 * 48000), int(0.012 * 48000))
+        mock_pipeline.exec.reset_mock()
+        late_onset = np.zeros(9216, dtype=np.float32)
+        late_onset[-960:] = 0.022 * np.sin(
+            2.0 * math.pi * 200.0 * np.arange(960, dtype=np.float32) / 48000.0
+        )
+        self.assertLess(float(np.sqrt(np.mean(late_onset ** 2))), rvc.inputSensitivity)
+        out_late, _ = rvc.inference(late_onset)
+        self.assertIsNotNone(out_late)
+        self.assertTrue(rvc._gate_open)
+        self.assertEqual(mock_pipeline.exec.call_count, 1)
+
+        # 5. Hysteresis (-3 dB hold) keeps gate armed at -42 dB while open, but rejects when closed
+        borderline = 0.0112 * np.sin(2.0 * math.pi * 200.0 * np.arange(9216, dtype=np.float32) / 48000.0)
+        out_hyst, _ = rvc.inference(borderline)
+        self.assertIsNotNone(out_hyst)
+        self.assertTrue(rvc._gate_open)
+        self.assertEqual(mock_pipeline.exec.call_count, 2)
+
+        rvc.reset_state()
+        out_closed, _ = rvc.inference(borderline)
+        self.assertIsNone(out_closed)
+        self.assertFalse(rvc._gate_open)
+        self.assertEqual(mock_pipeline.exec.call_count, 2)
+
     def test_stateful_peak_limiter_and_thd(self):
         sr = 48000
         limiter = StatefulPeakLimiter(threshold=0.85, ceiling=0.98, attack_ms=1.0, release_ms=80.0)
@@ -586,6 +612,26 @@ class TestAudioPipelineQuality(unittest.TestCase):
         sa.audio_stream_callback(indata, outdata, block_frame, None, None)
         self.assertEqual(sa.out_ring.available(), 0)
         self.assertTrue(np.all(np.isfinite(outdata)))
+
+        # Second underrun increments _out_underrun_count to 2 and raises cushion to block_frame
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertTrue(sa._out_underrun)
+        self.assertEqual(sa._out_underrun_count, 2)
+        self.assertEqual(sa._out_target_cushion, block_frame)
+
+        # Recover from second underrun
+        sa.out_ring.write(voiced_block)
+        sa.out_ring.write(voiced_block)
+        sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertFalse(sa._out_underrun)
+        self.assertEqual(sa.out_ring.available(), block_frame)
+
+        # After >=2 underruns, quiet decay preserves the 1-block cushion floor instead of dropping to 0
+        for _ in range(sa._out_decay_threshold + 2):
+            sa.out_ring.write(quiet_block)
+            sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+        self.assertEqual(sa._out_target_cushion, block_frame)
+        self.assertEqual(sa.out_ring.available(), block_frame)
 
     def test_server_audio_out_ring_high_water_crossfade(self):
         settings = VoiceChangerSettings()

@@ -107,7 +107,7 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
         <MD3Slider
           id="inSens"
           min={-90}
-          max={-60}
+          max={-30}
           step={1}
           value={localSilentThreshold}
           onImmediateChange={setLocalSilentThreshold}

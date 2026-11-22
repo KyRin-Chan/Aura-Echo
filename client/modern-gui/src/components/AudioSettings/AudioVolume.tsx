@@ -81,8 +81,8 @@ function AudioVolume(): JSX.Element {
         </label>
         <MD3Slider
           id="inputGain"
-          min={10}
-          max={250}
+          min={0}
+          max={400}
           step={1}
           value={Math.round(inputGain * 100)}
           onChange={handleInputGainChange}
@@ -99,7 +99,7 @@ function AudioVolume(): JSX.Element {
         </label>
         <MD3Slider
           id="outputGain"
-          min={10}
+          min={0}
           max={400}
           step={1}
           value={Math.round(outputGain * 100)}

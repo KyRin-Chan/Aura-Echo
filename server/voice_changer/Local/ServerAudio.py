@@ -501,12 +501,16 @@ class ServerAudio:
             if got == frames:
                 self._out_last_sample = float(buf[frames - 1])
                 self._out_stable_callbacks += 1
+                min_cushion = self._out_cushion_step if self._out_underrun_count >= 2 else 0
                 if (
-                    self._out_target_cushion > 0
+                    self._out_target_cushion > min_cushion
                     and self._out_stable_callbacks >= self._out_decay_threshold
                     and float(np.max(np.abs(buf))) < 1e-3
                 ):
-                    self._out_target_cushion = max(0, self._out_target_cushion - self._out_cushion_step)
+                    self._out_target_cushion = max(
+                        min_cushion,
+                        self._out_target_cushion - self._out_cushion_step,
+                    )
                     self._out_stable_callbacks = 0
                     self._out_trim_pending = True
             else:
@@ -661,7 +665,7 @@ class ServerAudio:
         self._out_has_started = False
         self._out_target_cushion = 0
         self._out_cushion_step = block_frame
-        self._out_max_cushion = min(block_frame * 2, max(block_frame, int(self._out_sr * 0.12)))
+        self._out_max_cushion = block_frame * 2
         self._out_stable_callbacks = 0
         self._out_decay_threshold = max(1, int(round(10.0 * self._out_sr / max(1, block_frame))))
         self._out_trim_pending = False
