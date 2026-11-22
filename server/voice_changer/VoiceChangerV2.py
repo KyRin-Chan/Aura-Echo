@@ -46,6 +46,11 @@ class VoiceChangerV2:
         self.audio_mixer = None
         self.audio_effects_manager = None
         self._suppress_warmup: int = 0
+        self._pt_gate_open: bool = False
+        self._pt_gate_hangover_chunks: int = 0
+        self._pt_was_gated_open: bool = False
+        self._pt_resampler = None
+        self._vc_dirty: bool = False
 
     def begin_batch_update(self) -> None:
         self._suppress_warmup += 1
@@ -106,6 +111,7 @@ class VoiceChangerV2:
             )
         finally:
             self._was_voiced = False
+            self._vc_dirty = False
             self._peak_limiter.reset()
             if self.sola_buffer is not None:
                 self.sola_buffer.zero_()
@@ -117,6 +123,7 @@ class VoiceChangerV2:
         self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
         self.vcmodel.initialize()
         self._was_voiced = False
+        self._vc_dirty = False
         self._peak_limiter.reset()
         if self.sola_buffer is not None:
             self.sola_buffer.zero_()
@@ -129,6 +136,7 @@ class VoiceChangerV2:
         self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
         self.vcmodel.initialize()
         self._was_voiced = False
+        self._vc_dirty = False
         self._peak_limiter.reset()
         if self.sola_buffer is not None:
             self.sola_buffer.zero_()
@@ -149,6 +157,7 @@ class VoiceChangerV2:
         self.sola_search_frame = max(1, int(round(0.012 * self.settings.inputSampleRate)))
         self._generate_strength()
         self._peak_limiter.reset()
+        self._pt_resampler = None
 
         if self.vcmodel is not None:
             self.vcmodel.set_sampling_rate(self.settings.inputSampleRate, self.settings.outputSampleRate)
@@ -160,6 +169,7 @@ class VoiceChangerV2:
 
         self._generate_strength()
         self._peak_limiter.reset()
+        self._pt_resampler = None
         if self.vcmodel is not None:
             self.vcmodel.set_sampling_rate(self.settings.inputSampleRate, self.settings.outputSampleRate)
 
@@ -188,11 +198,18 @@ class VoiceChangerV2:
                 self.io_recorder.open(self.settings.inputSampleRate, self.settings.outputSampleRate)
             else:
                 self.io_recorder.close()
+        elif key == 'passThrough':
+            self._pt_gate_open = False
+            self._pt_gate_hangover_chunks = 0
+            self._pt_was_gated_open = False
+            if self._pt_resampler is not None:
+                self._pt_resampler.reset()
 
         if self.vcmodel is not None:
             if key in {'gpu', 'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'forceFp32'}:
                 self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
                 self._was_voiced = False
+                self._vc_dirty = False
                 self._peak_limiter.reset()
                 if self.sola_buffer is not None:
                     self.sola_buffer.zero_()
@@ -241,6 +258,15 @@ class VoiceChangerV2:
             self._was_voiced = False
         return mixed_np
 
+    def _apply_limiter_np(self, mixed_np: np.ndarray) -> np.ndarray:
+        """Apply optional stateful AGC peak limiter and soft-knee safety ceiling."""
+        if getattr(self.settings, "agcEnabled", False):
+            mixed_np = self._peak_limiter.process(mixed_np, sample_rate=self.settings.outputSampleRate)
+            mixed_np = soft_knee_limit_np(mixed_np, threshold=0.985, ceiling=0.999)
+        else:
+            mixed_np = soft_knee_limit_np(mixed_np, threshold=0.95, ceiling=0.999)
+        return mixed_np
+
     def _apply_post_cpu_chain(self, mixed_np: np.ndarray, block_size: int) -> np.ndarray:
         """Run non-overlapping output effects, background mixing, and smooth soft-knee AGC on CPU."""
         if self.audio_effects_manager is not None:
@@ -256,15 +282,126 @@ class VoiceChangerV2:
             except Exception:
                 pass
 
-        if getattr(self.settings, "agcEnabled", False):
-            mixed_np = self._peak_limiter.process(mixed_np, sample_rate=self.settings.outputSampleRate)
-            mixed_np = soft_knee_limit_np(mixed_np, threshold=0.985, ceiling=0.999)
-        else:
-            mixed_np = soft_knee_limit_np(mixed_np, threshold=0.95, ceiling=0.999)
+        return self._apply_limiter_np(mixed_np)
 
-        return mixed_np
+    def _compute_chunk_and_gate_rms_np(self, audio_in: AudioInOutFloat) -> tuple[float, float]:
+        n_samples = int(audio_in.size)
+        if n_samples <= 0:
+            return 0.0, 0.0
+        sq = np.square(audio_in, dtype=np.float32)
+        vol = float(np.sqrt(np.mean(sq)))
+        sr = max(1, int(self.settings.inputSampleRate))
+        win = max(64, int(round(0.02 * sr)))
+        if n_samples > win:
+            n_full = (n_samples // win) * win
+            max_msq = float(np.max(np.mean(sq[:n_full].reshape(-1, win), axis=1)))
+            if n_samples > n_full:
+                tail_msq = float(np.mean(sq[n_full:]))
+                if tail_msq > max_msq:
+                    max_msq = tail_msq
+            gate_rms = float(np.sqrt(max_msq))
+        else:
+            gate_rms = vol
+        return vol, gate_rms
+
+    def _apply_passthrough_gate_np(self, audio_in: np.ndarray) -> tuple[np.ndarray, float]:
+        vol, gate_rms = self._compute_chunk_and_gate_rms_np(audio_in)
+        if audio_in.size == 0:
+            return np.empty(0, dtype=np.float32), 0.0
+
+        open_thresh = 10.0 ** (self.settings.silentThreshold / 20.0)
+        hold_thresh = open_thresh * 0.70794578  # -3 dB hysteresis when gate is already open
+        active_thresh = (
+            hold_thresh if (self._pt_gate_open or self._pt_gate_hangover_chunks > 0) else open_thresh
+        )
+
+        if gate_rms >= active_thresh:
+            self._pt_gate_open = True
+            self._pt_gate_hangover_chunks = max(
+                2,
+                int(round(0.16 * self.settings.inputSampleRate / max(1, int(audio_in.size)))),
+            )
+            gate_active = True
+        elif self._pt_gate_hangover_chunks > 0:
+            self._pt_gate_hangover_chunks -= 1
+            self._pt_gate_open = False
+            gate_active = True
+        else:
+            self._pt_gate_open = False
+            gate_active = False
+
+        if gate_active:
+            out = np.array(audio_in, dtype=np.float32, copy=True)
+            if not self._pt_was_gated_open:
+                fade_len = min(64, int(out.shape[0]))
+                if fade_len > 1:
+                    out[:fade_len] *= np.linspace(0.0, 1.0, fade_len, dtype=np.float32)
+                elif fade_len == 1:
+                    out[0] = 0.0
+                self._pt_was_gated_open = True
+            return out, vol
+
+        out = np.zeros(audio_in.shape[0], dtype=np.float32)
+        if self._pt_was_gated_open:
+            fade_len = min(64, int(audio_in.shape[0]))
+            if fade_len > 1:
+                out[:fade_len] = audio_in[:fade_len] * np.linspace(1.0, 0.0, fade_len, dtype=np.float32)
+            self._pt_was_gated_open = False
+        return out, vol
+
+    def process_passthrough(self, audio_in: AudioInOutFloat) -> tuple[AudioInOutFloat, float]:
+        audio_np = np.asarray(audio_in, dtype=np.float32).reshape(-1)
+        block_size = int(audio_np.shape[0])
+        if block_size == 0:
+            return np.empty(0, dtype=np.float32), 0.0
+
+        use_effects = bool(getattr(self.settings, "passThroughEffects", False))
+        if use_effects and self.audio_effects_manager is not None:
+            audio_np = self.audio_effects_manager.process_input_chain_np(
+                audio_np, sample_rate=self.settings.inputSampleRate
+            )
+
+        gated_np, vol = self._apply_passthrough_gate_np(audio_np)
+
+        in_sr = int(self.settings.inputSampleRate)
+        out_sr = int(self.settings.outputSampleRate)
+        if in_sr != out_sr and gated_np.size > 0:
+            if (
+                self._pt_resampler is None
+                or self._pt_resampler.orig_freq != in_sr
+                or self._pt_resampler.new_freq != out_sr
+            ):
+                from voice_changer.common.ServerAEC import NumpyCausalPolyphaseResampler
+
+                self._pt_resampler = NumpyCausalPolyphaseResampler(in_sr, out_sr)
+            gated_np = self._pt_resampler.process(gated_np)
+
+        out_block_size = int(gated_np.shape[0])
+        if self._was_voiced and out_block_size > 0:
+            fade_len = min(out_block_size, self.crossfade_frame)
+            sola_tail = self._flush_silence_sola_np(out_block_size)
+            if fade_len > 0:
+                fade_in_np = self.fade_in_window[:fade_len].detach().cpu().numpy()
+                gated_np[:fade_len] *= fade_in_np
+            gated_np = gated_np + sola_tail
+        elif self._was_voiced:
+            if self.sola_buffer is not None:
+                self.sola_buffer.zero_()
+            self._was_voiced = False
+
+        if self._vc_dirty:
+            if self.vcmodel is not None and hasattr(self.vcmodel, "reset_state"):
+                self.vcmodel.reset_state()
+            self._vc_dirty = False
+
+        if use_effects:
+            mixed_np = self._apply_post_cpu_chain(gated_np, out_block_size)
+        else:
+            mixed_np = self._apply_limiter_np(gated_np)
+        return mixed_np, vol
 
     def process_audio(self, audio_in: AudioInOutFloat) -> tuple[AudioInOutFloat, float]:
+        self._vc_dirty = True
         block_size = int(audio_in.shape[0])
 
         if block_size > 0 and block_size != self.block_frame and self.vcmodel is not None:
@@ -320,6 +457,7 @@ class VoiceChangerV2:
 
     def skip_audio(self, audio_in: AudioInOutFloat) -> tuple[AudioInOutFloat, float]:
         """Advance audio context without running heavy neural inference when packets arrive stale."""
+        self._vc_dirty = True
         block_size = audio_in.shape[0]
         if self.audio_effects_manager is not None:
             audio_in = self.audio_effects_manager.process_input_chain_np(
@@ -340,6 +478,19 @@ class VoiceChangerV2:
 
         with Timer2("main-process", True) as t:
             result, vol = self.process_audio(audio_in)
+
+        mainprocess_time = t.secs
+
+        if self.settings.recordIO:
+            self.io_recorder.write_input((np.clip(audio_in, -1.0, 1.0) * 32767).astype(np.int16).tobytes())
+            self.io_recorder.write_output((np.clip(result, -1.0, 1.0) * 32767).astype(np.int16).tobytes())
+
+        return result, vol, [0, mainprocess_time, 0]
+
+    @torch.no_grad()
+    def on_passthrough_request(self, audio_in: AudioInOutFloat) -> tuple[AudioInOutFloat, float, list[Union[int, float]]]:
+        with Timer2("main-process", True) as t:
+            result, vol = self.process_passthrough(audio_in)
 
         mainprocess_time = t.secs
 

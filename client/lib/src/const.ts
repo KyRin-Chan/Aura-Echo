@@ -114,6 +114,8 @@ export type RVCModelType = (typeof RVCModelType)[keyof typeof RVCModelType];
 
 export const ServerSettingKey = {
     passThrough: "passThrough",
+    passThroughEffects: "passThroughEffects",
+    agcEnabled: "agcEnabled",
     srcId: "srcId",
     dstId: "dstId",
     gpu: "gpu",
@@ -203,6 +205,8 @@ export type BackgroundsConfiguration = BackgroundTrack[];
 
 export type VoiceChangerServerSetting = {
     passThrough: boolean;
+    passThroughEffects: boolean;
+    agcEnabled: boolean;
     srcId: number;
     dstId: number;
     gpu: number;
@@ -375,6 +379,8 @@ export type ServerInfo = VoiceChangerServerSetting & {
 export const DefaultServerSetting: ServerInfo = {
     // VC Common
     passThrough: false,
+    passThroughEffects: false,
+    agcEnabled: false,
     inputSampleRate: 48000,
 
     crossFadeOverlapSize: 0.10,

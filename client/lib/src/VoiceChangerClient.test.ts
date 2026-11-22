@@ -277,5 +277,33 @@ describe("VoiceChangerClient audio gain & settings sync", () => {
         };
         const thirdUpdates = lib.collectServerSettingUpdates(afterSecond, { noiseSuppression2: true });
         expect(thirdUpdates).toEqual([{ key: "noiseSuppression2", value: "true" }]);
+
+        const fourthUpdates = lib.collectServerSettingUpdates(baseServer, {
+            passThroughEffects: true,
+            agcEnabled: true,
+        });
+        expect(fourthUpdates).toEqual([
+            { key: "passThroughEffects", value: "true" },
+            { key: "agcEnabled", value: "true" },
+        ]);
+    });
+
+    test("mergeLoadedClientSettings syncs agcEnabled from server only when client has no stored preference", () => {
+        const syncedFromServer = lib.mergeLoadedClientSettings(
+            { agcEnabled: true },
+            null
+        );
+        expect(syncedFromServer.voiceChangerClientSetting.agcEnabled).toBe(true);
+
+        const keptStoredFalse = lib.mergeLoadedClientSettings(
+            { agcEnabled: true },
+            {
+                voiceChangerClientSetting: {
+                    ...lib.DefaultClientSettng.voiceChangerClientSetting,
+                    agcEnabled: false,
+                },
+            }
+        );
+        expect(keptStoredFalse.voiceChangerClientSetting.agcEnabled).toBe(false);
     });
 });

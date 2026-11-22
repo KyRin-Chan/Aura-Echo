@@ -128,8 +128,8 @@ class VoiceChangerSettings:
         return self._passThrough
 
     @passThrough.setter
-    def passThrough(self, enable: str):
-        self._passThrough = _js_bool_to_bool(enable)
+    def passThrough(self, enable: Any):
+        self._passThrough = _parse_bool(enable)
 
     @property
     def recordIO(self):
@@ -523,6 +523,7 @@ class VoiceChangerSettings:
             pass
 
     _agcEnabled: bool = False
+    _passThroughEffects: bool = False
     _echoCancel: bool = False
     _noiseSuppression: bool = False
     _noiseSuppression2: bool = False
@@ -534,6 +535,14 @@ class VoiceChangerSettings:
     @agcEnabled.setter
     def agcEnabled(self, val: Any):
         self._agcEnabled = _parse_bool(val)
+
+    @property
+    def passThroughEffects(self) -> bool:
+        return self._passThroughEffects
+
+    @passThroughEffects.setter
+    def passThroughEffects(self, val: Any):
+        self._passThroughEffects = _parse_bool(val)
 
     @property
     def echoCancel(self) -> bool:

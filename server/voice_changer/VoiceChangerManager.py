@@ -384,10 +384,13 @@ class VoiceChangerManager(ServerAudioCallbacks):
             logger.debug(f"Failed to register current thread to MMCSS: {mmcss_err}")
 
         if self.settings.passThrough:  # パススルー
-            vol = float(np.sqrt(
-                np.square(receivedData).mean(dtype=np.float32)
-            ))
-            return receivedData, vol, [0, 0, 0], None
+            try:
+                with self.device_manager.lock:
+                    audio, vol, perf = self.vc.on_passthrough_request(receivedData)
+                return audio, vol, perf, None
+            except Exception as e:
+                logger.exception(e)
+                return np.zeros(1, dtype=np.float32), 0, [0, 0, 0], ('Exception', format_exc())
 
         try:
             with self.device_manager.lock:
@@ -428,7 +431,13 @@ class VoiceChangerManager(ServerAudioCallbacks):
 
     def skip_voice(self, receivedData: AudioInOutFloat) -> tuple[AudioInOutFloat, float, list, tuple | None]:
         if self.settings.passThrough:
-            return np.zeros(len(receivedData), dtype=np.float32), 0.0, [0.0, 0.0, 0.0], None
+            try:
+                with self.device_manager.lock:
+                    audio, vol, perf = self.vc.on_passthrough_request(receivedData)
+                return audio, vol, perf, None
+            except Exception as e:
+                logger.debug(f"skip_voice passthrough error: {e}")
+                return np.zeros(len(receivedData), dtype=np.float32), 0.0, [0.0, 0.0, 0.0], None
         try:
             with self.device_manager.lock:
                 audio, vol, perf = self.vc.on_skip_request(receivedData)

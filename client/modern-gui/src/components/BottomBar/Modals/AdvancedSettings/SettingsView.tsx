@@ -152,6 +152,17 @@ function SettingsView(): JSX.Element {
       ...appState.setting.voiceChangerClientSetting,
       agcEnabled: val
     });
+    await appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      agcEnabled: val
+    });
+  };
+
+  const handlePassThroughEffectsChange = async (val: boolean) => {
+    await appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      passThroughEffects: val
+    });
   };
 
   const handleLangChange = (lang: LangType) => {
@@ -285,6 +296,12 @@ function SettingsView(): JSX.Element {
           checked={appState.setting.voiceChangerClientSetting.agcEnabled ?? false}
           onChange={handleAGCChange}
           label={t('agcLabel')}
+        />
+
+        <MD3Switch
+          checked={appState.serverSetting.serverSetting.passThroughEffects ?? false}
+          onChange={handlePassThroughEffectsChange}
+          label={t('passthroughEffectsLabel')}
         />
       </div>
 

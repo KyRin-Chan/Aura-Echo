@@ -85,6 +85,8 @@ export declare const RVCModelType: {
 export type RVCModelType = (typeof RVCModelType)[keyof typeof RVCModelType];
 export declare const ServerSettingKey: {
     readonly passThrough: "passThrough";
+    readonly passThroughEffects: "passThroughEffects";
+    readonly agcEnabled: "agcEnabled";
     readonly srcId: "srcId";
     readonly dstId: "dstId";
     readonly gpu: "gpu";
@@ -160,6 +162,8 @@ export type BackgroundTrack = {
 export type BackgroundsConfiguration = BackgroundTrack[];
 export type VoiceChangerServerSetting = {
     passThrough: boolean;
+    passThroughEffects: boolean;
+    agcEnabled: boolean;
     srcId: number;
     dstId: number;
     gpu: number;

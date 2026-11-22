@@ -1975,6 +1975,114 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 f"GTCRN CPU RTF too slow at sr={sr}, chunk={chunk_size}: {rtf:.4f}",
             )
 
+    def test_passthrough_settings_gate_limiter_and_effects(self):
+        settings = VoiceChangerSettings()
+        self.assertFalse(settings.passThroughEffects)
+        settings.passThroughEffects = "true"
+        self.assertTrue(settings.passThroughEffects)
+        self.assertIn("passThroughEffects", settings.to_dict_stateless())
+        settings.passThrough = True
+        self.assertTrue(settings.passThrough)
+        settings.passThrough = "false"
+        self.assertFalse(settings.passThrough)
+
+        # Configure VoiceChangerV2 without any vcmodel
+        settings.inputSampleRate = 48000
+        settings.outputSampleRate = 48000
+        settings.silentThreshold = -40  # ~0.01 linear RMS
+        settings.agcEnabled = False
+        settings.passThroughEffects = False
+        vc = VoiceChangerV2(settings)
+
+        mock_fx = MagicMock()
+        mock_fx.process_input_chain_np.side_effect = lambda arr, sample_rate: arr * 0.5
+        mock_fx.process_output_chain_np.side_effect = lambda arr, sample_rate: arr * 0.5
+        mock_mixer = MagicMock()
+        mock_mixer.render_numpy.side_effect = lambda n, sr: np.full(n, 0.1, dtype=np.float32)
+        vc.set_audio_effects_manager(mock_fx)
+        vc.set_audio_mixer(mock_mixer)
+
+        # 1. Sub-threshold audio is gated to zero
+        quiet = np.full(2048, 0.001, dtype=np.float32)
+        out_q, vol_q, perf_q = vc.on_passthrough_request(quiet)
+        self.assertTrue(np.allclose(out_q, 0.0))
+        self.assertGreater(vol_q, 0.0)
+        self.assertEqual(len(perf_q), 3)
+        mock_fx.process_input_chain_np.assert_not_called()
+        mock_fx.process_output_chain_np.assert_not_called()
+        mock_mixer.render_numpy.assert_not_called()
+
+        # 2. Loud audio passes through (with fade-in on first open chunk) and is limited < 1.0
+        hot = np.full(2048, 1.5, dtype=np.float32)
+        out_h1, vol_h1, _ = vc.on_passthrough_request(hot)
+        self.assertAlmostEqual(float(out_h1[0]), 0.0, places=5)
+        self.assertLess(float(np.max(np.abs(out_h1))), 1.0)
+        self.assertGreater(float(np.mean(out_h1[128:])), 0.9)
+        self.assertAlmostEqual(vol_h1, 1.5, places=4)
+
+        # AGC enabled uses StatefulPeakLimiter + soft-knee
+        settings.agcEnabled = True
+        out_h2, _, _ = vc.on_passthrough_request(hot)
+        self.assertLess(float(np.max(np.abs(out_h2))), 1.0)
+
+        # Effects & mixer still bypassed when passThroughEffects is False
+        mock_fx.process_input_chain_np.assert_not_called()
+        mock_mixer.render_numpy.assert_not_called()
+
+        # 3. Enabling passThroughEffects activates input/output effects and background mixer
+        settings.passThroughEffects = True
+        settings.agcEnabled = False
+        tone = np.full(2048, 0.4, dtype=np.float32)
+        out_fx, _, _ = vc.on_passthrough_request(tone)
+        mock_fx.process_input_chain_np.assert_called_once()
+        mock_fx.process_output_chain_np.assert_called_once()
+        mock_mixer.render_numpy.assert_called_once_with(2048, 48000)
+        # 0.4 * 0.5 (in) * 0.5 (out) + 0.1 (bg) = 0.2
+        self.assertTrue(np.allclose(out_fx[128:], 0.2, atol=1e-5))
+
+        # 4. Hangover decays back to silence (while background audio keeps playing if passThroughEffects=True)
+        for _ in range(10):
+            out_hang_fx, _, _ = vc.on_passthrough_request(quiet)
+        self.assertTrue(np.allclose(out_hang_fx, 0.1, atol=1e-5))
+
+        settings.passThroughEffects = False
+        out_hang_dry, _, _ = vc.on_passthrough_request(quiet)
+        self.assertTrue(np.allclose(out_hang_dry, 0.0))
+
+        # 5. SOLA tail flush & vcmodel.reset_state() on transition from RVC to passthrough
+        dummy_model = MagicMock()
+        vc.vcmodel = dummy_model
+        vc._vc_dirty = True
+        vc._was_voiced = True
+        vc.sola_buffer = torch.ones(vc.crossfade_frame, dtype=torch.float32) * 0.5
+        vc.update_settings("passThrough", True, False)
+        settings.passThroughEffects = False
+        out_trans, _, _ = vc.on_passthrough_request(np.zeros(2048, dtype=np.float32))
+        dummy_model.reset_state.assert_called_once()
+        self.assertFalse(vc._was_voiced)
+        self.assertFalse(vc._vc_dirty)
+        self.assertGreater(float(np.max(np.abs(out_trans))), 0.1)
+
+        # 6. VoiceChangerManager.change_voice & skip_voice route through on_passthrough_request when passThrough=True
+        from voice_changer.VoiceChangerManager import VoiceChangerManager
+
+        mgr = VoiceChangerManager.__new__(VoiceChangerManager)
+        mgr.settings = settings
+        mgr.device_manager = DeviceManager.get_instance()
+        mgr.vc = vc
+        settings.passThrough = True
+        mgr_out, mgr_vol, mgr_perf, mgr_err = mgr.change_voice(hot)
+        self.assertIsNone(mgr_err)
+        self.assertLess(float(np.max(np.abs(mgr_out))), 1.0)
+        self.assertGreater(mgr_vol, 1.0)
+        self.assertEqual(len(mgr_perf), 3)
+
+        skip_out, skip_vol, _, skip_err = mgr.skip_voice(hot)
+        self.assertIsNone(skip_err)
+        self.assertEqual(len(skip_out), len(hot))
+        self.assertGreater(float(np.max(np.abs(skip_out))), 0.5)
+        self.assertGreater(skip_vol, 1.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
