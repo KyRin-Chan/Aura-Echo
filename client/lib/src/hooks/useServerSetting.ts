@@ -58,13 +58,61 @@ type AssetUploadSetting = {
     file: string;
 };
 
+export type ServerSettingUpdateEntry = {
+    key: keyof VoiceChangerServerSetting;
+    value: string;
+};
+
+const getSerializableServerSettingDiff = (
+    k: keyof VoiceChangerServerSetting,
+    cur_v: unknown,
+    new_v: unknown
+): string | null => {
+    // Deep comparison for objects, simple comparison for primitives
+    const hasChanged =
+        k === "audioEffects" || k === "audioBackgrounds"
+            ? JSON.stringify(cur_v) !== JSON.stringify(new_v)
+            : cur_v != new_v;
+
+    if (!hasChanged) {
+        return null;
+    }
+
+    // Serialize objects as JSON, convert primitives to string
+    return (k === "audioEffects" || k === "audioBackgrounds") && typeof new_v === "object"
+        ? JSON.stringify(new_v)
+        : "" + new_v;
+};
+
+export const collectServerSettingUpdates = (
+    current: ServerInfo,
+    patch: Partial<ServerInfo>
+): ServerSettingUpdateEntry[] => {
+    const stringKeys = (Object.values(ServerSettingKey).filter((v) => typeof v === "string") as string[]) as (keyof VoiceChangerServerSetting)[];
+    const updates: ServerSettingUpdateEntry[] = [];
+    for (let i = 0; i < stringKeys.length; i++) {
+        const k = stringKeys[i];
+        if (k === "embedders" || k === "pitchExtractors") {
+            continue;
+        }
+        if (!(k in patch) || patch[k] === undefined) {
+            continue;
+        }
+        const valueToSend = getSerializableServerSettingDiff(k, current[k], patch[k]);
+        if (valueToSend !== null) {
+            updates.push({ key: k, value: valueToSend });
+        }
+    }
+    return updates;
+};
+
 export type UseServerSettingProps = {
     voiceChangerClient: VoiceChangerClient | null;
 };
 
 export type ServerSettingState = {
     serverSetting: ServerInfo;
-    updateServerSettings: (setting: ServerInfo) => Promise<void>;
+    updateServerSettings: (setting: Partial<ServerInfo>) => Promise<void>;
     reloadServerInfo: () => Promise<any>;
     uploadBackgroundSound: (setting: BackgroundSoundsUploadSetting) => Promise<void>;
     uploadModel: (setting: ModelUploadSetting) => Promise<ServerInfo>;
@@ -109,7 +157,7 @@ export const useServerSetting = (props: UseServerSettingProps): ServerSettingSta
     // 設定
     /////////////
     const updateServerSettings = useMemo(() => {
-        return async (setting: ServerInfo) => {
+        return async (setting: Partial<ServerInfo>) => {
             if (!props.voiceChangerClient) return;
             const runUpdate = async () => {
                 if (!props.voiceChangerClient) return;
@@ -121,20 +169,15 @@ export const useServerSetting = (props: UseServerSettingProps): ServerSettingSta
                     if (k === 'embedders' || k === 'pitchExtractors') {
                         continue;
                     }
-                    const cur_v = serverSettingRef.current[k];
-                    const new_v = setting[k];
-
-                    // Deep comparison for objects, simple comparison for primitives
-                    const hasChanged = (k === 'audioEffects' || k === 'audioBackgrounds')
-                        ? JSON.stringify(cur_v) !== JSON.stringify(new_v)
-                        : cur_v != new_v;
-
-                    if (hasChanged) {
-                        // Serialize objects as JSON, convert primitives to string
-                        const valueToSend = ((k === 'audioEffects' || k === 'audioBackgrounds') && typeof new_v === 'object')
-                            ? JSON.stringify(new_v)
-                            : "" + new_v;
-                        
+                    if (!(k in setting) || setting[k] === undefined) {
+                        continue;
+                    }
+                    const valueToSend = getSerializableServerSettingDiff(
+                        k,
+                        serverSettingRef.current[k],
+                        setting[k]
+                    );
+                    if (valueToSend !== null) {
                         const res = await props.voiceChangerClient.updateServerSettings(k, valueToSend);
                         latestRes = res as ServerInfo;
                         if (res) {

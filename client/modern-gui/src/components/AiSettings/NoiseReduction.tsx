@@ -8,26 +8,27 @@ interface NoiseReductionProps {
 }
 
 function NoiseReduction({ appState }: NoiseReductionProps) {
-  const updateSyncedToggle = (key: 'echoCancel' | 'noiseSuppression', value: boolean) => {
-    appState.setVoiceChangerClientSetting({
-      ...appState.setting.voiceChangerClientSetting,
-      [key]: value
-    });
-    appState.serverSetting.updateServerSettings({
-      ...appState.serverSetting.serverSetting,
-      [key]: value
-    });
+  const isServerAudio = appState.serverSetting.serverSetting.enableServerAudio === 1;
+
+  const handleToggle = (key: 'echoCancel' | 'noiseSuppression', value: boolean) => {
+    if (isServerAudio) {
+      appState.serverSetting.updateServerSettings({ [key]: value });
+    } else {
+      appState.setVoiceChangerClientSetting((prev) => ({
+        ...prev,
+        [key]: value
+      }));
+    }
   };
 
   // Handle Noise Reduction 2 Change
   const handleChangeNoiseSuppression2 = (value: boolean) => {
-    appState.setVoiceChangerClientSetting({
-      ...appState.setting.voiceChangerClientSetting,
+    appState.setVoiceChangerClientSetting((prev) => ({
+      ...prev,
       noiseSuppression2: value
-    });
+    }));
   };
 
-  const isServerAudio = appState.serverSetting.serverSetting.enableServerAudio === 1;
   const echoCancelChecked = (isServerAudio
     ? appState.serverSetting.serverSetting.echoCancel
     : appState.setting.voiceChangerClientSetting.echoCancel) ?? false;
@@ -41,18 +42,18 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
       <div className="space-y-2.5 mt-1 bg-surface-container-low p-3 rounded-md border border-outline-variant">
         <MD3Switch
           checked={echoCancelChecked}
-          onChange={(val) => updateSyncedToggle('echoCancel', val)}
+          onChange={(val) => handleToggle('echoCancel', val)}
           label={t('echoCancellationLabel')}
         />
         <MD3Switch
           checked={noiseSuppressionChecked}
-          onChange={(val) => updateSyncedToggle('noiseSuppression', val)}
+          onChange={(val) => handleToggle('noiseSuppression', val)}
           label={t('noiseSuppressionLabel')}
         />
         <MD3Switch
           checked={appState.setting.voiceChangerClientSetting.noiseSuppression2 ?? false}
           onChange={handleChangeNoiseSuppression2}
-          disabled={appState.serverSetting.serverSetting.enableServerAudio === 1}
+          disabled={isServerAudio}
           label={t('noiseSuppression2Label')}
         />
       </div>

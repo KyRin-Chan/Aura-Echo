@@ -3,23 +3,175 @@ import math
 from typing import Optional
 
 import numpy as np
+from scipy import signal as scipy_signal
+from scipy.special import i0 as _scipy_i0
 
 logger = logging.getLogger(__name__)
 
 try:
-    from pywebrtc_audio import AudioProcessor as _WebRtcAudioProcessor
+    from pywebrtc_audio import (
+        EchoCanceller as _WebRtcEchoCanceller,
+        NoiseSuppressor as _WebRtcNoiseSuppressor,
+    )
 
     _HAS_WEBRTC = True
 except Exception as _import_err:  # pragma: no cover - fallback when wheel absent
-    _WebRtcAudioProcessor = None
+    _WebRtcEchoCanceller = None
+    _WebRtcNoiseSuppressor = None
     _HAS_WEBRTC = False
     logger.warning(f"[ServerAEC] pywebrtc_audio unavailable, using NumPy fallback: {_import_err}")
 
 
+class NumpyCausalPolyphaseResampler:
+    """
+    Pure-NumPy stateful causal polyphase Kaiser-windowed sinc resampler for
+    real-time CPU audio streaming (e.g. 44.1 kHz <-> 48 kHz, 96 kHz -> 48 kHz).
+    """
+
+    def __init__(
+        self,
+        orig_freq: int,
+        new_freq: int,
+        lowpass_filter_width: int = 8,
+        rolloff: float = 0.945,
+        beta: float = 8.0,
+    ):
+        self.orig_freq = max(1, int(orig_freq))
+        self.new_freq = max(1, int(new_freq))
+
+        g = math.gcd(self.orig_freq, self.new_freq)
+        self.p = self.new_freq // g
+        self.q = self.orig_freq // g
+        self.is_bypass = self.p == self.q
+        self._use_linear = False
+        self._ratio = float(self.orig_freq) / float(self.new_freq)
+        self._lin_phase = 0.0
+        self._lin_prev = 0.0
+        self._lin_has_prev = False
+        self._next_pos_num = 0
+
+        if self.is_bypass:
+            self.half_width = 0
+            self.kernel_len = 1
+            self.kernels = np.ones((1, 1), dtype=np.float32)
+            self.history = np.empty(0, dtype=np.float32)
+        elif self.p > 2048:
+            # Guard against huge polyphase tables on non-standard exotic sample rates
+            self._use_linear = True
+            self.half_width = 1
+            self.kernel_len = 2
+            self.kernels = np.empty((0, 0), dtype=np.float32)
+            self.history = np.empty(0, dtype=np.float32)
+        else:
+            base_freq = min(self.p, self.q) * rolloff
+            self.half_width = max(1, math.ceil(lowpass_filter_width * self.q / base_freq))
+            self.kernel_len = 2 * self.half_width + 1
+
+            idx = np.arange(self.kernel_len, dtype=np.float64)
+            i0_beta = float(_scipy_i0(beta))
+            scale = base_freq / self.q
+
+            kernels = np.empty((self.p, self.kernel_len), dtype=np.float32)
+            for ph in range(self.p):
+                delta = (self.half_width + ph / self.p) - idx
+                t = delta * scale
+                t_c = np.clip(t, -lowpass_filter_width, lowpass_filter_width)
+                sinc_val = np.sinc(t)
+                kaiser = _scipy_i0(
+                    beta * np.sqrt(np.maximum(0.0, 1.0 - (t_c / lowpass_filter_width) ** 2))
+                ) / i0_beta
+                mask = (np.abs(t) <= lowpass_filter_width).astype(np.float64)
+                k_ph = sinc_val * kaiser * mask
+                k_sum = k_ph.sum()
+                if abs(k_sum) > 1e-12:
+                    k_ph /= k_sum
+                kernels[ph] = k_ph.astype(np.float32)
+
+            self.kernels = np.ascontiguousarray(kernels)
+            self.history = np.zeros(2 * self.half_width, dtype=np.float32)
+
+    def reset(self) -> None:
+        self._next_pos_num = 0
+        self._lin_phase = 0.0
+        self._lin_prev = 0.0
+        self._lin_has_prev = False
+        if self.history.size > 0:
+            self.history.fill(0.0)
+
+    def _process_linear(self, x_f32: np.ndarray) -> np.ndarray:
+        n_src = int(x_f32.shape[0])
+        if n_src == 0:
+            return np.empty(0, dtype=np.float32)
+        if not self._lin_has_prev:
+            self._lin_prev = float(x_f32[0])
+            self._lin_has_prev = True
+            self._lin_phase = 0.0
+
+        start_pos = self._lin_phase
+        # Keep ext_pos <= n_src - 1e-9 so idx1 = idx0 + 1 <= n_src (never flat-clamps tail)
+        if start_pos > (n_src - 1.0) - 1e-9:
+            self._lin_phase = start_pos - n_src
+            self._lin_prev = float(x_f32[-1])
+            return np.empty(0, dtype=np.float32)
+
+        count = int(math.floor(((n_src - 1.0) - 1e-9 - start_pos) / self._ratio)) + 1
+        if count <= 0:
+            self._lin_phase = start_pos - n_src
+            self._lin_prev = float(x_f32[-1])
+            return np.empty(0, dtype=np.float32)
+
+        ext = np.concatenate((np.array([self._lin_prev], dtype=np.float32), x_f32))
+        pos = start_pos + np.arange(count, dtype=np.float64) * self._ratio
+        ext_pos = pos + 1.0
+        idx0 = np.clip(np.floor(ext_pos).astype(np.int64), 0, n_src - 1)
+        idx1 = idx0 + 1
+        frac = (ext_pos - idx0).astype(np.float32)
+        out = ext[idx0] * (1.0 - frac) + ext[idx1] * frac
+
+        self._lin_phase = (start_pos + count * self._ratio) - n_src
+        self._lin_prev = float(x_f32[-1])
+        return out.astype(np.float32, copy=False)
+
+    def process(self, x: np.ndarray) -> np.ndarray:
+        x_f32 = np.asarray(x, dtype=np.float32).reshape(-1)
+        n = int(x_f32.shape[0])
+        if n == 0 or self.is_bypass:
+            return x_f32
+        if self._use_linear:
+            return self._process_linear(x_f32)
+
+        hist_len = 2 * self.half_width
+        buf = np.concatenate((self.history, x_f32))
+        total_num = n * self.p
+
+        if total_num <= self._next_pos_num:
+            self._next_pos_num -= total_num
+            self.history[:] = buf[-hist_len:]
+            return np.empty(0, dtype=np.float32)
+
+        m = (total_num - self._next_pos_num + self.q - 1) // self.q
+        k_idx = np.arange(m, dtype=np.int64)
+        nums = self._next_pos_num + k_idx * self.q
+        idx_k = nums // self.p
+        ph_k = nums % self.p
+        windows = np.lib.stride_tricks.sliding_window_view(buf, self.kernel_len)[idx_k]
+        out = np.einsum("ij,ij->i", windows, self.kernels[ph_k], optimize=True).astype(
+            np.float32, copy=False
+        )
+
+        self._next_pos_num = int(self._next_pos_num + m * self.q - total_num)
+        self.history[:] = buf[-hist_len:]
+        return out
+
+
 class _WebRtcAecEngine:
     """
-    Exact 10ms-framed streaming wrapper around WebRTC's native C++ AudioProcessor
-    (AEC3 + Noise Suppression + High-Pass Filter).
+    Exact 10ms-framed streaming wrapper around WebRTC's standalone C++
+    EchoCanceller (AEC3 + built-in HPF) and NoiseSuppressor.
+
+    Uses standalone EchoCanceller -> NoiseSuppressor rather than AudioProcessor
+    because pywebrtc-audio 0.2.0's AudioProcessor limits multi-band NS >16 kHz to
+    ~6.5 dB attenuation and introduces 100 Hz modulation sidebands.
     """
 
     def __init__(
@@ -28,34 +180,113 @@ class _WebRtcAecEngine:
         echo_cancellation: bool = True,
         noise_suppression: bool = False,
         ns_level: int = 2,
-        stream_delay_ms: int = 60,
+        stream_delay_ms: int = 0,
+        causal_lead_ms: int = 10,
     ):
         self.sample_rate = max(8000, int(sample_rate))
         self.echo_cancellation = bool(echo_cancellation)
         self.noise_suppression = bool(noise_suppression)
-        self.ns_level = int(ns_level)
+        self.ns_level = int(np.clip(int(ns_level), 0, 3))
         self.stream_delay_ms = max(0, int(stream_delay_ms))
-        self.frame_size = max(80, self.sample_rate // 100)  # Exact 10ms WebRTC quantum
 
-        self._ap = _WebRtcAudioProcessor(
-            sample_rate=self.sample_rate,
-            num_channels=1,
-            echo_cancellation=self.echo_cancellation,
-            noise_suppression=self.noise_suppression,
-            high_pass_filter=self.echo_cancellation,
-            auto_gain_control=False,
-            ns_level=self.ns_level,
-            stream_delay_ms=self.stream_delay_ms,
+        if self.sample_rate in (16000, 32000, 48000):
+            self._proc_sr = self.sample_rate
+            self._resampler_mic_in: Optional[NumpyCausalPolyphaseResampler] = None
+            self._resampler_ref_in: Optional[NumpyCausalPolyphaseResampler] = None
+            self._resampler_out: Optional[NumpyCausalPolyphaseResampler] = None
+        else:
+            self._proc_sr = 48000 if self.sample_rate >= 40000 else (32000 if self.sample_rate >= 24000 else 16000)
+            self._resampler_mic_in = NumpyCausalPolyphaseResampler(self.sample_rate, self._proc_sr)
+            self._resampler_ref_in = (
+                NumpyCausalPolyphaseResampler(self.sample_rate, self._proc_sr)
+                if self.echo_cancellation
+                else None
+            )
+            self._resampler_out = NumpyCausalPolyphaseResampler(self._proc_sr, self.sample_rate)
+
+        self.frame_size = self._proc_sr // 100  # Exact 10ms WebRTC quantum (160, 320, or 480)
+
+        self._ec = (
+            _WebRtcEchoCanceller(
+                sample_rate=self._proc_sr,
+                num_channels=1,
+                stream_delay_ms=self.stream_delay_ms,
+            )
+            if self.echo_cancellation
+            else None
         )
-        self._mic_fifo = np.empty(0, dtype=np.float32)
+        self._ns = (
+            _WebRtcNoiseSuppressor(
+                sample_rate=self._proc_sr,
+                num_channels=1,
+                level=self.ns_level,
+            )
+            if self.noise_suppression
+            else None
+        )
+
+        self._hpf_sos: Optional[np.ndarray] = None
+        self._hpf_zi: Optional[np.ndarray] = None
+        if not self.echo_cancellation and self.noise_suppression:
+            self._hpf_sos = scipy_signal.butter(
+                2, 70.0, btype="highpass", fs=self._proc_sr, output="sos"
+            )
+            self._hpf_zi = np.zeros((self._hpf_sos.shape[0], 2), dtype=np.float64)
+
+        lead_frames = max(0, int(round(causal_lead_ms / 10.0))) if self.echo_cancellation else 0
+        self._causal_lead_samples = lead_frames * self.frame_size
+        self._init_out_pad = int(
+            math.ceil(self.frame_size * self.sample_rate / float(self._proc_sr))
+        ) + (64 if self._proc_sr != self.sample_rate else 0)
+
+        self._mic_fifo = np.zeros(self._causal_lead_samples, dtype=np.float32)
         self._ref_fifo = np.empty(0, dtype=np.float32)
-        self._out_fifo = np.zeros(self.frame_size, dtype=np.float32)
+        self._out_fifo = np.zeros(self._init_out_pad, dtype=np.float32)
+
+    def set_noise_suppression(self, enabled: bool, ns_level: Optional[int] = None) -> None:
+        want_ns = bool(enabled)
+        if ns_level is not None:
+            new_level = int(np.clip(int(ns_level), 0, 3))
+        else:
+            new_level = self.ns_level
+
+        if want_ns:
+            if self._ns is None or new_level != self.ns_level:
+                self.ns_level = new_level
+                self._ns = _WebRtcNoiseSuppressor(
+                    sample_rate=self._proc_sr,
+                    num_channels=1,
+                    level=self.ns_level,
+                )
+            if not self.echo_cancellation and self._hpf_sos is None:
+                self._hpf_sos = scipy_signal.butter(
+                    2, 70.0, btype="highpass", fs=self._proc_sr, output="sos"
+                )
+                self._hpf_zi = np.zeros((self._hpf_sos.shape[0], 2), dtype=np.float64)
+        else:
+            self.ns_level = new_level
+            self._ns = None
+            self._hpf_sos = None
+            self._hpf_zi = None
+
+        self.noise_suppression = want_ns
 
     def reset(self) -> None:
-        self._ap.reset()
-        self._mic_fifo = np.empty(0, dtype=np.float32)
+        if self._ec is not None:
+            self._ec.reset()
+        if self._ns is not None:
+            self._ns.reset()
+        if self._hpf_zi is not None:
+            self._hpf_zi.fill(0.0)
+        if self._resampler_mic_in is not None:
+            self._resampler_mic_in.reset()
+        if self._resampler_ref_in is not None:
+            self._resampler_ref_in.reset()
+        if self._resampler_out is not None:
+            self._resampler_out.reset()
+        self._mic_fifo = np.zeros(self._causal_lead_samples, dtype=np.float32)
         self._ref_fifo = np.empty(0, dtype=np.float32)
-        self._out_fifo = np.zeros(self.frame_size, dtype=np.float32)
+        self._out_fifo = np.zeros(self._init_out_pad, dtype=np.float32)
 
     def process(self, mic_chunk: np.ndarray, ref_chunk: Optional[np.ndarray]) -> np.ndarray:
         total = int(mic_chunk.shape[0])
@@ -63,7 +294,10 @@ class _WebRtcAecEngine:
             return mic_chunk
 
         mic = np.ascontiguousarray(mic_chunk, dtype=np.float32).reshape(-1)
-        self._mic_fifo = np.concatenate((self._mic_fifo, mic))
+        if self._resampler_mic_in is not None:
+            mic = self._resampler_mic_in.process(mic)
+        if mic.size > 0:
+            self._mic_fifo = np.concatenate((self._mic_fifo, mic))
 
         if self.echo_cancellation:
             if ref_chunk is None:
@@ -74,29 +308,46 @@ class _WebRtcAecEngine:
                     ref = np.pad(ref, (0, total - ref.shape[0]))
                 elif ref.shape[0] > total:
                     ref = ref[:total]
-            self._ref_fifo = np.concatenate((self._ref_fifo, ref))
+            if self._resampler_ref_in is not None:
+                ref = self._resampler_ref_in.process(ref)
+            if ref.size > 0:
+                self._ref_fifo = np.concatenate((self._ref_fifo, ref))
 
         fs = self.frame_size
-        n_avail = int(self._mic_fifo.shape[0])
+        if self.echo_cancellation:
+            n_avail = min(int(self._mic_fifo.shape[0]), int(self._ref_fifo.shape[0]))
+        else:
+            n_avail = int(self._mic_fifo.shape[0])
         n_frames = n_avail // fs
+
         if n_frames > 0:
             produced = []
             for idx in range(n_frames):
                 start = idx * fs
                 end = start + fs
-                mic_frame = np.ascontiguousarray(self._mic_fifo[start:end], dtype=np.float32)
-                if self.echo_cancellation:
+                frame = np.ascontiguousarray(self._mic_fifo[start:end], dtype=np.float32)
+                if self._ec is not None:
                     ref_frame = np.ascontiguousarray(self._ref_fifo[start:end], dtype=np.float32)
-                    out_frame = self._ap.process(mic_frame, ref_frame)
-                else:
-                    out_frame = self._ap.process(mic_frame)
-                produced.append(np.asarray(out_frame, dtype=np.float32))
+                    frame = np.asarray(self._ec.process(frame, ref_frame), dtype=np.float32)
+                elif self._hpf_sos is not None:
+                    hpf_out, self._hpf_zi = scipy_signal.sosfilt(
+                        self._hpf_sos, frame.astype(np.float64), zi=self._hpf_zi
+                    )
+                    frame = np.ascontiguousarray(hpf_out, dtype=np.float32)
+                if self._ns is not None:
+                    frame = np.asarray(self._ns.process(frame), dtype=np.float32)
+                produced.append(frame)
 
             consumed = n_frames * fs
             self._mic_fifo = self._mic_fifo[consumed:]
             if self.echo_cancellation:
                 self._ref_fifo = self._ref_fifo[consumed:]
-            self._out_fifo = np.concatenate([self._out_fifo, *produced])
+
+            block_out = np.concatenate(produced)
+            if self._resampler_out is not None:
+                block_out = self._resampler_out.process(block_out)
+            if block_out.size > 0:
+                self._out_fifo = np.concatenate((self._out_fifo, block_out))
 
         if self._out_fifo.shape[0] >= total:
             out = self._out_fifo[:total]
@@ -525,9 +776,10 @@ class ServerAEC:
     """
     Real-time CPU-based Acoustic Echo Canceller & Noise Suppressor for Server Audio mode.
 
-    Uses Google WebRTC's native C++ AudioProcessor (AEC3 + NS) via `pywebrtc-audio`
-    with exact 10ms framing FIFOs so arbitrary ServerAudio block sizes work cleanly,
-    falling back to a pure-NumPy PBFDAF+RES implementation if WebRTC bindings are absent.
+    Uses Google WebRTC's native C++ EchoCanceller (AEC3 + HPF) and standalone
+    NoiseSuppressor via `pywebrtc-audio` with exact 10ms framing FIFOs and causal
+    polyphase resampling for non-native sample rates, falling back to a pure-NumPy
+    PBFDAF+RES implementation if WebRTC bindings are absent.
     """
 
     def __init__(
@@ -536,7 +788,8 @@ class ServerAEC:
         echo_cancellation: bool = True,
         noise_suppression: bool = False,
         ns_level: int = 2,
-        stream_delay_ms: int = 60,
+        stream_delay_ms: int = 0,
+        causal_lead_ms: int = 10,
         max_delay_ms: float = 300.0,
         tail_ms: float = 64.0,
     ):
@@ -553,6 +806,7 @@ class ServerAEC:
                 noise_suppression=self.noise_suppression,
                 ns_level=self.ns_level,
                 stream_delay_ms=stream_delay_ms,
+                causal_lead_ms=causal_lead_ms,
             )
         else:
             self._backend = "numpy"
@@ -569,6 +823,13 @@ class ServerAEC:
     @property
     def bulk_delay_hops(self) -> int:
         return getattr(self._engine, "bulk_delay_hops", 0)
+
+    def set_noise_suppression(self, enabled: bool, ns_level: Optional[int] = None) -> None:
+        self.noise_suppression = bool(enabled)
+        if ns_level is not None:
+            self.ns_level = int(np.clip(int(ns_level), 0, 3))
+        if hasattr(self._engine, "set_noise_suppression"):
+            self._engine.set_noise_suppression(self.noise_suppression, ns_level=self.ns_level)
 
     def reset(self) -> None:
         self._engine.reset()

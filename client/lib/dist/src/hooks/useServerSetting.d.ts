@@ -1,4 +1,4 @@
-import { ServerInfo, OnnxExporterInfo, MergeModelRequest, VoiceChangerType } from "../const";
+import { VoiceChangerServerSetting, ServerInfo, OnnxExporterInfo, MergeModelRequest, VoiceChangerType } from "../const";
 import { VoiceChangerClient } from "../VoiceChangerClient";
 export declare const ModelAssetName: {
     readonly iconFile: "iconFile";
@@ -42,12 +42,17 @@ export type BackgroundSoundsFileForServer = Omit<BackgroundSoundsFile, "file"> &
 export type BackgroundSoundsUploadSettingForServer = Omit<BackgroundSoundsUploadSetting, "file"> & {
     file: BackgroundSoundsFileForServer;
 };
+export type ServerSettingUpdateEntry = {
+    key: keyof VoiceChangerServerSetting;
+    value: string;
+};
+export declare const collectServerSettingUpdates: (current: ServerInfo, patch: Partial<ServerInfo>) => ServerSettingUpdateEntry[];
 export type UseServerSettingProps = {
     voiceChangerClient: VoiceChangerClient | null;
 };
 export type ServerSettingState = {
     serverSetting: ServerInfo;
-    updateServerSettings: (setting: ServerInfo) => Promise<void>;
+    updateServerSettings: (setting: Partial<ServerInfo>) => Promise<void>;
     reloadServerInfo: () => Promise<any>;
     uploadBackgroundSound: (setting: BackgroundSoundsUploadSetting) => Promise<void>;
     uploadModel: (setting: ModelUploadSetting) => Promise<ServerInfo>;

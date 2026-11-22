@@ -1424,7 +1424,7 @@ class TestAudioPipelineQuality(unittest.TestCase):
         ).astype(np.float32)
         mic = (echo + near).astype(np.float32)
 
-        def _best_lag_corr(a: np.ndarray, b: np.ndarray, max_lag: int = 1200) -> float:
+        def _best_lag_corr(a: np.ndarray, b: np.ndarray, max_lag: int = 1800) -> float:
             return max(
                 float(np.corrcoef(a[:-k] if k > 0 else a, b[k:])[0, 1])
                 for k in range(0, max_lag, 5)
@@ -1534,6 +1534,282 @@ class TestAudioPipelineQuality(unittest.TestCase):
             sa.update_settings("noiseSuppression", False, True)
             self.assertIsNone(sa._aec)
             self.assertIsNone(sa._loopback_capture)
+
+    def test_server_aec_48k_and_44k_noise_suppression_quality(self):
+        from voice_changer.common.ServerAEC import ServerAEC
+
+        rng = np.random.default_rng(7)
+
+        def _measure_ns_suppression_db(sr: int, aec_on: bool) -> float:
+            n = sr * 3
+            noise = rng.standard_normal(n).astype(np.float32)
+            noise = (noise / np.sqrt(np.mean(noise ** 2)) * 0.0316).astype(np.float32)  # -30 dBFS
+            aec = ServerAEC(sr, echo_cancellation=aec_on, noise_suppression=True, ns_level=2)
+            out = np.empty_like(noise)
+            bs = 2048
+            z = np.zeros(bs, dtype=np.float32)
+            for i in range(0, n, bs):
+                end = min(n, i + bs)
+                out[i:end] = aec.process(noise[i:end], z[: end - i] if aec_on else None)
+            seg_in = noise[int(1.5 * sr) :]
+            seg_out = out[int(1.5 * sr) :]
+            return 10.0 * math.log10(
+                (float(np.mean(seg_in ** 2)) + 1e-12) / (float(np.mean(seg_out ** 2)) + 1e-12)
+            )
+
+        self.assertGreater(_measure_ns_suppression_db(48000, aec_on=False), 15.0)
+        self.assertGreater(_measure_ns_suppression_db(48000, aec_on=True), 15.0)
+        self.assertGreater(_measure_ns_suppression_db(44100, aec_on=False), 15.0)
+
+        # Clean 440 Hz tone at 48 kHz must remain distortion-free (no 100 Hz modulation sidebands)
+        sr = 48000
+        t = np.arange(sr * 2, dtype=np.float32) / sr
+        sine = (0.3 * np.sin(2.0 * math.pi * 440.0 * t)).astype(np.float32)
+        for aec_on in (False, True):
+            aec = ServerAEC(sr, echo_cancellation=aec_on, noise_suppression=True, ns_level=2)
+            out = np.empty_like(sine)
+            z = np.zeros(2048, dtype=np.float32)
+            for i in range(0, len(sine), 2048):
+                end = min(len(sine), i + 2048)
+                out[i:end] = aec.process(sine[i:end], z[: end - i] if aec_on else None)
+            seg = out[sr:]
+            win = np.hanning(len(seg))
+            spec = np.abs(np.fft.rfft(seg * win))
+            freqs = np.fft.rfftfreq(len(seg), 1.0 / sr)
+            f0_mask = (freqs >= 435.0) & (freqs <= 445.0)
+            sinad_db = 10.0 * math.log10(
+                float(np.sum(spec[f0_mask] ** 2)) / (float(np.sum(spec[~f0_mask] ** 2)) + 1e-12)
+            )
+            self.assertGreater(sinad_db, 50.0, f"SINAD too low for aec_on={aec_on}: {sinad_db:.2f} dB")
+
+        # 70 Hz HPF + NS attenuates 50 Hz hum strongly when echo_cancellation=False
+        hum = (0.25 * np.sin(2.0 * math.pi * 50.0 * t)).astype(np.float32)
+        aec_hpf = ServerAEC(sr, echo_cancellation=False, noise_suppression=True, ns_level=2)
+        out_hum = aec_hpf.process(hum, None)
+        hum_atten_db = 10.0 * math.log10(
+            float(np.mean(hum[sr:] ** 2)) / (float(np.mean(out_hum[sr:] ** 2)) + 1e-12)
+        )
+        self.assertGreater(hum_atten_db, 15.0)
+
+    def test_wasapi_loopback_causal_alignment_and_resampler(self):
+        from voice_changer.common.ServerAEC import NumpyCausalPolyphaseResampler, ServerAEC
+        from voice_changer.Local.WasapiLoopback import WasapiLoopbackCapture
+
+        # 1. Polyphase resampler accuracy and exact sample counts across 10ms chunks
+        for src_sr, dst_sr in ((44100, 48000), (96000, 48000)):
+            resamp = NumpyCausalPolyphaseResampler(src_sr, dst_sr)
+            t = np.arange(src_sr, dtype=np.float32) / float(src_sr)
+            sig = (0.4 * np.sin(2.0 * math.pi * 1000.0 * t)).astype(np.float32)
+            step = src_sr // 100
+            outs = [resamp.process(sig[i : i + step]) for i in range(0, src_sr, step)]
+            y = np.concatenate(outs)
+            self.assertEqual(y.shape[0], dst_sr)
+            seg = y[dst_sr // 4 : (3 * dst_sr) // 4]
+            win = np.hanning(len(seg))
+            spec = np.abs(np.fft.rfft(seg * win))
+            freqs = np.fft.rfftfreq(len(seg), 1.0 / dst_sr)
+            m = (freqs >= 990.0) & (freqs <= 1010.0)
+            sinad = 10.0 * math.log10(float(np.sum(spec[m] ** 2)) / (float(np.sum(spec[~m] ** 2)) + 1e-12))
+            self.assertGreater(sinad, 70.0)
+
+        # 2. Underrun recovery tracks debt without injecting a 60ms zero-hole into ring
+        cap = WasapiLoopbackCapture(48000)
+        ring = cap._ensure_ring()
+        cap._running = True
+        cap._thread = MagicMock(is_alive=lambda: True)
+        ring.write(np.arange(1, 501, dtype=np.float32))
+        out_u = cap.read_chunk(1024)
+        self.assertTrue(np.allclose(out_u[:500], np.arange(1, 501, dtype=np.float32)))
+        self.assertTrue(np.all(out_u[500:] == 0.0))
+        self.assertEqual(ring.available(), 0)
+        self.assertEqual(cap._underrun_debt, 524)
+
+        ring.write(np.arange(1000, 2524, dtype=np.float32))
+        out_next = cap.read_chunk(1000)
+        self.assertTrue(np.allclose(out_next, np.arange(1524, 2524, dtype=np.float32)))
+        self.assertEqual(cap._underrun_debt, 0)
+
+        # 3. Wall-clock simulation with 50ms loopback pre-start and +33ms real acoustic+driver delay
+        sr = 48000
+        ms = sr // 1000
+        block_frame = 2048
+        sim_ms = 3200
+        n_total = sim_ms * ms
+        t = np.arange(n_total, dtype=np.float32) / float(sr)
+        f0 = 150.0 + 60.0 * np.sin(2.0 * np.pi * 1.3 * t) + 30.0 * np.sin(2.0 * np.pi * 3.7 * t)
+        ph = 2.0 * np.pi * np.cumsum(f0) / float(sr)
+        far_src = (
+            (0.35 * np.sin(ph) + 0.25 * np.sin(2.0 * ph) + 0.20 * np.sin(3.0 * ph))
+            * ((0.5 + 0.5 * np.sin(2.0 * np.pi * 2.5 * t)) ** 2)
+            * 0.6
+        ).astype(np.float32)
+
+        l_loop = 10 * ms
+        l_echo = 43 * ms  # +33ms true delay relative to loopback packet arrival
+        startup_gap_ms = 50
+
+        settings = VoiceChangerSettings()
+        settings.echoCancel = True
+        settings.noiseSuppression = False
+        sa = ServerAudio(MagicMock(), settings)
+        sa._out_sr = sr
+        sa._block_frame = block_frame
+        sa.in_ring = Float32RingBuffer(block_frame * 8)
+        sa.ref_ring = Float32RingBuffer(block_frame * 8)
+        sa.out_ring = Float32RingBuffer(block_frame * 8)
+
+        sim_cap = WasapiLoopbackCapture(sr)
+        sim_ring = sim_cap._ensure_ring()
+        sim_cap._running = True
+        sim_cap._thread = MagicMock(is_alive=lambda: True)
+        sa._loopback_capture = sim_cap
+        sa._aec = ServerAEC(sr, echo_cancellation=True, noise_suppression=False)
+        sa._aec_first_cb_sync = True
+
+        # Pre-accumulate 50ms of loopback audio before first PortAudio callback
+        for t_ms in range(startup_gap_ms):
+            s0 = t_ms * ms - l_loop
+            pkt = np.zeros(ms, dtype=np.float32)
+            if s0 >= 0:
+                pkt[:] = far_src[s0 : s0 + ms]
+            sim_ring.write(pkt)
+
+        outdata = np.zeros((block_frame, 1), dtype=np.float32)
+        mic_acc = []
+        out_acc = []
+        cb_accum = 0
+        cb_indata = np.zeros((block_frame, 1), dtype=np.float32)
+
+        for t_ms in range(startup_gap_ms, sim_ms):
+            lb_s = t_ms * ms - l_loop
+            sim_ring.write(far_src[lb_s : lb_s + ms] if lb_s >= 0 else np.zeros(ms, dtype=np.float32))
+
+            echo_s = t_ms * ms - l_echo
+            mic_ms = far_src[echo_s : echo_s + ms] * 0.5 if echo_s >= 0 else np.zeros(ms, dtype=np.float32)
+            for idx_s in range(ms):
+                cb_indata[cb_accum, 0] = mic_ms[idx_s]
+                cb_accum += 1
+                if cb_accum == block_frame:
+                    sa.audio_stream_callback(cb_indata, outdata, block_frame, None, None)
+                    cb_accum = 0
+                    m_blk = np.zeros(block_frame, dtype=np.float32)
+                    r_blk = np.zeros(block_frame, dtype=np.float32)
+                    sa.in_ring.read_exact_into(m_blk)
+                    sa.ref_ring.read_exact_into(r_blk)
+                    mic_acc.append(m_blk.copy())
+                    sa._apply_aec(m_blk, r_blk, ref_from_ring=True)
+                    out_acc.append(m_blk)
+
+        mic_all = np.concatenate(mic_acc)
+        out_all = np.concatenate(out_acc)
+        tail = slice(int(1.2 * sr), len(out_all))
+        erle_db = 10.0 * math.log10(
+            (float(np.mean(mic_all[tail] ** 2)) + 1e-12)
+            / (float(np.mean(out_all[tail] ** 2)) + 1e-12)
+        )
+        self.assertGreater(erle_db, 25.0, f"Real-time causal loop ERLE too low: {erle_db:.2f} dB")
+
+    def test_server_audio_post_aec_gain_and_backlog_ref_lockstep(self):
+        settings = VoiceChangerSettings()
+        settings.echoCancel = True
+        settings.noiseSuppression = False
+        settings.serverInputAudioGain = 2.0
+        block_frame = 512
+
+        sa = ServerAudio(MagicMock(), settings)
+        sa._out_sr = 48000
+        sa._block_frame = block_frame
+        sa.in_ring = Float32RingBuffer(block_frame * 8)
+        sa.ref_ring = Float32RingBuffer(block_frame * 8)
+        sa.out_ring = Float32RingBuffer(block_frame * 8)
+        sa._worker_in_buf = np.zeros(block_frame, dtype=np.float32)
+        sa._worker_skip_buf = np.zeros(block_frame, dtype=np.float32)
+        sa._worker_ref_buf = np.zeros(block_frame, dtype=np.float32)
+        sa._worker_skip_ref_buf = np.zeros(block_frame, dtype=np.float32)
+        sa._last_diag_log_ts = -10.0
+
+        seen_aec_pairs = []
+        audio_peaks = []
+        skip_peaks = []
+
+        stub_aec = MagicMock()
+        stub_aec.backend = "webrtc"
+        stub_aec.sample_rate = 48000
+        stub_aec.echo_cancellation = True
+        stub_aec.noise_suppression = False
+
+        def _fake_aec_process(mic, ref):
+            seen_aec_pairs.append((float(mic[0]), float(ref[0])))
+            return mic.copy()
+
+        stub_aec.process.side_effect = _fake_aec_process
+
+        mock_cap = MagicMock()
+        mock_cap.sample_rate = 48000
+        mock_cap.is_running = True
+        cap_tags = iter([0.1, 0.2, 0.3])
+
+        def _fake_read_chunk(n, out_buf=None):
+            val = next(cap_tags)
+            out_buf[:n] = val
+            return out_buf
+
+        mock_cap.read_chunk.side_effect = _fake_read_chunk
+        sa._loopback_capture = mock_cap
+        sa._aec = stub_aec
+
+        outdata = np.zeros((block_frame, 1), dtype=np.float32)
+        for tag in (0.1, 0.2, 0.3):
+            indata = np.full((block_frame, 1), tag, dtype=np.float32)
+            sa.audio_stream_callback(indata, outdata, block_frame, None, None)
+
+        def _on_skip(buf):
+            skip_peaks.append(float(buf[0]))
+            return np.zeros_like(buf), 0.0, [0.0, 0.0, 0.0], None
+
+        def _on_audio(buf):
+            audio_peaks.append(float(buf[0]))
+            return buf.copy(), 0.2, [0.0, 0.01, 0.0], None
+
+        def _emit_to(_vol, _perf, _err):
+            sa._stop_event.set()
+
+        sa.callbacks.on_skip_audio = _on_skip
+        sa.callbacks.on_audio = _on_audio
+        sa.callbacks.emit_to = _emit_to
+
+        sa._stop_event.clear()
+        sa._in_event.set()
+        with self.assertLogs("voice_changer.Local.ServerAudio", level="WARNING"):
+            sa._inference_worker_loop()
+
+        # AEC sees un-gained raw mic values paired 1:1 with ref values; gain (2.0x) applies AFTER AEC
+        self.assertEqual(len(seen_aec_pairs), 3)
+        for expected_tag, (m_val, r_val) in zip((0.1, 0.2, 0.3), seen_aec_pairs):
+            self.assertAlmostEqual(m_val, expected_tag, places=5)
+            self.assertAlmostEqual(r_val, expected_tag, places=5)
+        self.assertEqual([round(x, 4) for x in skip_peaks], [0.2, 0.4])
+        self.assertEqual([round(x, 4) for x in audio_peaks], [0.6])
+
+        # Toggling noiseSuppression preserves existing ServerAEC instance in-place
+        sa2 = ServerAudio(MagicMock(), VoiceChangerSettings())
+        sa2.running = True
+        sa2._out_sr = 48000
+        sa2._block_frame = 2048
+        mock_cap2 = MagicMock()
+        mock_cap2.sample_rate = 48000
+        mock_cap2.is_running = True
+        mock_cap2.start.return_value = True
+        with patch("voice_changer.Local.ServerAudio.WasapiLoopbackCapture", return_value=mock_cap2):
+            sa2.settings.echoCancel = True
+            sa2.update_settings("echoCancel", True, False)
+            orig_aec = sa2._aec
+            sa2.settings.noiseSuppression = True
+            sa2.update_settings("noiseSuppression", True, False)
+            self.assertIs(sa2._aec, orig_aec)
+            self.assertTrue(sa2._aec.noise_suppression)
+            self.assertTrue(sa2._aec.echo_cancellation)
+            mock_cap2.start.assert_called_once()
 
 
 if __name__ == "__main__":

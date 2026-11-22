@@ -228,4 +228,22 @@ describe("VoiceChangerClient audio gain & settings sync", () => {
         expect(fromDefault.voiceChangerClientSetting.outputGain).toBe(1.0);
         expect(fromDefault.voiceChangerClientSetting.monitorGain).toBe(1.0);
     });
+
+    test("collectServerSettingUpdates skips omitted keys so rapid partial patches do not revert earlier toggles", () => {
+        const baseServer = {
+            ...lib.DefaultServerSetting,
+            echoCancel: false,
+            noiseSuppression: false,
+        };
+
+        const firstUpdates = lib.collectServerSettingUpdates(baseServer, { echoCancel: true });
+        expect(firstUpdates).toEqual([{ key: "echoCancel", value: "true" }]);
+
+        const afterFirst = {
+            ...baseServer,
+            echoCancel: true,
+        };
+        const secondUpdates = lib.collectServerSettingUpdates(afterFirst, { noiseSuppression: true });
+        expect(secondUpdates).toEqual([{ key: "noiseSuppression", value: "true" }]);
+    });
 });

@@ -44,6 +44,21 @@ try:
 except Exception as e:
     print(f"Warning: Could not collect onnxruntime: {e}")
 
+try:
+    webrtc_ret = collect_all('pywebrtc_audio')
+    datas += webrtc_ret[0]
+    binaries += webrtc_ret[1]
+    hiddenimports += webrtc_ret[2]
+    for sp in site.getsitepackages():
+        libs_dir = os.path.join(sp, 'pywebrtc_audio.libs')
+        if os.path.isdir(libs_dir):
+            for fn in os.listdir(libs_dir):
+                if fn.lower().endswith('.dll'):
+                    binaries.append((os.path.join(libs_dir, fn), 'pywebrtc_audio.libs'))
+            break
+except Exception as e:
+    print(f"Warning: Could not collect pywebrtc_audio: {e}")
+
 excludes_list = [
     'torch.utils.tensorboard',
     'tkinter', 'tcl', 'tk',
