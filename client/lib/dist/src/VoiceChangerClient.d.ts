@@ -13,7 +13,6 @@ export declare class VoiceChangerClient {
     private monitorGainNode;
     private vcInNode;
     private vcOutNode;
-    private compressorNode;
     private currentMediaStreamAudioDestinationNode;
     private currentMediaStreamAudioDestinationMonitorNode;
     private promiseForInitialize;

@@ -89,7 +89,7 @@ class VoiceChangerSettings:
     _inputSampleRate: int = 48000
 
     _crossFadeOverlapSize: float = 0.04
-    _serverReadChunkSize: int = 192
+    _serverReadChunkSize: int = 180
     _extraConvertSize: float = 0.5
     _gpu: int = -1
     _forceFp32: int = 0

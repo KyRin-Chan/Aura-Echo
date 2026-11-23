@@ -26,7 +26,6 @@ export class VoiceChangerClient {
     private monitorGainNode: GainNode | null = null;
     private vcInNode!: VoiceChangerWorkletNode;
     private vcOutNode!: VoiceChangerWorkletNode;
-    private compressorNode: DynamicsCompressorNode | null = null;
     private currentMediaStreamAudioDestinationNode!: MediaStreamAudioDestinationNode;
     private currentMediaStreamAudioDestinationMonitorNode!: MediaStreamAudioDestinationNode;
 
@@ -75,13 +74,6 @@ export class VoiceChangerClient {
             this.monitorGainNode = this.ctx.createGain();
             this.monitorGainNode.gain.value = this.setting.monitorGain;
             this.monitorGainNode.connect(this.currentMediaStreamAudioDestinationMonitorNode);
-
-            this.compressorNode = this.ctx.createDynamicsCompressor();
-            this.compressorNode.threshold.value = -12;
-            this.compressorNode.knee.value = 30;
-            this.compressorNode.ratio.value = 12;
-            this.compressorNode.attack.value = 0.003;
-            this.compressorNode.release.value = 0.25;
 
             this.updateOutputConnections();
 
@@ -285,21 +277,12 @@ export class VoiceChangerClient {
     private updateOutputConnections = () => {
         try {
             this.vcOutNode.disconnect();
-            if (this.compressorNode) {
-                this.compressorNode.disconnect();
-            }
         } catch (e) {
             console.warn("disconnect error", e);
         }
 
-        if (this.setting.agcEnabled && this.compressorNode) {
-            this.vcOutNode.connect(this.compressorNode);
-            this.compressorNode.connect(this.outputGainNode!);
-            this.compressorNode.connect(this.monitorGainNode!);
-        } else {
-            this.vcOutNode.connect(this.outputGainNode!);
-            this.vcOutNode.connect(this.monitorGainNode!);
-        }
+        this.vcOutNode.connect(this.outputGainNode!);
+        this.vcOutNode.connect(this.monitorGainNode!);
     };
 
     updateClientSetting = async (setting: VoiceChangerClientSetting) => {
@@ -315,7 +298,6 @@ export class VoiceChangerClient {
             reconstructInputRequired = true;
         }
 
-        const agcChanged = prevSetting.agcEnabled !== setting.agcEnabled;
         this.setting = { ...setting };
 
         const isValidGain = (val: number) => typeof val === "number" && Number.isFinite(val) && val >= 0;
@@ -340,10 +322,6 @@ export class VoiceChangerClient {
             } else {
                 this.setting.monitorGain = prevSetting.monitorGain;
             }
-        }
-
-        if (agcChanged) {
-            this.updateOutputConnections();
         }
 
         if (reconstructInputRequired) {

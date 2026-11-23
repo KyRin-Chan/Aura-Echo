@@ -56,7 +56,7 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
         <MD3Switch
           checked={noiseSuppression2Checked}
           onChange={(val) => handleToggle('noiseSuppression2', val)}
-          label={t('noiseSuppression2Label')}
+          label={isServerAudio ? t('noiseSuppression2ServerLabel') : t('noiseSuppression2ClientLabel')}
         />
         {isServerAudio && noiseSuppression2Checked && (
           <div className="pt-1">

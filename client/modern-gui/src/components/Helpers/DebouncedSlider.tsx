@@ -7,11 +7,15 @@ interface DebouncedSliderProps extends Omit<InputHTMLAttributes<HTMLInputElement
   // id, name, min, max, step, className, disabled, etc., will be inherited from InputHTMLAttributes
 }
 
+export type DebouncedFn<T extends (...args: any[]) => void> = ((...args: Parameters<T>) => void) & {
+  cancel: () => void;
+};
+
 export const useDebouncedCallback = <T extends (...args: any[]) => void>(
   callback: T,
   delay: number,
   options?: { flushOnUnmount?: boolean }
-) => {
+): DebouncedFn<T> => {
   const timeoutRef = useRef<number>();
   const pendingArgsRef = useRef<Parameters<T> | null>(null);
   const pendingCallbackRef = useRef<T | null>(null);
@@ -22,10 +26,22 @@ export const useDebouncedCallback = <T extends (...args: any[]) => void>(
   latestCallbackRef.current = callback;
   flushOnUnmountRef.current = flushOnUnmount;
 
+  const cancel = useCallback(() => {
+    window.clearTimeout(timeoutRef.current);
+    pendingArgsRef.current = null;
+    pendingCallbackRef.current = null;
+  }, []);
+
   const debouncedFn = useCallback((...args: Parameters<T>) => {
+    window.clearTimeout(timeoutRef.current);
+    if (delay <= 0) {
+      pendingArgsRef.current = null;
+      pendingCallbackRef.current = null;
+      latestCallbackRef.current(...args);
+      return;
+    }
     pendingArgsRef.current = args;
     pendingCallbackRef.current = callback;
-    window.clearTimeout(timeoutRef.current);
     timeoutRef.current = window.setTimeout(() => {
       const pendingArgs = pendingArgsRef.current;
       const pendingCallback = pendingCallbackRef.current;
@@ -36,7 +52,9 @@ export const useDebouncedCallback = <T extends (...args: any[]) => void>(
         target?.(...pendingArgs);
       }
     }, delay);
-  }, [callback, delay]);
+  }, [callback, delay]) as DebouncedFn<T>;
+
+  debouncedFn.cancel = cancel;
 
   useEffect(
     () => () => {

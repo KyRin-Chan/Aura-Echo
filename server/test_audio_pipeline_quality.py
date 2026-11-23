@@ -23,6 +23,7 @@ from voice_changer.common.AudioDSP import (
     AdaptiveNoiseGate,
     CausalPolyphaseResampler,
     MinimumPhaseFormantFilter,
+    StatefulAutoGainControl,
     StatefulPeakLimiter,
     analyze_voice_acoustics,
     compute_residual_match_eq_curve,
@@ -347,6 +348,74 @@ class TestAudioPipelineQuality(unittest.TestCase):
         hot = np.full(1024, 1.4, dtype=np.float32)
         safe = vc._apply_post_cpu_chain(hot, 1024)
         self.assertLess(float(np.max(np.abs(safe))), 1.0)
+
+    def test_stateful_auto_gain_control_boosts_quiet_and_protects_silence(self):
+        sr = 48000
+        agc = StatefulAutoGainControl()
+
+        # 1. Quiet speech (~ -33.5 dBFS RMS) is boosted toward -18 dBFS with low THD
+        t = np.arange(72000, dtype=np.float32) / sr
+        quiet_speech = 0.03 * np.sin(2.0 * math.pi * 440.0 * t)
+        in_rms = float(np.sqrt(np.mean(np.square(quiet_speech))))
+        chunks = [agc.process(quiet_speech[i : i + 1024], sr) for i in range(0, len(quiet_speech), 1024)]
+        out_quiet = np.concatenate(chunks)
+        tail = out_quiet[48000:]
+        out_rms = float(np.sqrt(np.mean(np.square(tail))))
+        gain_db_measured = 20.0 * math.log10(out_rms / in_rms)
+        self.assertGreater(gain_db_measured, 10.0)
+        self.assertGreater(out_rms, 0.09)
+        self.assertLess(out_rms, 0.16)
+        self.assertLess(_compute_thd(tail, 440.0, sr), 0.01)
+
+        # 2. Sub-noise-floor signal (~ -63 dBFS RMS) stays at unity gain (not amplified)
+        agc.reset()
+        t_sil = np.arange(24000, dtype=np.float32) / sr
+        noise_floor = 0.001 * np.sin(2.0 * math.pi * 440.0 * t_sil)
+        out_noise = np.concatenate([agc.process(noise_floor[i : i + 1024], sr) for i in range(0, len(noise_floor), 1024)])
+        self.assertTrue(np.allclose(out_noise, noise_floor, atol=1e-5))
+
+        # 3. Loud signal (amp 0.9, ~ -3.9 dBFS RMS) is smoothly attenuated
+        agc.reset()
+        t_loud = np.arange(24000, dtype=np.float32) / sr
+        loud = 0.9 * np.sin(2.0 * math.pi * 440.0 * t_loud)
+        out_loud = np.concatenate([agc.process(loud[i : i + 1024], sr) for i in range(0, len(loud), 1024)])
+        loud_tail_rms = float(np.sqrt(np.mean(np.square(out_loud[12000:]))))
+        self.assertLess(loud_tail_rms, 0.25)
+        self.assertLessEqual(float(np.max(np.abs(out_loud))), 0.91)
+
+        # 4. Speech -> silence holds briefly, then decays gain back toward unity
+        agc.reset()
+        for i in range(0, 57600, 1024):
+            agc.process(quiet_speech[i : i + 1024], sr)
+        self.assertGreater(agc._gain_db, 12.0)
+
+        silence = np.full(1024, 0.0002, dtype=np.float32)
+        for _ in range(5):  # ~106 ms (< hold_ms=250 ms)
+            agc.process(silence, sr)
+        self.assertGreater(agc._gain_db, 12.0)
+
+        for _ in range(180):  # ~3.8 s (> hold_ms + idle_release_ms)
+            agc.process(silence, sr)
+        self.assertLess(abs(agc._gain_db), 2.0)
+
+        # 5. VoiceChangerV2 applies AGC to voice BEFORE mixing BGM so BGM is never pumped
+        settings = VoiceChangerSettings()
+        settings.agcEnabled = True
+        settings.outputSampleRate = sr
+        vc = VoiceChangerV2(settings)
+        mock_mixer = MagicMock()
+        mock_mixer.render_numpy.side_effect = lambda n, sample_rate: np.full(n, 0.1, dtype=np.float32)
+        vc.set_audio_mixer(mock_mixer)
+
+        voice_out = None
+        for i in range(0, 61440, 1024):
+            voice_out = vc._apply_post_cpu_chain(quiet_speech[i : i + 1024], 1024)
+        voice_only_rms = float(np.sqrt(np.mean(np.square(voice_out - 0.1))))
+        self.assertGreater(voice_only_rms, 0.08)
+
+        vc._agc.reset()
+        sil_with_bgm = vc._apply_post_cpu_chain(np.zeros(1024, dtype=np.float32), 1024)
+        self.assertTrue(np.allclose(sil_with_bgm, 0.1, atol=1e-5))
 
     def test_formant_shift_pipeline_exec(self):
         captured = {}

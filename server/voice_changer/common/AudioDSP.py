@@ -835,6 +835,135 @@ class StatefulPeakLimiter:
         return (audio * gain_curve).astype(np.float32, copy=False)
 
 
+class StatefulAutoGainControl:
+    """
+    Stateful RMS-tracking Auto Gain Control (AGC) for real-time speech streams.
+
+    Smoothly boosts quiet speech toward `target_rms_db`, gates out silence/noise
+    below `noise_floor_db` with hold and slow idle release, and attenuates loud
+    segments with peak-aware clamping to avoid clipping.
+    """
+
+    def __init__(
+        self,
+        target_rms_db: float = -18.0,
+        noise_floor_db: float = -45.0,
+        max_gain_db: float = 15.0,
+        min_gain_db: float = -12.0,
+        attack_ms: float = 25.0,
+        release_ms: float = 250.0,
+        hold_ms: float = 250.0,
+        idle_release_ms: float = 1200.0,
+        rms_smooth_ms: float = 30.0,
+        peak_ceiling: float = 0.90,
+    ):
+        self.target_rms_db = float(target_rms_db)
+        self.noise_floor_db = float(noise_floor_db)
+        self.max_gain_db = float(max_gain_db)
+        self.min_gain_db = float(min_gain_db)
+        self.attack_ms = max(0.5, float(attack_ms))
+        self.release_ms = max(1.0, float(release_ms))
+        self.hold_ms = max(0.0, float(hold_ms))
+        self.idle_release_ms = max(1.0, float(idle_release_ms))
+        self.rms_smooth_ms = max(1.0, float(rms_smooth_ms))
+        self.peak_ceiling = max(0.05, float(peak_ceiling))
+        self._power_env: float = 0.0
+        self._gain_db: float = 0.0
+        self._prev_gain: float = 1.0
+        self._hold_remaining_s: float = 0.0
+
+    def reset(self) -> None:
+        self._power_env = 0.0
+        self._gain_db = 0.0
+        self._prev_gain = 1.0
+        self._hold_remaining_s = 0.0
+
+    def process(self, audio: np.ndarray, sample_rate: int = 48000) -> np.ndarray:
+        if audio is None or audio.size == 0:
+            return audio
+
+        n = audio.shape[0]
+        sr = max(1, int(sample_rate))
+        sub_len = max(1, int(round(sr * 0.005)))
+        abs_x = np.abs(audio)
+        sq_x = np.square(audio, dtype=np.float32)
+
+        full_subs = n // sub_len
+        if full_subs > 0 and full_subs * sub_len == n:
+            powers = sq_x.reshape(full_subs, sub_len).mean(axis=1)
+            peaks = abs_x.reshape(full_subs, sub_len).max(axis=1)
+        elif full_subs > 0:
+            head_sq = sq_x[: full_subs * sub_len].reshape(full_subs, sub_len).mean(axis=1)
+            tail_sq = np.array([sq_x[full_subs * sub_len :].mean()], dtype=np.float32)
+            powers = np.concatenate([head_sq, tail_sq])
+
+            head_peaks = abs_x[: full_subs * sub_len].reshape(full_subs, sub_len).max(axis=1)
+            tail_peak = np.array([abs_x[full_subs * sub_len :].max()], dtype=np.float32)
+            peaks = np.concatenate([head_peaks, tail_peak])
+        else:
+            powers = np.array([sq_x.mean()], dtype=np.float32)
+            peaks = np.array([abs_x.max()], dtype=np.float32)
+
+        dt_sub = sub_len / float(sr)
+        a_rms = math.exp(-dt_sub / (self.rms_smooth_ms / 1000.0))
+        a_attack = math.exp(-dt_sub / (self.attack_ms / 1000.0))
+        a_release = math.exp(-dt_sub / (self.release_ms / 1000.0))
+        a_idle = math.exp(-dt_sub / (self.idle_release_ms / 1000.0))
+
+        n_subs = powers.shape[0]
+        gain_knots = np.empty(n_subs + 1, dtype=np.float32)
+        gain_knots[0] = self._prev_gain
+
+        power_env = self._power_env
+        gain_db = self._gain_db
+        hold_remaining_s = self._hold_remaining_s
+
+        for i in range(n_subs):
+            sub_power = float(powers[i])
+            sub_peak = float(peaks[i])
+            power_env = a_rms * power_env + (1.0 - a_rms) * sub_power
+            rms = math.sqrt(max(power_env, 1e-12))
+            rms_db = 20.0 * math.log10(rms)
+            inst_rms_db = 10.0 * math.log10(max(sub_power, 1e-12))
+
+            if rms_db >= self.noise_floor_db and inst_rms_db >= self.noise_floor_db - 6.0:
+                hold_remaining_s = self.hold_ms / 1000.0
+                desired_db = max(self.min_gain_db, min(self.max_gain_db, self.target_rms_db - rms_db))
+                if sub_peak > 1e-6:
+                    max_peak_db = 20.0 * math.log10(self.peak_ceiling / sub_peak)
+                    desired_db = min(desired_db, max_peak_db)
+                coeff = a_attack if desired_db < gain_db else a_release
+                gain_db = coeff * gain_db + (1.0 - coeff) * desired_db
+            else:
+                if hold_remaining_s > 0.0:
+                    hold_remaining_s = max(0.0, hold_remaining_s - dt_sub)
+                    if sub_peak > 1e-6 and sub_peak * (10.0 ** (gain_db / 20.0)) > self.peak_ceiling:
+                        gain_db = min(gain_db, 20.0 * math.log10(self.peak_ceiling / sub_peak))
+                else:
+                    gain_db = a_idle * gain_db
+
+            gain_knots[i + 1] = 10.0 ** (gain_db / 20.0)
+
+        self._power_env = power_env
+        self._gain_db = gain_db
+        self._prev_gain = float(gain_knots[-1])
+        self._hold_remaining_s = hold_remaining_s
+
+        if np.all(np.abs(gain_knots - 1.0) < 1e-6):
+            return audio
+
+        knot_x = np.empty(n_subs + 1, dtype=np.float32)
+        knot_x[0] = 0.0
+        for i in range(full_subs):
+            knot_x[i + 1] = float((i + 1) * sub_len)
+        if full_subs * sub_len < n:
+            knot_x[-1] = float(n)
+
+        sample_x = np.arange(n, dtype=np.float32)
+        gain_curve = np.interp(sample_x, knot_x, gain_knots).astype(np.float32)
+        return (audio * gain_curve).astype(np.float32, copy=False)
+
+
 def soft_knee_limit_np(
     audio: np.ndarray, threshold: float = 0.85, ceiling: float = 0.98
 ) -> np.ndarray:

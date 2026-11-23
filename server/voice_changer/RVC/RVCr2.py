@@ -257,14 +257,22 @@ class RVCr2(VoiceChangerModel):
         sola_search_frame_16k = int(sola_search_frame / self.input_sample_rate * HUBERT_SAMPLE_RATE)
         extra_frame_16k = int(extra_frame / self.input_sample_rate * HUBERT_SAMPLE_RATE)
 
-        convert_size_16k = block_frame_16k + sola_search_frame_16k + extra_frame_16k + crossfade_frame_16k
-        if (modulo := convert_size_16k % WINDOW_SIZE) != 0:
-            convert_size_16k = convert_size_16k + (WINDOW_SIZE - modulo)
-        self.convert_feature_size_16k = convert_size_16k // WINDOW_SIZE
+        return_size_16k = block_frame_16k + sola_search_frame_16k + crossfade_frame_16k
+        return_frames = (return_size_16k + WINDOW_SIZE - 1) // WINDOW_SIZE
+        extra_frames = extra_frame_16k // WINDOW_SIZE
+        total_frames = return_frames + extra_frames
+        # Align total frames to even count (WINDOW_SIZE * 2 = 320 @16kHz = HuBERT stride)
+        # by absorbing 1 padding frame into left context (skip_head) so SOLA right-alignment stays exact.
+        if total_frames % 2 != 0:
+            total_frames += 1
+            extra_frames += 1
 
-        self.skip_head = extra_frame_16k // WINDOW_SIZE
-        self.return_length = self.convert_feature_size_16k - self.skip_head
-        self.silence_front = max(0, extra_frame_16k - (WINDOW_SIZE * 12)) if self.settings.silenceFront else 0
+        self.convert_feature_size_16k = total_frames
+        convert_size_16k = total_frames * WINDOW_SIZE
+
+        self.skip_head = extra_frames
+        self.return_length = return_frames
+        self.silence_front = max(0, (self.skip_head - 12) * WINDOW_SIZE) if self.settings.silenceFront else 0
 
         audio_buffer_size = block_frame_16k + crossfade_frame_16k
         dev = self.device_manager.device

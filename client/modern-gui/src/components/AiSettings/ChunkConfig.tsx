@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CSS_CLASSES } from "../../styles/constants";
 import MD3Slider from "../Helpers/MD3Slider";
 import { ClientState } from "@dannadori/voice-changer-client-js";
@@ -10,32 +10,45 @@ interface ChunkConfigProps {
   uiState: UIContextType;
 }
 
+const WARMUP_DEBOUNCE_MS = 800;
+
 function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
   // ---------------- States ----------------
   const [localChunkSize, setLocalChunkSize] = useState<number>(
-    appState.serverSetting?.serverSetting?.serverReadChunkSize
-      ? appState.serverSetting.serverSetting.serverReadChunkSize
-      : 5
+    appState.serverSetting?.serverSetting?.serverReadChunkSize ?? 180
   );
   const [localExtraSize, setLocalExtraSize] = useState<number>(
-    appState.serverSetting?.serverSetting?.extraConvertSize ?? 1
+    appState.serverSetting?.serverSetting?.extraConvertSize ?? 0.5
   );
   const [localCushion, setLocalCushion] = useState<number>(
     appState.setting.workletNodeSetting?.playBufferCushion ?? 2
   );
 
+  // ---------------- Refs ----------------
+  const commitTimerRef = useRef<number | undefined>(undefined);
+  const pendingUpdatesRef = useRef<{
+    serverReadChunkSize?: number;
+    extraConvertSize?: number;
+  }>({});
+  const latestAppStateRef = useRef(appState);
+  const latestUiStateRef = useRef(uiState);
+  latestAppStateRef.current = appState;
+  latestUiStateRef.current = uiState;
+
   // ---------------- Hooks ----------------
 
-  // Set local chunk size
+  // Set local chunk size (skip if an uncommitted drag update is pending)
   useEffect(() => {
+    if (pendingUpdatesRef.current.serverReadChunkSize !== undefined) return;
     const cs = appState.serverSetting?.serverSetting?.serverReadChunkSize;
     if (cs !== undefined) {
       setLocalChunkSize(cs);
     }
   }, [appState.serverSetting?.serverSetting?.serverReadChunkSize]);
 
-  // Set local extra size
+  // Set local extra size (skip if an uncommitted drag update is pending)
   useEffect(() => {
+    if (pendingUpdatesRef.current.extraConvertSize !== undefined) return;
     const ex = appState.serverSetting?.serverSetting?.extraConvertSize;
     if (ex !== undefined) {
       setLocalExtraSize(ex);
@@ -50,38 +63,87 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
     }
   }, [appState.setting.workletNodeSetting?.playBufferCushion]);
 
+  const cancelPendingCommit = useCallback(() => {
+    if (commitTimerRef.current !== undefined) {
+      window.clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = undefined;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      cancelPendingCommit();
+    };
+  }, [cancelPendingCommit]);
+
   // ---------------- Handlers ----------------
 
-  // Handle chunk size change
-  const handleChangeChunkSize = async (value: number) => {
-    setLocalChunkSize(value);
-    appState.setWorkletNodeSetting({ ...appState.setting.workletNodeSetting, inputChunkNum: Number(value) });
-    appState.trancateBuffer();
-    const hasModel = (appState.serverSetting?.serverSetting?.modelSlotIndex ?? -1) !== -1;
-    if (hasModel) uiState.startLoading(t('warmingUpPipeline'));
-    try {
-      await appState.serverSetting.updateServerSettings({
-        ...appState.serverSetting?.serverSetting,
-        serverReadChunkSize: value
-      });
-    } finally {
-      if (hasModel) uiState.stopLoading();
+  const flushPendingUpdates = useCallback(async () => {
+    commitTimerRef.current = undefined;
+    const updates = { ...pendingUpdatesRef.current };
+    pendingUpdatesRef.current = {};
+
+    const currentAppState = latestAppStateRef.current;
+    const currentUiState = latestUiStateRef.current;
+    const currentServerSetting = currentAppState.serverSetting?.serverSetting;
+
+    const nextChunk = updates.serverReadChunkSize;
+    const chunkChanged =
+      nextChunk !== undefined && nextChunk !== currentServerSetting?.serverReadChunkSize;
+
+    const nextExtra = updates.extraConvertSize;
+    const extraChanged =
+      nextExtra !== undefined &&
+      Math.abs(nextExtra - (currentServerSetting?.extraConvertSize ?? -1)) > 1e-6;
+
+    if (!chunkChanged && !extraChanged) {
+      return;
     }
+
+    const payload = {
+      ...currentServerSetting,
+      ...(chunkChanged ? { serverReadChunkSize: nextChunk } : {}),
+      ...(extraChanged ? { extraConvertSize: nextExtra } : {}),
+    };
+
+    if (chunkChanged && nextChunk !== undefined) {
+      currentAppState.setWorkletNodeSetting({
+        ...currentAppState.setting.workletNodeSetting,
+        inputChunkNum: Number(nextChunk),
+      });
+      currentAppState.trancateBuffer();
+    }
+
+    const hasModel = (currentServerSetting?.modelSlotIndex ?? -1) !== -1;
+    if (hasModel) currentUiState.startLoading(t('warmingUpPipeline'));
+    try {
+      await currentAppState.serverSetting.updateServerSettings(payload);
+    } finally {
+      if (hasModel) currentUiState.stopLoading();
+    }
+  }, []);
+
+  const scheduleCommit = useCallback(
+    (field: 'serverReadChunkSize' | 'extraConvertSize', value: number) => {
+      pendingUpdatesRef.current[field] = value;
+      cancelPendingCommit();
+      commitTimerRef.current = window.setTimeout(() => {
+        void flushPendingUpdates();
+      }, WARMUP_DEBOUNCE_MS);
+    },
+    [cancelPendingCommit, flushPendingUpdates]
+  );
+
+  // Handle chunk size change (post-drag debounced)
+  const handleChangeChunkSize = (value: number) => {
+    setLocalChunkSize(value);
+    scheduleCommit('serverReadChunkSize', value);
   };
 
-  // Handle extra size change
-  const handleChangeExtraSize = async (value: number) => {
+  // Handle extra size change (post-drag debounced)
+  const handleChangeExtraSize = (value: number) => {
     setLocalExtraSize(value);
-    const hasModel = (appState.serverSetting?.serverSetting?.modelSlotIndex ?? -1) !== -1;
-    if (hasModel) uiState.startLoading(t('warmingUpPipeline'));
-    try {
-      await appState.serverSetting.updateServerSettings({
-        ...appState.serverSetting?.serverSetting,
-        extraConvertSize: value
-      });
-    } finally {
-      if (hasModel) uiState.stopLoading();
-    }
+    scheduleCommit('extraConvertSize', value);
   };
 
   // Handle safety cushion change
@@ -103,11 +165,17 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
         </label>
         <MD3Slider
           id="chunk"
-          min={1}
-          max={1024}
-          step={1}
+          min={15}
+          max={360}
+          step={15}
           value={localChunkSize}
-          onImmediateChange={setLocalChunkSize}
+          commitOnRelease={true}
+          debounceMs={0}
+          onDragStart={cancelPendingCommit}
+          onImmediateChange={(val) => {
+            cancelPendingCommit();
+            setLocalChunkSize(val);
+          }}
           onChange={handleChangeChunkSize}
           disabled={uiState.isConverting}
           showValue={true}
@@ -121,7 +189,7 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
         <MD3Slider
           id="cushion"
           min={1}
-          max={10}
+          max={5}
           step={1}
           value={localCushion}
           onImmediateChange={setLocalCushion}
@@ -137,15 +205,21 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
         </label>
         <MD3Slider
           id="extra"
-          min={0}
-          max={5}
+          min={0.1}
+          max={2.4}
           step={0.1}
           value={localExtraSize}
-          onImmediateChange={setLocalExtraSize}
+          commitOnRelease={true}
+          debounceMs={0}
+          onDragStart={cancelPendingCommit}
+          onImmediateChange={(val) => {
+            cancelPendingCommit();
+            setLocalExtraSize(val);
+          }}
           onChange={handleChangeExtraSize}
           disabled={uiState.isConverting}
           showValue={true}
-          valueFormatter={(val) => `${val} s`}
+          valueFormatter={(val) => `${val.toFixed(1)} s`}
         />
       </div>
     </div>

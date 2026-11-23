@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from const import VoiceChangerType
 from data.ModelSlot import ModelSlots
 from Exceptions import VoiceChangerIsNotSelectedException
-from voice_changer.common.AudioDSP import AdaptiveNoiseGate, StatefulPeakLimiter, soft_knee_limit_np
+from voice_changer.common.AudioDSP import AdaptiveNoiseGate, StatefulAutoGainControl, StatefulPeakLimiter, soft_knee_limit_np
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.IORecorder import IORecorder
 from voice_changer.utils.Timer import Timer2
@@ -32,6 +32,7 @@ class VoiceChangerV2:
         self.sola_buffer: torch.Tensor | None = None
         self._zero_offset: torch.Tensor | None = None
         self._was_voiced: bool = False
+        self._agc = StatefulAutoGainControl()
         self._peak_limiter = StatefulPeakLimiter(threshold=0.85, ceiling=0.98)
 
         self.io_recorder = IORecorder(
@@ -111,6 +112,7 @@ class VoiceChangerV2:
         finally:
             self._was_voiced = False
             self._vc_dirty = False
+            self._agc.reset()
             self._peak_limiter.reset()
             if self.sola_buffer is not None:
                 self.sola_buffer.zero_()
@@ -123,6 +125,7 @@ class VoiceChangerV2:
         self.vcmodel.initialize()
         self._was_voiced = False
         self._vc_dirty = False
+        self._agc.reset()
         self._peak_limiter.reset()
         if self.sola_buffer is not None:
             self.sola_buffer.zero_()
@@ -136,6 +139,7 @@ class VoiceChangerV2:
         self.vcmodel.initialize()
         self._was_voiced = False
         self._vc_dirty = False
+        self._agc.reset()
         self._peak_limiter.reset()
         if self.sola_buffer is not None:
             self.sola_buffer.zero_()
@@ -155,6 +159,7 @@ class VoiceChangerV2:
         self.crossfade_frame = int(self.settings.crossFadeOverlapSize * self.settings.inputSampleRate)
         self.sola_search_frame = max(1, int(round(0.012 * self.settings.inputSampleRate)))
         self._generate_strength()
+        self._agc.reset()
         self._peak_limiter.reset()
         self._pt_gate.reset()
         self._pt_was_gated_open = False
@@ -169,6 +174,7 @@ class VoiceChangerV2:
             self.io_recorder.open(self.settings.inputSampleRate, self.settings.outputSampleRate)
 
         self._generate_strength()
+        self._agc.reset()
         self._peak_limiter.reset()
         self._pt_gate.reset()
         self._pt_was_gated_open = False
@@ -204,14 +210,20 @@ class VoiceChangerV2:
         elif key == 'passThrough':
             self._pt_gate.reset()
             self._pt_was_gated_open = False
+            self._agc.reset()
+            self._peak_limiter.reset()
             if self._pt_resampler is not None:
                 self._pt_resampler.reset()
+        elif key == 'agcEnabled':
+            self._agc.reset()
+            self._peak_limiter.reset()
 
         if self.vcmodel is not None:
             if key in {'gpu', 'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'forceFp32'}:
                 self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
                 self._was_voiced = False
                 self._vc_dirty = False
+                self._agc.reset()
                 self._peak_limiter.reset()
                 if self.sola_buffer is not None:
                     self.sola_buffer.zero_()
@@ -260,8 +272,14 @@ class VoiceChangerV2:
             self._was_voiced = False
         return mixed_np
 
+    def _apply_agc_np(self, mixed_np: np.ndarray) -> np.ndarray:
+        """Apply optional stateful RMS-tracking AGC to voice signal."""
+        if getattr(self.settings, "agcEnabled", False):
+            return self._agc.process(mixed_np, sample_rate=self.settings.outputSampleRate)
+        return mixed_np
+
     def _apply_limiter_np(self, mixed_np: np.ndarray) -> np.ndarray:
-        """Apply optional stateful AGC peak limiter and soft-knee safety ceiling."""
+        """Apply optional stateful peak limiter and soft-knee safety ceiling."""
         if getattr(self.settings, "agcEnabled", False):
             mixed_np = self._peak_limiter.process(mixed_np, sample_rate=self.settings.outputSampleRate)
             mixed_np = soft_knee_limit_np(mixed_np, threshold=0.985, ceiling=0.999)
@@ -270,11 +288,14 @@ class VoiceChangerV2:
         return mixed_np
 
     def _apply_post_cpu_chain(self, mixed_np: np.ndarray, block_size: int) -> np.ndarray:
-        """Run non-overlapping output effects, background mixing, and smooth soft-knee AGC on CPU."""
+        """Run non-overlapping output effects, voice AGC, background mixing, and peak limiting on CPU."""
         if self.audio_effects_manager is not None:
             mixed_np = self.audio_effects_manager.process_output_chain_np(
                 mixed_np, sample_rate=self.settings.outputSampleRate
             )
+
+        # Level only the voice stream before mixing background audio so BGM never pumps
+        mixed_np = self._apply_agc_np(mixed_np)
 
         if self.audio_mixer is not None:
             try:
@@ -367,7 +388,8 @@ class VoiceChangerV2:
         if use_effects:
             mixed_np = self._apply_post_cpu_chain(gated_np, out_block_size)
         else:
-            mixed_np = self._apply_limiter_np(gated_np)
+            mixed_np = self._apply_agc_np(gated_np)
+            mixed_np = self._apply_limiter_np(mixed_np)
         return mixed_np, vol
 
     def process_audio(self, audio_in: AudioInOutFloat) -> tuple[AudioInOutFloat, float]:
@@ -378,6 +400,7 @@ class VoiceChangerV2:
             self.block_frame = block_size
             self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
             self._was_voiced = False
+            self._agc.reset()
             self._peak_limiter.reset()
             if self.sola_buffer is not None:
                 self.sola_buffer.zero_()

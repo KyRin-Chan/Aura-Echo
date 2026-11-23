@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useDebouncedCallback } from './DebouncedSlider';
 
 interface MD3SliderProps {
@@ -14,6 +14,9 @@ interface MD3SliderProps {
   showValue?: boolean;
   valueFormatter?: (val: number) => string;
   flushOnUnmount?: boolean;
+  debounceMs?: number;
+  commitOnRelease?: boolean;
+  onDragStart?: () => void;
 }
 
 const MD3Slider: React.FC<MD3SliderProps> = ({
@@ -28,35 +31,85 @@ const MD3Slider: React.FC<MD3SliderProps> = ({
   className = '',
   showValue = false,
   valueFormatter,
-  flushOnUnmount = false
+  flushOnUnmount = false,
+  debounceMs = 300,
+  commitOnRelease = false,
+  onDragStart
 }) => {
   const minNum = typeof min === 'string' ? parseFloat(min) : min;
   const maxNum = typeof max === 'string' ? parseFloat(max) : max;
 
   const [internalValue, setInternalValue] = useState<number>(value);
+  const isDraggingRef = useRef<boolean>(false);
+  const hasPendingReleaseCommitRef = useRef<boolean>(false);
+  const latestValueRef = useRef<number>(value);
 
   useEffect(() => {
     setInternalValue(value);
+    latestValueRef.current = value;
   }, [value]);
 
   const debouncedChange = useDebouncedCallback(
     (val: number) => {
       onChange(val);
     },
-    300,
+    debounceMs,
     { flushOnUnmount }
   );
+
+  const handleDragStart = useCallback(() => {
+    if (disabled || !commitOnRelease) return;
+    if (!isDraggingRef.current) {
+      isDraggingRef.current = true;
+      hasPendingReleaseCommitRef.current = false;
+      debouncedChange.cancel();
+      onDragStart?.();
+    }
+  }, [disabled, commitOnRelease, debouncedChange, onDragStart]);
+
+  useEffect(() => {
+    if (!commitOnRelease) return;
+
+    const handleRelease = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      if (hasPendingReleaseCommitRef.current) {
+        hasPendingReleaseCommitRef.current = false;
+        debouncedChange(latestValueRef.current);
+      }
+    };
+
+    window.addEventListener('pointerup', handleRelease);
+    window.addEventListener('pointercancel', handleRelease);
+    window.addEventListener('mouseup', handleRelease);
+    window.addEventListener('touchend', handleRelease);
+    window.addEventListener('touchcancel', handleRelease);
+    return () => {
+      window.removeEventListener('pointerup', handleRelease);
+      window.removeEventListener('pointercancel', handleRelease);
+      window.removeEventListener('mouseup', handleRelease);
+      window.removeEventListener('touchend', handleRelease);
+      window.removeEventListener('touchcancel', handleRelease);
+    };
+  }, [commitOnRelease, debouncedChange]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.valueAsNumber;
     setInternalValue(val);
+    latestValueRef.current = val;
     if (onImmediateChange) {
       onImmediateChange(val);
     }
-    debouncedChange(val);
+    if (commitOnRelease && isDraggingRef.current) {
+      hasPendingReleaseCommitRef.current = true;
+    } else {
+      debouncedChange(val);
+    }
   };
 
-  const percent = ((internalValue - minNum) / (maxNum - minNum)) * 100;
+  const range = maxNum - minNum;
+  const rawPercent = range > 0 ? ((internalValue - minNum) / range) * 100 : 0;
+  const percent = Math.min(100, Math.max(0, rawPercent));
 
   // Track style with dynamic fill gradient
   const trackStyle = {
@@ -78,6 +131,9 @@ const MD3Slider: React.FC<MD3SliderProps> = ({
           step={step}
           value={internalValue}
           onChange={handleChange}
+          onPointerDown={handleDragStart}
+          onMouseDown={handleDragStart}
+          onTouchStart={handleDragStart}
           disabled={disabled}
           style={trackStyle}
           className={`w-full h-1 rounded-full appearance-none cursor-pointer focus:outline-none transition-all duration-150 ${
