@@ -20,6 +20,7 @@ from scipy import signal as scipy_signal
 
 from data.ModelSlot import RVCModelSlot
 from voice_changer.common.AudioDSP import (
+    AdaptiveNoiseGate,
     CausalPolyphaseResampler,
     MinimumPhaseFormantFilter,
     StatefulPeakLimiter,
@@ -2125,6 +2126,114 @@ class TestAudioPipelineQuality(unittest.TestCase):
         self.assertEqual(len(skip_out), len(hot))
         self.assertGreater(float(np.max(np.abs(skip_out))), 0.5)
         self.assertGreater(skip_vol, 1.0)
+
+    def test_adaptive_noise_gate_poor_mic_and_elastic_hangover(self):
+        sr = 48000
+        chunk = 3072  # 64 ms
+
+        # 1. DC offset + 50 Hz hum well above -40 dB broadband RMS stays closed,
+        #    while 250 Hz speech-band tone opens the gate.
+        gate = AdaptiveNoiseGate()
+        t0 = np.arange(chunk, dtype=np.float32) / sr
+        hum_dc_0 = 0.05 + 0.025 * np.sin(2.0 * math.pi * 50.0 * t0)
+        # Prime filter state past initial DC step transient, then verify steady hum+DC stays gated closed
+        gate.evaluate(hum_dc_0, sr, -40.0)
+        for k in range(1, 6):
+            tk = (k * chunk + np.arange(chunk, dtype=np.float32)) / sr
+            hum_dc = 0.05 + 0.025 * np.sin(2.0 * math.pi * 50.0 * tk)
+            open_hum, vol_hum = gate.evaluate(hum_dc, sr, -40.0)
+            self.assertGreater(vol_hum, 0.05)
+            self.assertFalse(open_hum, f"DC + 50 Hz hum opened gate at chunk {k}")
+
+        speech_250 = 0.02 * np.sin(2.0 * math.pi * 250.0 * t0)
+        open_speech, _ = gate.evaluate(speech_250, sr, -40.0)
+        self.assertTrue(open_speech)
+
+        # 2. Sharp 2 ms transient click (keyboard/pop) when closed is rejected,
+        #    while a sustained 20 ms speech-band onset opens the gate.
+        gate.reset()
+        click_chunk = np.zeros(chunk, dtype=np.float32)
+        click_len = int(0.002 * sr)  # 2 ms click
+        click_t = np.arange(click_len, dtype=np.float32) / sr
+        click_chunk[1000 : 1000 + click_len] = 0.4 * np.sin(2.0 * math.pi * 1000.0 * click_t)
+        open_click, _ = gate.evaluate(click_chunk, sr, -40.0)
+        self.assertFalse(open_click)
+
+        onset_chunk = np.zeros(chunk, dtype=np.float32)
+        onset_len = int(0.020 * sr)  # 20 ms voiced onset
+        onset_t = np.arange(onset_len, dtype=np.float32) / sr
+        onset_chunk[-onset_len:] = 0.025 * np.sin(2.0 * math.pi * 300.0 * onset_t)
+        open_onset, _ = gate.evaluate(onset_chunk, sr, -40.0)
+        self.assertTrue(open_onset)
+
+        # 3. Adaptive noise floor tracking: steady noise at -38 dB (slightly above -40 dB
+        #    user threshold) adapts the gate threshold upward within ~1.5s, while +10 dB
+        #    speech still opens cleanly; -90 dB disables adaptive elevation.
+        gate.reset()
+        rng = np.random.default_rng(42)
+        sos_mid = scipy_signal.butter(2, [300.0, 2000.0], btype="bandpass", fs=sr, output="sos")
+        zi_mid = np.zeros((sos_mid.shape[0], 2), dtype=np.float64)
+        noise_target_rms = 10.0 ** (-38.0 / 20.0)
+
+        closed_tail = []
+        for k in range(30):  # ~1.92 s of stationary -38 dB mid-band noise
+            raw = rng.normal(0.0, 1.0, chunk).astype(np.float32)
+            filt, zi_mid = scipy_signal.sosfilt(sos_mid, raw, zi=zi_mid)
+            filt = np.asarray(filt, dtype=np.float32)
+            cur_rms = float(np.sqrt(np.mean(filt ** 2))) + 1e-8
+            noise_chunk = filt * np.float32(noise_target_rms / cur_rms)
+            is_act, _ = gate.evaluate(noise_chunk, sr, -40.0)
+            if k >= 20:
+                closed_tail.append(is_act)
+        self.assertFalse(any(closed_tail), f"Gate failed to adapt above -38 dB stationary noise: {closed_tail}")
+
+        # Speech +10 dB above the -38 dB noise floor still opens cleanly
+        loud_speech = (noise_target_rms * 3.16 * math.sqrt(2.0)) * np.sin(2.0 * math.pi * 250.0 * t0)
+        open_above_noise, _ = gate.evaluate(loud_speech, sr, -40.0)
+        self.assertTrue(open_above_noise)
+
+        # At -90 dB (gate disabled), stationary noise stays open without adaptive elevation
+        gate.reset()
+        for _ in range(10):
+            raw = rng.normal(0.0, 1.0, chunk).astype(np.float32)
+            filt, zi_mid = scipy_signal.sosfilt(sos_mid, raw, zi=zi_mid)
+            filt = np.asarray(filt, dtype=np.float32)
+            cur_rms = float(np.sqrt(np.mean(filt ** 2))) + 1e-8
+            noise_chunk = filt * np.float32(noise_target_rms / cur_rms)
+            is_act, _ = gate.evaluate(noise_chunk, sr, -90.0)
+        self.assertTrue(is_act)
+
+        # 4. Elastic hangover: brief 1-chunk trigger has short hangover (~2 chunks at 64ms),
+        #    while sustained speech (~0.7s) stretches hangover noticeably longer (>= 4 chunks).
+        gate.reset()
+        quiet = np.zeros(chunk, dtype=np.float32)
+        voiced_chunk = 0.05 * np.sin(2.0 * math.pi * 220.0 * t0)
+
+        gate.evaluate(voiced_chunk, sr, -40.0)
+        short_hang = 0
+        for _ in range(10):
+            act, _ = gate.evaluate(quiet, sr, -40.0)
+            if act:
+                short_hang += 1
+            else:
+                break
+        self.assertEqual(short_hang, 2)
+
+        gate.reset()
+        for k in range(11):  # 11 * 64ms = 0.704s sustained speech
+            tk = (k * chunk + np.arange(chunk, dtype=np.float32)) / sr
+            sustained = 0.15 * np.sin(2.0 * math.pi * 220.0 * tk)
+            gate.evaluate(sustained, sr, -40.0)
+
+        long_hang = 0
+        for _ in range(12):
+            act, _ = gate.evaluate(quiet, sr, -40.0)
+            if act:
+                long_hang += 1
+            else:
+                break
+        self.assertGreaterEqual(long_hang, 4)
+        self.assertGreater(long_hang, short_hang)
 
 
 if __name__ == "__main__":

@@ -852,3 +852,207 @@ def soft_knee_limit_np(
     compressed = threshold + headroom * np.tanh(excess / headroom)
     out[over] = np.sign(audio[over]) * compressed
     return out
+
+
+class AdaptiveNoiseGate:
+    """
+    Input noise gate designed for mediocre/noisy microphones.
+    """
+
+    def __init__(
+        self,
+        bandpass_low_hz: float = 100.0,
+        bandpass_high_hz: float = 3800.0,
+        hysteresis_db: float = 3.0,
+        min_hangover_sec: float = 0.10,
+        max_hangover_sec: float = 0.35,
+        noise_margin_db: float = 6.0,
+        max_adaptive_boost_db: float = 10.0,
+        impulse_crest_threshold: float = 3.8,
+        impulse_quarter_ratio: float = 0.35,
+    ):
+        self.bandpass_low_hz = float(bandpass_low_hz)
+        self.bandpass_high_hz = float(bandpass_high_hz)
+        self.hysteresis_db = float(hysteresis_db)
+        self.min_hangover_sec = float(min_hangover_sec)
+        self.max_hangover_sec = float(max_hangover_sec)
+        self.noise_margin_db = float(noise_margin_db)
+        self.max_adaptive_boost_db = float(max_adaptive_boost_db)
+        self.impulse_crest_threshold = float(impulse_crest_threshold)
+        self.impulse_quarter_ratio = float(impulse_quarter_ratio)
+
+        self.is_open: bool = False
+        self.hangover_chunks: int = 0
+        self._sr: int = 0
+        self._sos: Optional[np.ndarray] = None
+        self._zi: Optional[np.ndarray] = None
+        self._noise_floor_rms: Optional[float] = None
+        self._noise_obs_sec: float = 0.0
+        self._speech_duration_sec: float = 0.0
+        self._peak_snr_db: float = 0.0
+
+    def reset(self) -> None:
+        self.is_open = False
+        self.hangover_chunks = 0
+        if self._sos is not None:
+            self._zi = np.zeros((self._sos.shape[0], 2), dtype=np.float64)
+        else:
+            self._zi = None
+        self._noise_floor_rms = None
+        self._noise_obs_sec = 0.0
+        self._speech_duration_sec = 0.0
+        self._peak_snr_db = 0.0
+
+    def _ensure_filter(self, sr: int) -> None:
+        if sr == self._sr and self._sos is not None and self._zi is not None:
+            return
+        low = max(20.0, min(self.bandpass_low_hz, sr * 0.2))
+        high = max(low + 100.0, min(self.bandpass_high_hz, sr * 0.45))
+        self._sos = scipy_signal.butter(2, [low, high], btype="bandpass", fs=sr, output="sos")
+        self._zi = np.zeros((self._sos.shape[0], 2), dtype=np.float64)
+        self._sr = sr
+
+    def _compute_detector_rms(
+        self,
+        audio_f32: np.ndarray,
+        sr: int,
+        apply_impulse_reject: bool,
+    ) -> Tuple[float, float, float]:
+        vol = float(np.sqrt(np.mean(np.square(audio_f32, dtype=np.float32))))
+        self._ensure_filter(sr)
+        key_sig, self._zi = scipy_signal.sosfilt(self._sos, audio_f32, zi=self._zi)
+        key_f32 = np.asarray(key_sig, dtype=np.float32)
+
+        n_samples = int(key_f32.shape[0])
+        win = max(64, int(round(0.02 * sr)))
+        sub_pairs = []
+        if n_samples > win:
+            n_full = (n_samples // win) * win
+            for start in range(0, n_full, win):
+                sub_pairs.append((audio_f32[start : start + win], key_f32[start : start + win]))
+            if n_samples > n_full:
+                sub_pairs.append((audio_f32[n_full:], key_f32[n_full:]))
+        else:
+            sub_pairs.append((audio_f32, key_f32))
+
+        raw_sub_rms = []
+        eff_sub_rms = []
+        for raw_sub, key_sub in sub_pairs:
+            sub_len = int(key_sub.shape[0])
+            if sub_len == 0:
+                continue
+            raw_s_rms = float(np.sqrt(np.mean(np.square(raw_sub, dtype=np.float32))))
+            key_s_rms = float(np.sqrt(np.mean(np.square(key_sub, dtype=np.float32))))
+            # Passband gain <= 1.0, so capping by raw sub-frame RMS suppresses cross-chunk IIR ringdown
+            s_rms = min(key_s_rms, raw_s_rms)
+            raw_sub_rms.append(s_rms)
+            eff = s_rms
+
+            if apply_impulse_reject and sub_len >= 16:
+                s_peak = float(np.max(np.abs(key_sub)))
+                crest = s_peak / (s_rms + 1e-8)
+                if crest > self.impulse_crest_threshold:
+                    q_len = sub_len // 4
+                    if q_len > 0:
+                        quarters = key_sub[: q_len * 4].reshape(4, q_len)
+                        q_rms = np.sqrt(np.mean(np.square(quarters, dtype=np.float32), axis=1))
+                        q_sorted = np.sort(q_rms)[::-1]
+                        q_max = float(q_sorted[0])
+                        q_second = float(q_sorted[1])
+                        if q_second < self.impulse_quarter_ratio * q_max:
+                            eff = min(q_second, raw_s_rms)
+
+            eff_sub_rms.append(eff)
+
+        if not raw_sub_rms:
+            return vol, 0.0, 0.0
+
+        gate_rms = max(eff_sub_rms)
+        frame_floor = float(np.percentile(raw_sub_rms, 25))
+        return vol, gate_rms, frame_floor
+
+    def evaluate(
+        self,
+        audio_in: np.ndarray,
+        sample_rate: int,
+        silent_threshold_db: float,
+    ) -> Tuple[bool, float]:
+        audio_f32 = np.asarray(audio_in, dtype=np.float32).reshape(-1)
+        n_samples = int(audio_f32.shape[0])
+        if n_samples <= 0:
+            return False, 0.0
+
+        sr = max(800, int(sample_rate))
+        chunk_dur = n_samples / float(sr)
+        thresh_db = float(silent_threshold_db)
+        gate_enabled = thresh_db > -89.0
+        gate_closed = (not self.is_open) and (self.hangover_chunks == 0)
+
+        vol, gate_rms, frame_floor = self._compute_detector_rms(
+            audio_f32, sr, apply_impulse_reject=(gate_closed and gate_enabled)
+        )
+
+        user_open = 10.0 ** (thresh_db / 20.0)
+        max_open = user_open * (10.0 ** (self.max_adaptive_boost_db / 20.0))
+        if gate_enabled and self._noise_floor_rms is not None and self._noise_obs_sec >= 0.25:
+            adaptive_open = self._noise_floor_rms * (10.0 ** (self.noise_margin_db / 20.0))
+            open_thresh = max(user_open, min(adaptive_open, max_open))
+        else:
+            open_thresh = user_open
+
+        hold_thresh = open_thresh * (10.0 ** (-self.hysteresis_db / 20.0))
+        active_thresh = open_thresh if gate_closed else hold_thresh
+
+        if gate_rms >= active_thresh:
+            self._speech_duration_sec = min(2.0, self._speech_duration_sec + chunk_dur)
+            snr_db = 20.0 * math.log10(max(gate_rms, 1e-8) / max(open_thresh, 1e-8))
+            snr_clamped = min(24.0, max(0.0, snr_db))
+            self._peak_snr_db = max(snr_clamped, 0.85 * self._peak_snr_db + 0.15 * snr_clamped)
+
+            speech_factor = min(1.0, max(0.0, self._speech_duration_sec - chunk_dur) / 0.50)
+            snr_factor = min(1.0, self._peak_snr_db / 18.0)
+            elastic = 0.80 * speech_factor + 0.20 * snr_factor
+            hangover_sec = self.min_hangover_sec + (self.max_hangover_sec - self.min_hangover_sec) * elastic
+            self.hangover_chunks = max(1, int(round(hangover_sec / max(chunk_dur, 1e-4))))
+            self.is_open = True
+            gate_active = True
+        elif self.hangover_chunks > 0:
+            self.hangover_chunks -= 1
+            self.is_open = False
+            gate_active = True
+            if self.hangover_chunks == 0:
+                self._speech_duration_sec = 0.0
+                self._peak_snr_db = 0.0
+        else:
+            self.is_open = False
+            self._speech_duration_sec = 0.0
+            self._peak_snr_db = 0.0
+            gate_active = False
+
+        # Track stationary noise floor on closed gate, quieter valleys, or low-modulation
+        # stationary background noise that sits within the plausible noise-floor band (<= max_open).
+        is_stationary_noise = (
+            gate_enabled
+            and frame_floor <= max_open
+            and gate_rms <= 1.8 * max(frame_floor, 1e-8)
+        )
+        should_update_floor = (
+            (not gate_active)
+            or (self._noise_floor_rms is not None and frame_floor < self._noise_floor_rms)
+            or is_stationary_noise
+        )
+        if should_update_floor:
+            if self._noise_floor_rms is None:
+                self._noise_floor_rms = frame_floor
+            elif frame_floor < self._noise_floor_rms:
+                alpha = 1.0 - math.exp(-chunk_dur / 0.25)
+                self._noise_floor_rms += alpha * (frame_floor - self._noise_floor_rms)
+            else:
+                tau_up = 2.0 if not gate_active else 1.5
+                alpha = 1.0 - math.exp(-chunk_dur / tau_up)
+                self._noise_floor_rms += alpha * (frame_floor - self._noise_floor_rms)
+
+        if (not gate_active) or is_stationary_noise:
+            self._noise_obs_sec = min(10.0, self._noise_obs_sec + chunk_dur)
+
+        return gate_active, vol

@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from const import VoiceChangerType
 from data.ModelSlot import ModelSlots
 from Exceptions import VoiceChangerIsNotSelectedException
-from voice_changer.common.AudioDSP import StatefulPeakLimiter, soft_knee_limit_np
+from voice_changer.common.AudioDSP import AdaptiveNoiseGate, StatefulPeakLimiter, soft_knee_limit_np
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.IORecorder import IORecorder
 from voice_changer.utils.Timer import Timer2
@@ -46,8 +46,7 @@ class VoiceChangerV2:
         self.audio_mixer = None
         self.audio_effects_manager = None
         self._suppress_warmup: int = 0
-        self._pt_gate_open: bool = False
-        self._pt_gate_hangover_chunks: int = 0
+        self._pt_gate = AdaptiveNoiseGate()
         self._pt_was_gated_open: bool = False
         self._pt_resampler = None
         self._vc_dirty: bool = False
@@ -157,6 +156,8 @@ class VoiceChangerV2:
         self.sola_search_frame = max(1, int(round(0.012 * self.settings.inputSampleRate)))
         self._generate_strength()
         self._peak_limiter.reset()
+        self._pt_gate.reset()
+        self._pt_was_gated_open = False
         self._pt_resampler = None
 
         if self.vcmodel is not None:
@@ -169,6 +170,8 @@ class VoiceChangerV2:
 
         self._generate_strength()
         self._peak_limiter.reset()
+        self._pt_gate.reset()
+        self._pt_was_gated_open = False
         self._pt_resampler = None
         if self.vcmodel is not None:
             self.vcmodel.set_sampling_rate(self.settings.inputSampleRate, self.settings.outputSampleRate)
@@ -199,8 +202,7 @@ class VoiceChangerV2:
             else:
                 self.io_recorder.close()
         elif key == 'passThrough':
-            self._pt_gate_open = False
-            self._pt_gate_hangover_chunks = 0
+            self._pt_gate.reset()
             self._pt_was_gated_open = False
             if self._pt_resampler is not None:
                 self._pt_resampler.reset()
@@ -284,58 +286,23 @@ class VoiceChangerV2:
 
         return self._apply_limiter_np(mixed_np)
 
-    def _compute_chunk_and_gate_rms_np(self, audio_in: AudioInOutFloat) -> tuple[float, float]:
-        n_samples = int(audio_in.size)
-        if n_samples <= 0:
-            return 0.0, 0.0
-        sq = np.square(audio_in, dtype=np.float32)
-        vol = float(np.sqrt(np.mean(sq)))
-        sr = max(1, int(self.settings.inputSampleRate))
-        win = max(64, int(round(0.02 * sr)))
-        if n_samples > win:
-            n_full = (n_samples // win) * win
-            max_msq = float(np.max(np.mean(sq[:n_full].reshape(-1, win), axis=1)))
-            if n_samples > n_full:
-                tail_msq = float(np.mean(sq[n_full:]))
-                if tail_msq > max_msq:
-                    max_msq = tail_msq
-            gate_rms = float(np.sqrt(max_msq))
-        else:
-            gate_rms = vol
-        return vol, gate_rms
-
     def _apply_passthrough_gate_np(self, audio_in: np.ndarray) -> tuple[np.ndarray, float]:
-        vol, gate_rms = self._compute_chunk_and_gate_rms_np(audio_in)
         if audio_in.size == 0:
             return np.empty(0, dtype=np.float32), 0.0
 
-        open_thresh = 10.0 ** (self.settings.silentThreshold / 20.0)
-        hold_thresh = open_thresh * 0.70794578  # -3 dB hysteresis when gate is already open
-        active_thresh = (
-            hold_thresh if (self._pt_gate_open or self._pt_gate_hangover_chunks > 0) else open_thresh
+        gate_active, vol = self._pt_gate.evaluate(
+            audio_in,
+            sample_rate=self.settings.inputSampleRate,
+            silent_threshold_db=self.settings.silentThreshold,
         )
-
-        if gate_rms >= active_thresh:
-            self._pt_gate_open = True
-            self._pt_gate_hangover_chunks = max(
-                2,
-                int(round(0.16 * self.settings.inputSampleRate / max(1, int(audio_in.size)))),
-            )
-            gate_active = True
-        elif self._pt_gate_hangover_chunks > 0:
-            self._pt_gate_hangover_chunks -= 1
-            self._pt_gate_open = False
-            gate_active = True
-        else:
-            self._pt_gate_open = False
-            gate_active = False
 
         if gate_active:
             out = np.array(audio_in, dtype=np.float32, copy=True)
             if not self._pt_was_gated_open:
                 fade_len = min(64, int(out.shape[0]))
                 if fade_len > 1:
-                    out[:fade_len] *= np.linspace(0.0, 1.0, fade_len, dtype=np.float32)
+                    lin = np.linspace(0.0, 1.0, fade_len, dtype=np.float32)
+                    out[:fade_len] *= np.square(np.sin(0.5 * np.pi * lin)).astype(np.float32)
                 elif fade_len == 1:
                     out[0] = 0.0
                 self._pt_was_gated_open = True
@@ -343,9 +310,10 @@ class VoiceChangerV2:
 
         out = np.zeros(audio_in.shape[0], dtype=np.float32)
         if self._pt_was_gated_open:
-            fade_len = min(64, int(audio_in.shape[0]))
+            fade_len = min(128, int(audio_in.shape[0]))
             if fade_len > 1:
-                out[:fade_len] = audio_in[:fade_len] * np.linspace(1.0, 0.0, fade_len, dtype=np.float32)
+                lin = np.linspace(0.0, 1.0, fade_len, dtype=np.float32)
+                out[:fade_len] = audio_in[:fade_len] * np.square(np.cos(0.5 * np.pi * lin)).astype(np.float32)
             self._pt_was_gated_open = False
         return out, vol
 

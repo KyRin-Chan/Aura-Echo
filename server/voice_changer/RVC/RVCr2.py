@@ -16,6 +16,7 @@ from data.ModelSlot import RVCModelSlot, saveSlotInfo
 from Exceptions import PipelineNotInitializedException
 from settings import get_settings
 from voice_changer.common.AudioDSP import (
+    AdaptiveNoiseGate,
     CausalPolyphaseResampler,
     MinimumPhaseFormantFilter,
     _select_highest_energy_segment,
@@ -82,10 +83,25 @@ class RVCr2(VoiceChangerModel):
 
         self._pitch_sample_acc: int = 0
         self._rms_gain_ema_t: torch.Tensor | None = None
-        self._gate_hangover_chunks: int = 0
-        self._gate_open: bool = False
+        self._noise_gate = AdaptiveNoiseGate()
         self._last_block_frame: int = 0
         self._init_succeeded: bool = False
+
+    @property
+    def _gate_open(self) -> bool:
+        return self._noise_gate.is_open
+
+    @_gate_open.setter
+    def _gate_open(self, value: bool) -> None:
+        self._noise_gate.is_open = bool(value)
+
+    @property
+    def _gate_hangover_chunks(self) -> int:
+        return self._noise_gate.hangover_chunks
+
+    @_gate_hangover_chunks.setter
+    def _gate_hangover_chunks(self, value: int) -> None:
+        self._noise_gate.hangover_chunks = int(value)
 
     def set_audio_effects_manager(self, manager) -> None:
         self._audio_effects_manager = manager
@@ -263,8 +279,7 @@ class RVCr2(VoiceChangerModel):
 
         self._pitch_sample_acc = 0
         self._rms_gain_ema_t = None
-        self._gate_hangover_chunks = 0
-        self._gate_open = False
+        self._noise_gate.reset()
         if self.resampler_in is not None:
             self.resampler_in.reset()
         self.formant_filter.reset()
@@ -281,8 +296,7 @@ class RVCr2(VoiceChangerModel):
                 buf.zero_()
         self._pitch_sample_acc = 0
         self._rms_gain_ema_t = None
-        self._gate_hangover_chunks = 0
-        self._gate_open = False
+        self._noise_gate.reset()
         if self.resampler_in is not None:
             self.resampler_in.reset()
         if self.formant_filter is not None:
@@ -530,48 +544,24 @@ class RVCr2(VoiceChangerModel):
         out_np, _ = self.convert_offline(audio_in, sample_rate)
         return torch.as_tensor(out_np, dtype=torch.float32, device=self.device_manager.device)
 
-    def _compute_chunk_and_gate_rms(self, audio_in: AudioInOutFloat) -> tuple[float, float]:
-        n_samples = int(audio_in.size)
-        if n_samples <= 0:
-            return 0.0, 0.0
-        sq = np.square(audio_in, dtype=np.float32)
-        vol = float(np.sqrt(np.mean(sq)))
-        win = max(64, int(round(0.02 * self.input_sample_rate)))
-        if n_samples > win:
-            n_full = (n_samples // win) * win
-            max_msq = float(np.max(np.mean(sq[:n_full].reshape(-1, win), axis=1)))
-            if n_samples > n_full:
-                tail_msq = float(np.mean(sq[n_full:]))
-                if tail_msq > max_msq:
-                    max_msq = tail_msq
-            gate_rms = float(np.sqrt(max_msq))
-        else:
-            gate_rms = vol
-        return vol, gate_rms
-
     def inference(self, audio_in: AudioInOutFloat, bypass_silence_gate: bool = False):
         if self.pipeline is None:
             raise PipelineNotInitializedException()
 
-        # Precompute RMS volume and 20ms sub-frame peak RMS on CPU before GPU upload
-        vol, gate_rms = self._compute_chunk_and_gate_rms(audio_in)
-
-        if not bypass_silence_gate:
-            open_thresh = self.inputSensitivity
-            hold_thresh = open_thresh * 0.70794578  # -3 dB hysteresis when gate is already open
-            active_thresh = hold_thresh if (self._gate_open or self._gate_hangover_chunks > 0) else open_thresh
-            if gate_rms >= active_thresh:
-                self._gate_open = True
-                self._gate_hangover_chunks = max(
-                    2,
-                    int(round(0.16 * self.input_sample_rate / max(1, int(audio_in.size)))),
-                )
-            elif self._gate_hangover_chunks > 0:
-                self._gate_hangover_chunks -= 1
-                self._gate_open = False
-            else:
-                self._gate_open = False
-                self.feed_context(audio_in)
+        if bypass_silence_gate:
+            audio_f32 = np.asarray(audio_in, dtype=np.float32).reshape(-1)
+            vol = float(np.sqrt(np.mean(np.square(audio_f32, dtype=np.float32)))) if audio_f32.size > 0 else 0.0
+        else:
+            gate_active, vol = self._noise_gate.evaluate(
+                audio_in,
+                sample_rate=self.input_sample_rate,
+                silent_threshold_db=self.settings.silentThreshold,
+            )
+            if not gate_active:
+                # Feed attenuated (-12 dB) audio into context buffers to prevent raw noise/hum
+                # from polluting F0/HuBERT context and buf_rms on next speech onset.
+                attenuated_in = np.asarray(audio_in, dtype=np.float32) * np.float32(0.25)
+                self.feed_context(attenuated_in)
                 if hasattr(self.pipeline.pitchExtractor, "reset"):
                     self.pipeline.pitchExtractor.reset()
                 if self._rms_gain_ema_t is not None:

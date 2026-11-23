@@ -1164,7 +1164,7 @@ const VoiceAnalyzerModal = ({
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-on-surface-variant">{t('matchEqBaselineSuffix')}:</span>
+                      <span className="text-on-surface-variant">{t('matchEqBaselineSuffix')}</span>
                       <span className="font-mono font-semibold text-on-surface">
                         {Math.round(calResult.baseline_centroid)} Hz
                       </span>
