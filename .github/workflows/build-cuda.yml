@@ -138,6 +138,11 @@ jobs:
       run: |
         ..\.venv\Scripts\python -m pip install -r requirements-cuda.txt
 
+    - name: Install DeepFilterNet3 (No Deps)
+      working-directory: ./server
+      run: |
+        ..\.venv\Scripts\python -m pip install deepfilternet==0.5.6 --no-deps
+
     - name: Cache PyInstaller Directory
       uses: actions/cache@v4
       with:
