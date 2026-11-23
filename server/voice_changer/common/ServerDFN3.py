@@ -140,7 +140,7 @@ class ServerDFN3:
                     f"[ServerDFN3] Initialized streaming denoiser (sr={self.sample_rate}, device={dev}, model={self.model_dir})"
                 )
             except Exception as e:
-                logger.warning(f"[ServerDFN3] Failed to initialize DeepFilterNet3: {e}")
+                logger.warning(f"[ServerDFN3] Failed to initialize DeepFilterNet3: {e}", exc_info=True)
                 self._model = None
                 self._df_state = None
                 self.available = False
