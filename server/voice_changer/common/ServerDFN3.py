@@ -143,7 +143,7 @@ class ServerDFN3:
                 self._model, self._df_state, _ = _df_init_df(
                     model_base_dir=self.model_dir,
                     post_filter=False,
-                    log_level="ERROR",
+                    log_level="none",
                     log_file=None,
                     config_allow_defaults=True,
                 )

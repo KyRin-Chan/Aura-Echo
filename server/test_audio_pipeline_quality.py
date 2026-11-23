@@ -2093,6 +2093,18 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 f"DFN3 RTF too slow at sr={sr}, chunk={chunk_size}: {rtf:.4f}",
             )
 
+        # Also verify initialization does not spawn git/subprocess (e.g. non-console Windows WinError 50)
+        import df.logger as _df_logger
+
+        prev_df_logger_init = _df_logger._logger_initialized
+        _df_logger._logger_initialized = False
+        try:
+            with patch("subprocess.check_output", side_effect=OSError(50, "The request is not supported")):
+                dfn3_no_subproc = ServerDFN3(sample_rate=48000, auto_download=False)
+            self.assertTrue(dfn3_no_subproc.available)
+        finally:
+            _df_logger._logger_initialized = prev_df_logger_init
+
         # Also verify sub-hop 128-sample chunks at 16 kHz preserve exact length and finite float32 output
         # and strength presets map to expected attenuation limits
         dfn3_sub = ServerDFN3(sample_rate=16000, auto_download=False, strength="weak")
