@@ -96,13 +96,4 @@ embedders = {
     },
 }
 
-denoisers = {
-    "gtcrn": {
-        "name": "GTCRN (Onnx)",
-        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/gtcrn_simple.onnx",
-        "saveTo": "pretrain/denoiser/gtcrn_simple.onnx",
-        "hash": "e3dc178af6575c64e9de070ce0888fe8",
-        "type": "onnx",
-        "mandatory": True,
-    },
-}
+denoisers = {}

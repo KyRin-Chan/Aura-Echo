@@ -79,6 +79,15 @@ try:
 except Exception as e:
     print(f"Warning: Could not collect pywebrtc_audio: {e}")
 
+try:
+    df_ret = collect_all('df')
+    datas += df_ret[0]
+    binaries += df_ret[1]
+    hiddenimports += df_ret[2]
+    hiddenimports.append('libdf')
+except Exception as e:
+    print(f"Warning: Could not collect df: {e}")
+
 excludes_list = [
     'torch.utils.tensorboard',
     'tkinter', 'tcl', 'tk',

@@ -1584,13 +1584,13 @@ class TestAudioPipelineQuality(unittest.TestCase):
         mock_comm.os_ns_active = True
         mock_comm.start.return_value = True
 
-        mock_gtcrn = MagicMock()
-        mock_gtcrn.available = True
-        mock_gtcrn.process.side_effect = lambda x: x * 0.5
+        mock_dfn3 = MagicMock()
+        mock_dfn3.available = True
+        mock_dfn3.process.side_effect = lambda x: x * 0.5
 
         with (
             patch("voice_changer.Local.ServerAudio.WasapiCommCapture", return_value=mock_comm) as mock_comm_cls,
-            patch("voice_changer.Local.ServerAudio.ServerGTCRN", return_value=mock_gtcrn),
+            patch("voice_changer.Local.ServerAudio.ServerDFN3", return_value=mock_dfn3),
             patch("voice_changer.Local.ServerAudio.sd.OutputStream") as mock_out_stream,
             patch("voice_changer.Local.ServerAudio.sd.Stream") as mock_duplex_stream,
         ):
@@ -1623,7 +1623,7 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 mock_comm.start.assert_called_once()
                 self.assertIs(sa._comm_capture, mock_comm)
                 self.assertIsNone(sa._ns_processor)
-                self.assertIsNone(sa._gtcrn)
+                self.assertIsNone(sa._dfn3)
 
                 # 3. noiseSuppression=True updates Windows DEEP_NS when OS APO is active without stacking WebRTC NS1
                 settings.noiseSuppression = True
@@ -1631,19 +1631,19 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 mock_comm.set_deep_noise_suppression.assert_called_with(True)
                 self.assertIsNone(sa._ns_processor)
 
-                # 4. noiseSuppression2=True activates streaming ServerGTCRN
+                # 4. noiseSuppression2=True activates streaming ServerDFN3
                 settings.noiseSuppression2 = True
                 sa.update_settings("noiseSuppression2", True, False)
-                self.assertIs(sa._gtcrn, mock_gtcrn)
+                self.assertIs(sa._dfn3, mock_dfn3)
                 sa._worker_in_buf[:] = 0.4
                 sa._apply_input_processing(sa._worker_in_buf)
-                mock_gtcrn.process.assert_called_once()
+                mock_dfn3.process.assert_called_once()
                 self.assertAlmostEqual(float(sa._worker_in_buf[0]), 0.2, places=5)
 
-                # 5. Disabling noiseSuppression2 clears GTCRN
+                # 5. Disabling noiseSuppression2 clears DFN3
                 settings.noiseSuppression2 = False
                 sa.update_settings("noiseSuppression2", False, True)
-                self.assertIsNone(sa._gtcrn)
+                self.assertIsNone(sa._dfn3)
 
                 # 6. Virtual device without OS APO falls back to WebRTC NS1 even while Comm capture runs
                 mock_comm.os_aec_active = False
@@ -1664,7 +1664,7 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 mock_comm.stop.assert_called_once()
                 self.assertIsNone(sa._comm_capture)
                 self.assertIsNone(sa._ns_processor)
-                self.assertIsNone(sa._gtcrn)
+                self.assertIsNone(sa._dfn3)
 
                 # 9. Starting with use_win_comm_aec=False uses standalone WebRTC NS1; toggling off clears it
                 settings.noiseSuppression = True
@@ -1868,7 +1868,7 @@ class TestAudioPipelineQuality(unittest.TestCase):
         sa._last_diag_log_ts = -10.0
 
         seen_ns_vals = []
-        seen_gtcrn_vals = []
+        seen_dfn3_vals = []
         audio_peaks = []
         skip_peaks = []
 
@@ -1884,17 +1884,17 @@ class TestAudioPipelineQuality(unittest.TestCase):
 
         stub_ns.process.side_effect = _fake_ns_process
 
-        stub_gtcrn = MagicMock()
-        stub_gtcrn.available = True
+        stub_dfn3 = MagicMock()
+        stub_dfn3.available = True
 
-        def _fake_gtcrn_process(mic):
-            seen_gtcrn_vals.append(float(mic[0]))
+        def _fake_dfn3_process(mic):
+            seen_dfn3_vals.append(float(mic[0]))
             return mic.copy()
 
-        stub_gtcrn.process.side_effect = _fake_gtcrn_process
+        stub_dfn3.process.side_effect = _fake_dfn3_process
 
         sa._ns_processor = stub_ns
-        sa._gtcrn = stub_gtcrn
+        sa._dfn3 = stub_dfn3
 
         for tag in (0.1, 0.2, 0.3):
             sa._on_comm_input_frames(np.full(block_frame, tag, dtype=np.float32))
@@ -1919,9 +1919,9 @@ class TestAudioPipelineQuality(unittest.TestCase):
         with self.assertLogs("voice_changer.Local.ServerAudio", level="WARNING"):
             sa._inference_worker_loop()
 
-        # NS1 & GTCRN see un-gained raw mic values in chronological order; gain (2.0x) applies AFTER denoisers
+        # NS1 & DFN3 see un-gained raw mic values in chronological order; gain (2.0x) applies AFTER denoisers
         self.assertEqual([round(x, 4) for x in seen_ns_vals], [0.1, 0.2, 0.3])
-        self.assertEqual([round(x, 4) for x in seen_gtcrn_vals], [0.1, 0.2, 0.3])
+        self.assertEqual([round(x, 4) for x in seen_dfn3_vals], [0.1, 0.2, 0.3])
         self.assertEqual([round(x, 4) for x in skip_peaks], [0.2, 0.4])
         self.assertEqual([round(x, 4) for x in audio_peaks], [0.6])
 
@@ -1945,15 +1945,15 @@ class TestAudioPipelineQuality(unittest.TestCase):
             sa2.update_settings("echoCancel", True, False)
             mock_start.assert_called_once()
 
-    def test_server_gtcrn_streaming_denoising_and_sample_rates(self):
+    def test_server_dfn3_streaming_denoising_and_sample_rates(self):
         import time
-        from voice_changer.common.ServerGTCRN import ServerGTCRN
+        from voice_changer.common.ServerDFN3 import ServerDFN3
 
-        for sr, chunk_size in ((16000, 128), (48000, 2048), (44100, 5645)):
-            gtcrn = ServerGTCRN(sample_rate=sr, auto_download=False)
+        for sr, chunk_size in ((16000, 1024), (48000, 2048), (44100, 5645)):
+            dfn3 = ServerDFN3(sample_rate=sr, auto_download=False)
             self.assertTrue(
-                gtcrn.available,
-                f"ServerGTCRN should initialize cleanly from local pretrain weights at sr={sr}",
+                dfn3.available,
+                f"ServerDFN3 should initialize cleanly from local pretrain weights at sr={sr}",
             )
 
             dur_s = 2.5
@@ -1977,11 +1977,15 @@ class TestAudioPipelineQuality(unittest.TestCase):
             ).astype(np.float32)
 
             noisy = (noise + speech).astype(np.float32)
+            # Warmup at least one full hop so CUDA/cuDNN lazy init does not skew RTF
+            _ = dfn3.process(np.zeros(max(chunk_size, int(math.ceil(0.05 * sr))), dtype=np.float32))
+            dfn3.reset()
+
             chunks_out = []
             t0 = time.perf_counter()
             for start_idx in range(0, n_total, chunk_size):
                 blk = noisy[start_idx : min(n_total, start_idx + chunk_size)]
-                out_blk = gtcrn.process(blk)
+                out_blk = dfn3.process(blk)
                 self.assertEqual(len(out_blk), len(blk))
                 self.assertEqual(out_blk.dtype, np.float32)
                 self.assertTrue(np.all(np.isfinite(out_blk)))
@@ -2005,19 +2009,27 @@ class TestAudioPipelineQuality(unittest.TestCase):
 
             self.assertGreaterEqual(
                 supp_db,
-                12.0,
-                f"GTCRN noise suppression too weak at sr={sr}, chunk={chunk_size}: {supp_db:.2f} dB",
+                15.0,
+                f"DFN3 noise suppression too weak at sr={sr}, chunk={chunk_size}: {supp_db:.2f} dB",
             )
             self.assertGreater(
                 speech_rms_ratio,
-                0.55,
-                f"GTCRN attenuated speech too aggressively at sr={sr}, chunk={chunk_size}: ratio={speech_rms_ratio:.3f}",
+                0.65,
+                f"DFN3 attenuated speech too aggressively at sr={sr}, chunk={chunk_size}: ratio={speech_rms_ratio:.3f}",
             )
             self.assertLess(
                 rtf,
-                0.25,
-                f"GTCRN CPU RTF too slow at sr={sr}, chunk={chunk_size}: {rtf:.4f}",
+                0.35,
+                f"DFN3 RTF too slow at sr={sr}, chunk={chunk_size}: {rtf:.4f}",
             )
+
+        # Also verify sub-hop 128-sample chunks at 16 kHz preserve exact length and finite float32 output
+        dfn3_sub = ServerDFN3(sample_rate=16000, auto_download=False)
+        for _ in range(10):
+            sub_out = dfn3_sub.process(np.zeros(128, dtype=np.float32))
+            self.assertEqual(len(sub_out), 128)
+            self.assertEqual(sub_out.dtype, np.float32)
+            self.assertTrue(np.all(np.isfinite(sub_out)))
 
     def test_passthrough_settings_gate_limiter_and_effects(self):
         settings = VoiceChangerSettings()

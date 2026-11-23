@@ -16,7 +16,7 @@ from voice_changer.Local.AudioDeviceList import (
 )
 from voice_changer.Local.WasapiCommCapture import WasapiCommCapture
 from voice_changer.common.ServerAEC import ServerAEC
-from voice_changer.common.ServerGTCRN import ServerGTCRN
+from voice_changer.common.ServerDFN3 import ServerDFN3
 from voice_changer.utils.SystemPriority import register_current_thread_mmcss
 from voice_changer.utils.VoiceChangerModel import AudioInOutFloat
 from voice_changer.VoiceChangerSettings import VoiceChangerSettings
@@ -184,7 +184,7 @@ class ServerAudio:
         self._aec_lock = threading.Lock()
         self._comm_capture: Optional[WasapiCommCapture] = None
         self._ns_processor: Optional[ServerAEC] = None
-        self._gtcrn: Optional[ServerGTCRN] = None
+        self._dfn3: Optional[ServerDFN3] = None
 
         self._fade_in_64 = np.linspace(0.0, 1.0, 64, dtype=np.float32)
         self._fade_out_128 = np.linspace(1.0, 0.0, 128, dtype=np.float32)
@@ -237,7 +237,7 @@ class ServerAudio:
         if not active:
             with self._aec_lock:
                 self._ns_processor = None
-                self._gtcrn = None
+                self._dfn3 = None
             return
 
         want_ns1 = bool(getattr(self.settings, 'noiseSuppression', False))
@@ -246,7 +246,7 @@ class ServerAudio:
         with self._aec_lock:
             comm_cap = self._comm_capture
             cur_ns = self._ns_processor
-            cur_gtcrn = self._gtcrn
+            cur_dfn3 = self._dfn3
 
         if comm_cap is not None and comm_cap.is_running:
             comm_cap.set_deep_noise_suppression(want_ns1)
@@ -276,22 +276,22 @@ class ServerAudio:
             new_ns = None
 
         if want_ns2:
-            if cur_gtcrn is None or cur_gtcrn.sample_rate != self._out_sr:
-                new_gtcrn = ServerGTCRN(sample_rate=self._out_sr)
+            if cur_dfn3 is None or cur_dfn3.sample_rate != self._out_sr:
+                new_dfn3 = ServerDFN3(sample_rate=self._out_sr)
             else:
-                new_gtcrn = cur_gtcrn
+                new_dfn3 = cur_dfn3
         else:
-            new_gtcrn = None
+            new_dfn3 = None
 
         with self._aec_lock:
             self._ns_processor = new_ns
-            self._gtcrn = new_gtcrn
+            self._dfn3 = new_dfn3
 
         logger.info(
             f"[ServerAudio] Input processing state: win_comm_aec={comm_cap is not None and comm_cap.is_running}, "
             f"os_aec={comm_cap.os_aec_active if comm_cap is not None else False}, "
             f"ns1={'os_apo' if (want_ns1 and win_apo_handles_ns1) else ('webrtc' if new_ns is not None else 'off')}, "
-            f"ns2={'gtcrn' if (new_gtcrn is not None and new_gtcrn.available) else ('unavailable' if want_ns2 else 'off')}, "
+            f"ns2={'dfn3' if (new_dfn3 is not None and new_dfn3.available) else ('unavailable' if want_ns2 else 'off')}, "
             f"sr={self._out_sr}"
         )
 
@@ -303,11 +303,11 @@ class ServerAudio:
     def _apply_input_processing(self, mic_buf: np.ndarray) -> None:
         with self._aec_lock:
             ns_proc = self._ns_processor
-            gtcrn = self._gtcrn
+            dfn3 = self._dfn3
             if ns_proc is not None:
                 mic_buf[:] = ns_proc.process(mic_buf, None)
-            if gtcrn is not None and gtcrn.available:
-                mic_buf[:] = gtcrn.process(mic_buf)
+            if dfn3 is not None and dfn3.available:
+                mic_buf[:] = dfn3.process(mic_buf)
         self._apply_input_gain(mic_buf)
 
     def _on_comm_input_frames(self, mono: np.ndarray) -> None:

@@ -116,6 +116,14 @@ if exist "%REQUIREMENTS_FILE%" (
     exit /b 1
 )
 
+echo Installing DeepFilterNet3 (without overriding CUDA PyTorch)...
+pip install deepfilternet==0.5.6 --no-deps
+if %errorlevel% neq 0 (
+    echo Error: Failed to install deepfilternet
+    pause
+    exit /b 1
+)
+
 echo Requirements installed successfully
 goto show_completion
 

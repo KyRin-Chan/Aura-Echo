@@ -24,3 +24,7 @@ pedalboard==0.9.17
 pywebrtc-audio==0.2.0
 uuid6==2025.0.1
 tqdm>=4.66.0
+loguru>=0.5
+appdirs>=1.4
+win32-setctime>=1.2.1; sys_platform=='win32'
+deepfilterlib==0.5.6
