@@ -1,6 +1,8 @@
 import json
+import logging
 import math
-from typing import Any, Dict, Optional, Tuple
+import os
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
 from scipy import signal as scipy_signal
@@ -854,6 +856,128 @@ def soft_knee_limit_np(
     return out
 
 
+logger = logging.getLogger(__name__)
+
+
+class SileroVAD:
+    """
+    Lightweight streaming Silero VAD v5 wrapper using CPU ONNX Runtime.
+
+    Maintains a 16 kHz 512-sample (32 ms) frame buffer with 64-sample context
+    and persistent LSTM state across arbitrary incoming chunk sizes.
+    """
+
+    VAD_SR = 16000
+    FRAME_SAMPLES = 512
+    CONTEXT_SAMPLES = 64
+
+    def __init__(self, model_path: Optional[str] = None):
+        self._model_path = model_path
+        self._session = None
+        self._load_attempted: bool = False
+        self._available: bool = False
+        self._sr_arr = np.array(self.VAD_SR, dtype=np.int64)
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._context = np.zeros(self.CONTEXT_SAMPLES, dtype=np.float32)
+        self._ring = np.empty(0, dtype=np.float32)
+        self._last_prob: float = 0.0
+
+    @property
+    def is_available(self) -> bool:
+        if not self._load_attempted:
+            self._load_session()
+        return self._available
+
+    def _resolve_model_path(self) -> Optional[str]:
+        candidates = []
+        if self._model_path:
+            candidates.append(self._model_path)
+        candidates.append(os.path.join("pretrain", "vad", "silero_vad.onnx"))
+        repo_server_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        candidates.append(os.path.join(repo_server_dir, "pretrain", "vad", "silero_vad.onnx"))
+        for path in candidates:
+            if path and os.path.isfile(path):
+                return path
+        return None
+
+    def _load_session(self) -> None:
+        self._load_attempted = True
+        resolved = self._resolve_model_path()
+        if not resolved:
+            logger.warning("Silero VAD ONNX model not found at pretrain/vad/silero_vad.onnx; falling back to noise gate.")
+            self._available = False
+            return
+        try:
+            import onnxruntime as ort
+
+            opts = ort.SessionOptions()
+            opts.intra_op_num_threads = 1
+            opts.inter_op_num_threads = 1
+            opts.log_severity_level = 3
+            self._session = ort.InferenceSession(
+                resolved,
+                sess_options=opts,
+                providers=["CPUExecutionProvider"],
+            )
+            self._available = True
+            logger.info("Loaded Silero VAD ONNX model from %s", resolved)
+        except Exception as exc:
+            logger.warning("Failed to load Silero VAD ONNX model (%s); falling back to noise gate.", exc)
+            self._session = None
+            self._available = False
+
+    def reset(self) -> None:
+        self._state.fill(0.0)
+        self._context.fill(0.0)
+        self._ring = np.empty(0, dtype=np.float32)
+        self._last_prob = 0.0
+
+    def process_chunk(self, audio_f32: np.ndarray, sample_rate: int) -> float:
+        if not self.is_available or self._session is None:
+            return 1.0
+        if audio_f32.size == 0:
+            return self._last_prob
+
+        sr = max(800, int(sample_rate))
+        if sr != self.VAD_SR:
+            g = math.gcd(self.VAD_SR, sr)
+            up = self.VAD_SR // g
+            down = sr // g
+            audio_16k = scipy_signal.resample_poly(audio_f32, up, down).astype(np.float32, copy=False)
+        else:
+            audio_16k = np.asarray(audio_f32, dtype=np.float32).reshape(-1)
+
+        if audio_16k.size == 0:
+            return self._last_prob
+
+        self._ring = np.concatenate((self._ring, audio_16k)) if self._ring.size > 0 else audio_16k
+
+        ran_frame = False
+        max_prob = 0.0
+        offset = 0
+        total = int(self._ring.shape[0])
+        while total - offset >= self.FRAME_SAMPLES:
+            frame = self._ring[offset : offset + self.FRAME_SAMPLES]
+            offset += self.FRAME_SAMPLES
+            x = np.concatenate((self._context, frame))[np.newaxis, :]
+            out, self._state = self._session.run(
+                None,
+                {"input": x, "state": self._state, "sr": self._sr_arr},
+            )
+            self._context = frame[-self.CONTEXT_SAMPLES :].copy()
+            prob = float(out[0, 0])
+            if not ran_frame or prob > max_prob:
+                max_prob = prob
+            ran_frame = True
+
+        if offset > 0:
+            self._ring = np.array(self._ring[offset:], dtype=np.float32, copy=True)
+
+        if ran_frame:
+            self._last_prob = max_prob
+        return self._last_prob
+
+
 class AdaptiveNoiseGate:
     """
     Input noise gate designed for mediocre/noisy microphones.
@@ -870,6 +994,8 @@ class AdaptiveNoiseGate:
         max_adaptive_boost_db: float = 10.0,
         impulse_crest_threshold: float = 3.8,
         impulse_quarter_ratio: float = 0.35,
+        max_f0_hold_sec: float = 2.0,
+        vad_model_path: Optional[str] = None,
     ):
         self.bandpass_low_hz = float(bandpass_low_hz)
         self.bandpass_high_hz = float(bandpass_high_hz)
@@ -880,6 +1006,7 @@ class AdaptiveNoiseGate:
         self.max_adaptive_boost_db = float(max_adaptive_boost_db)
         self.impulse_crest_threshold = float(impulse_crest_threshold)
         self.impulse_quarter_ratio = float(impulse_quarter_ratio)
+        self.max_f0_hold_sec = float(max_f0_hold_sec)
 
         self.is_open: bool = False
         self.hangover_chunks: int = 0
@@ -890,6 +1017,8 @@ class AdaptiveNoiseGate:
         self._noise_obs_sec: float = 0.0
         self._speech_duration_sec: float = 0.0
         self._peak_snr_db: float = 0.0
+        self._f0_hold_sec: float = 0.0
+        self._vad = SileroVAD(model_path=vad_model_path)
 
     def reset(self) -> None:
         self.is_open = False
@@ -902,6 +1031,8 @@ class AdaptiveNoiseGate:
         self._noise_obs_sec = 0.0
         self._speech_duration_sec = 0.0
         self._peak_snr_db = 0.0
+        self._f0_hold_sec = 0.0
+        self._vad.reset()
 
     def _ensure_filter(self, sr: int) -> None:
         if sr == self._sr and self._sos is not None and self._zi is not None:
@@ -976,6 +1107,9 @@ class AdaptiveNoiseGate:
         audio_in: np.ndarray,
         sample_rate: int,
         silent_threshold_db: float,
+        vad_enabled: bool = False,
+        vad_threshold: float = 0.45,
+        f0_voiced_fn: Optional[Callable[[], bool]] = None,
     ) -> Tuple[bool, float]:
         audio_f32 = np.asarray(audio_in, dtype=np.float32).reshape(-1)
         n_samples = int(audio_f32.shape[0])
@@ -992,6 +1126,9 @@ class AdaptiveNoiseGate:
             audio_f32, sr, apply_impulse_reject=(gate_closed and gate_enabled)
         )
 
+        use_vad = bool(vad_enabled) and self._vad.is_available
+        vad_prob = self._vad.process_chunk(audio_f32, sr) if use_vad else 1.0
+
         user_open = 10.0 ** (thresh_db / 20.0)
         max_open = user_open * (10.0 ** (self.max_adaptive_boost_db / 20.0))
         if gate_enabled and self._noise_floor_rms is not None and self._noise_obs_sec >= 0.25:
@@ -1002,8 +1139,39 @@ class AdaptiveNoiseGate:
 
         hold_thresh = open_thresh * (10.0 ** (-self.hysteresis_db / 20.0))
         active_thresh = open_thresh if gate_closed else hold_thresh
+        energy_ok = gate_rms >= active_thresh
 
-        if gate_rms >= active_thresh:
+        if not use_vad:
+            speech_active = energy_ok
+            f0_hold = False
+            self._f0_hold_sec = 0.0
+        else:
+            vad_open_thresh = float(np.clip(vad_threshold, 0.05, 0.95))
+            vad_keep_thresh = max(0.10, vad_open_thresh * 0.65)
+            if gate_closed:
+                # Opening strictly requires both energy above threshold and VAD speech detection
+                speech_active = energy_ok and (vad_prob >= vad_open_thresh)
+                f0_hold = False
+                self._f0_hold_sec = 0.0
+            elif energy_ok and vad_prob >= vad_keep_thresh:
+                speech_active = True
+                f0_hold = False
+                self._f0_hold_sec = 0.0
+            elif (
+                energy_ok
+                and f0_voiced_fn is not None
+                and self._f0_hold_sec < self.max_f0_hold_sec
+                and f0_voiced_fn()
+            ):
+                # Keep gate open while F0 remains continuously voiced (e.g. singing/humming)
+                speech_active = False
+                f0_hold = True
+                self._f0_hold_sec += chunk_dur
+            else:
+                speech_active = False
+                f0_hold = False
+
+        if speech_active:
             self._speech_duration_sec = min(2.0, self._speech_duration_sec + chunk_dur)
             snr_db = 20.0 * math.log10(max(gate_rms, 1e-8) / max(open_thresh, 1e-8))
             snr_clamped = min(24.0, max(0.0, snr_db))
@@ -1016,6 +1184,10 @@ class AdaptiveNoiseGate:
             self.hangover_chunks = max(1, int(round(hangover_sec / max(chunk_dur, 1e-4))))
             self.is_open = True
             gate_active = True
+        elif f0_hold:
+            self.hangover_chunks = max(1, self.hangover_chunks)
+            self.is_open = True
+            gate_active = True
         elif self.hangover_chunks > 0:
             self.hangover_chunks -= 1
             self.is_open = False
@@ -1023,10 +1195,12 @@ class AdaptiveNoiseGate:
             if self.hangover_chunks == 0:
                 self._speech_duration_sec = 0.0
                 self._peak_snr_db = 0.0
+                self._f0_hold_sec = 0.0
         else:
             self.is_open = False
             self._speech_duration_sec = 0.0
             self._peak_snr_db = 0.0
+            self._f0_hold_sec = 0.0
             gate_active = False
 
         # Track stationary noise floor on closed gate, quieter valleys, or low-modulation

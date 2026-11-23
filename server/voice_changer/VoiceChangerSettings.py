@@ -527,6 +527,8 @@ class VoiceChangerSettings:
     _echoCancel: bool = False
     _noiseSuppression: bool = False
     _noiseSuppression2: bool = False
+    _vadEnabled: bool = False
+    _vadThreshold: float = 0.45
 
     @property
     def agcEnabled(self) -> bool:
@@ -567,3 +569,22 @@ class VoiceChangerSettings:
     @noiseSuppression2.setter
     def noiseSuppression2(self, val: Any):
         self._noiseSuppression2 = _parse_bool(val)
+
+    @property
+    def vadEnabled(self) -> bool:
+        return self._vadEnabled
+
+    @vadEnabled.setter
+    def vadEnabled(self, val: Any):
+        self._vadEnabled = _parse_bool(val)
+
+    @property
+    def vadThreshold(self) -> float:
+        return self._vadThreshold
+
+    @vadThreshold.setter
+    def vadThreshold(self, val: Any):
+        try:
+            self._vadThreshold = max(0.05, min(0.95, float(val)))
+        except (ValueError, TypeError):
+            pass

@@ -120,6 +120,8 @@ export declare const ServerSettingKey: {
     readonly formantShift: "formantShift";
     readonly useONNX: "useONNX";
     readonly silentThreshold: "silentThreshold";
+    readonly vadEnabled: "vadEnabled";
+    readonly vadThreshold: "vadThreshold";
     readonly extraConvertSize: "extraConvertSize";
     readonly indexRatio: "indexRatio";
     readonly protect: "protect";
@@ -195,6 +197,8 @@ export type VoiceChangerServerSetting = {
     formantShift: number;
     useONNX: number;
     silentThreshold: number;
+    vadEnabled: boolean;
+    vadThreshold: number;
     extraConvertSize: number;
     indexRatio: number;
     protect: number;

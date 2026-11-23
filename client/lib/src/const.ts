@@ -155,6 +155,8 @@ export const ServerSettingKey = {
     useONNX: "useONNX",
 
     silentThreshold: "silentThreshold",
+    vadEnabled: "vadEnabled",
+    vadThreshold: "vadThreshold",
     extraConvertSize: "extraConvertSize",
 
     indexRatio: "indexRatio",
@@ -243,6 +245,8 @@ export type VoiceChangerServerSetting = {
     useONNX: number;
 
     silentThreshold: number;
+    vadEnabled: boolean;
+    vadThreshold: number;
     extraConvertSize: number;
 
     indexRatio: number; // RVC
@@ -421,6 +425,8 @@ export const DefaultServerSetting: ServerInfo = {
     useONNX: 0,
 
     silentThreshold: 0,
+    vadEnabled: false,
+    vadThreshold: 0.45,
     extraConvertSize: 0,
 
     indexRatio: 0,

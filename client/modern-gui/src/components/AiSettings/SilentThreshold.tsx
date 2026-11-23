@@ -1,4 +1,5 @@
 import MD3Slider from "../Helpers/MD3Slider";
+import MD3Switch from "../Helpers/MD3Switch";
 import { ClientState } from "@dannadori/voice-changer-client-js";
 import { CSS_CLASSES } from "../../styles/constants";
 import { useEffect, useState } from "react";
@@ -15,6 +16,9 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
   const [localSilentThreshold, setLocalSilentThreshold] = useState<number>(
     appState.serverSetting?.serverSetting?.silentThreshold ?? -75
   );
+  const [localVadThreshold, setLocalVadThreshold] = useState<number>(
+    appState.serverSetting?.serverSetting?.vadThreshold ?? 0.45
+  );
   const [isSignalFresh, setIsSignalFresh] = useState<boolean>(false);
 
   // ---------------- Hooks ----------------
@@ -26,6 +30,13 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
       setLocalSilentThreshold(st);
     }
   }, [appState.serverSetting?.serverSetting?.silentThreshold]);
+
+  useEffect(() => {
+    const vt = appState.serverSetting?.serverSetting?.vadThreshold;
+    if (vt !== undefined) {
+      setLocalVadThreshold(vt);
+    }
+  }, [appState.serverSetting?.serverSetting?.vadThreshold]);
 
   // Track whether performance stats are actively arriving while converting
   useEffect(() => {
@@ -52,6 +63,23 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting?.serverSetting,
       silentThreshold: value
+    });
+  };
+
+  const vadEnabled = Boolean(appState.serverSetting?.serverSetting?.vadEnabled ?? false);
+
+  const handleToggleVad = (value: boolean) => {
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting?.serverSetting,
+      vadEnabled: value
+    });
+  };
+
+  const handleChangeVadThreshold = (value: number) => {
+    setLocalVadThreshold(value);
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting?.serverSetting,
+      vadThreshold: value
     });
   };
 
@@ -115,6 +143,33 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
           showValue={true}
           valueFormatter={(val) => `${val} dB`}
         />
+      </div>
+      <div className="pt-2 border-t border-outline-variant/40 space-y-2.5">
+        <MD3Switch
+          checked={vadEnabled}
+          onChange={handleToggleVad}
+          label={t('vadEnabledLabel')}
+        />
+        {vadEnabled && (
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label htmlFor="vadThresh" className={`${CSS_CLASSES.label} mb-0`}>
+                {t('vadThresholdLabel')}
+              </label>
+            </div>
+            <MD3Slider
+              id="vadThresh"
+              min={0.15}
+              max={0.85}
+              step={0.05}
+              value={localVadThreshold}
+              onImmediateChange={setLocalVadThreshold}
+              onChange={handleChangeVadThreshold}
+              showValue={true}
+              valueFormatter={(val) => val.toFixed(2)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

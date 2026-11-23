@@ -294,6 +294,8 @@ class VoiceChangerV2:
             audio_in,
             sample_rate=self.settings.inputSampleRate,
             silent_threshold_db=self.settings.silentThreshold,
+            vad_enabled=bool(getattr(self.settings, "vadEnabled", False)),
+            vad_threshold=float(getattr(self.settings, "vadThreshold", 0.45)),
         )
 
         if gate_active:

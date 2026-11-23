@@ -85,6 +85,7 @@ class RVCr2(VoiceChangerModel):
         self._rms_gain_ema_t: torch.Tensor | None = None
         self._noise_gate = AdaptiveNoiseGate()
         self._last_block_frame: int = 0
+        self._last_pitch_hop_frames: int = 4
         self._init_succeeded: bool = False
 
     @property
@@ -544,6 +545,16 @@ class RVCr2(VoiceChangerModel):
         out_np, _ = self.convert_offline(audio_in, sample_rate)
         return torch.as_tensor(out_np, dtype=torch.float32, device=self.device_manager.device)
 
+    def _has_sustained_f0(self) -> bool:
+        if self.pipeline is None or not getattr(self.pipeline, "use_f0", False):
+            return False
+        if not hasattr(self, "pitchf_buffer") or self.pitchf_buffer is None or self.pitchf_buffer.numel() == 0:
+            return False
+        hop = min(max(2, int(self._last_pitch_hop_frames)), int(self.pitchf_buffer.shape[0]))
+        tail = self.pitchf_buffer[-hop:]
+        voiced_ratio = float((tail > 0.0).float().mean().item())
+        return voiced_ratio >= 0.5
+
     def inference(self, audio_in: AudioInOutFloat, bypass_silence_gate: bool = False):
         if self.pipeline is None:
             raise PipelineNotInitializedException()
@@ -556,6 +567,9 @@ class RVCr2(VoiceChangerModel):
                 audio_in,
                 sample_rate=self.input_sample_rate,
                 silent_threshold_db=self.settings.silentThreshold,
+                vad_enabled=bool(getattr(self.settings, "vadEnabled", False)),
+                vad_threshold=float(getattr(self.settings, "vadThreshold", 0.45)),
+                f0_voiced_fn=self._has_sustained_f0,
             )
             if not gate_active:
                 # Feed attenuated (-12 dB) audio into context buffers to prevent raw noise/hum
@@ -569,6 +583,7 @@ class RVCr2(VoiceChangerModel):
                 return None, vol
 
         audio_in_16k, pitch_hop_frames = self._prepare_16k_input(audio_in)
+        self._last_pitch_hop_frames = max(1, int(pitch_hop_frames))
         circular_write(audio_in_16k, self.audio_buffer, scratch=self._audio_scratch)
         circular_write(audio_in_16k, self.convert_buffer, scratch=self._convert_scratch)
 
