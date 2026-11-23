@@ -34,7 +34,7 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
   return (
     <div className="flex flex-col space-y-2">
       <label className={CSS_CLASSES.label}>{t('noiseReductionLabel')}</label>
-      <div className="space-y-2.5 mt-1 bg-surface-container-low p-3 rounded-md border border-outline-variant">
+      <div className="space-y-2.5 mt-1 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
         <MD3Switch
           checked={echoCancelChecked}
           onChange={(val) => handleToggle('echoCancel', val)}

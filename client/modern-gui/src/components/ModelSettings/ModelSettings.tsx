@@ -205,7 +205,7 @@ function ModelSettings({
   // ---------------- Render ----------------
 
   return (
-    <div className={`space-y-4 bg-surface-container-low p-3 rounded-md border border-outline-variant ${!model ? 'opacity-50 pointer-events-none' : ''}`}>
+    <div className={`space-y-4 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50 ${!model ? 'opacity-50 pointer-events-none' : ''}`}>
       <div>
         <label htmlFor="pitch" className={CSS_CLASSES.label}>
           {t('pitchLabel')}

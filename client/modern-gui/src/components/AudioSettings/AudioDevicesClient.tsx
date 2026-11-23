@@ -189,7 +189,7 @@ function AudioDevicesClient(): JSX.Element {
         ];
 
   return (
-    <div className="flex flex-col space-y-4 bg-surface-container-low p-3 rounded-md border border-outline-variant">
+    <div className="flex flex-col space-y-4 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
       {/* Input Device */}
       <MD3Select
         id="inputCh"

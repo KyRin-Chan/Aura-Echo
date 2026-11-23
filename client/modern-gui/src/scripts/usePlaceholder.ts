@@ -11,7 +11,7 @@ export const useInitialPlaceholder = (name: string, options?: { size?: number; b
             textColor = '#ffffff',
             shape = 'rounded',
             fontSize = null,
-            fontFamily = 'Arial'
+            fontFamily = 'Comfortaa, Outfit, "Noto Sans SC", "Microsoft YaHei", sans-serif'
         } = options || {};
 
         // Use initial letter for placeholder
@@ -24,7 +24,16 @@ export const useInitialPlaceholder = (name: string, options?: { size?: number; b
                 a = ((a << 5) - a) + b.charCodeAt(0);
                 return a & a;
             }, 0);
-            const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6f42c1', '#e83e8c', '#fd7e14'];
+            const colors = [
+                '#6750A4', // MD3 Purple
+                '#625B71', // MD3 Secondary
+                '#7D5260', // MD3 Tertiary
+                '#386A20', // MD3 Green
+                '#00639B', // MD3 Blue
+                '#9C423E', // MD3 Red
+                '#8F4E00', // MD3 Orange
+                '#7F5600'  // MD3 Amber
+            ];
             bgColor = colors[Math.abs(hash) % colors.length];
         }
 

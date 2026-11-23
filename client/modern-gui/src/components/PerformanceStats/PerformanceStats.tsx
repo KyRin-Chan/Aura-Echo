@@ -6,8 +6,8 @@ interface PerformanceStatsProps {
 }
 
 const PERF_TEXT_CLASSES: Record<PerfStatus, string> = {
-  good: 'text-primary font-bold',
-  warning: 'text-yellow-500 font-bold',
+  good: 'text-success font-bold',
+  warning: 'text-warning font-bold',
   critical: 'text-error font-bold'
 };
 

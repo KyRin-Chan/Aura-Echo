@@ -58,7 +58,7 @@ function F0Extraction({ appState, uiState, appGuiSettingState }: F0ExtractionPro
   // ---------------- Render ----------------
 
   return (
-    <div className="bg-surface-container-low p-3 rounded-md border border-outline-variant">
+    <div className="bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
       <MD3Select
         id="f0Detector"
         label={t('f0DetectorLabel')}

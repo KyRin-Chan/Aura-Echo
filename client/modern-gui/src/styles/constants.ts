@@ -1,8 +1,8 @@
 export const CSS_CLASSES = {
     // Form Controls
-    select: "w-full px-3 py-2 bg-surface-container border border-outline rounded-xs focus:outline-none focus:border-primary text-on-surface text-sm transition-all duration-200",
-    input: "w-full px-3 py-2 bg-surface-container border border-outline rounded-xs focus:outline-none focus:border-primary text-on-surface text-sm transition-all duration-200",
-    fileInput: "w-full px-3 py-2 bg-surface-container border border-outline rounded-xs focus:outline-none focus:border-primary text-on-surface text-sm file:mr-4 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary-container file:text-on-primary-container hover:file:opacity-90 transition-all",
+    select: "w-full px-3 py-2 bg-surface-container/70 border border-outline-variant hover:border-outline rounded-xs focus:outline-none focus:border-primary text-on-surface text-sm transition-all duration-200",
+    input: "w-full px-3 py-2 bg-surface-container/70 border border-outline-variant hover:border-outline rounded-xs focus:outline-none focus:border-primary text-on-surface text-sm transition-all duration-200",
+    fileInput: "w-full px-3 py-2 bg-surface-container/70 border border-outline-variant hover:border-outline rounded-xs focus:outline-none focus:border-primary text-on-surface text-sm file:mr-4 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary-container file:text-on-primary-container hover:file:opacity-90 transition-all",
     range: "w-full h-1 bg-surface-container-highest rounded-full appearance-none cursor-pointer accent-primary transition-colors duration-150",
     rangeDisabled: "w-full h-1 bg-surface-container rounded-full appearance-none cursor-not-allowed accent-outline opacity-50 transition-colors duration-150",
     checkbox: "mr-2 accent-primary cursor-pointer",
@@ -19,16 +19,16 @@ export const CSS_CLASSES = {
     iconButton: "p-2.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/20 rounded-full transition-all duration-150 active:scale-95",
     primaryButton: "px-6 py-2 bg-primary hover:bg-primary/90 text-on-primary font-semibold rounded-full shadow-elevation-1 hover:shadow-elevation-2 active:shadow-elevation-1 transition-all duration-150",
     modalPrimaryButton: "px-6 py-2.5 bg-primary hover:bg-primary/90 text-on-primary font-semibold rounded-full shadow-elevation-1 hover:shadow-elevation-2 active:shadow-elevation-1 transition-all duration-150",
-    modalSecondaryButton: "px-6 py-2.5 bg-surface-container-high text-primary border border-outline font-semibold rounded-full transition-all duration-150 hover:bg-primary/8 active:scale-97",
+    modalSecondaryButton: "px-6 py-2.5 bg-surface-container-high text-on-surface hover:text-primary border border-outline-variant/60 hover:border-primary/40 font-semibold rounded-full transition-all duration-150 hover:bg-primary/8 active:scale-97",
 
     // Layout
-    card: "p-4 bg-surface-container-low rounded-md shadow-elevation-1 transition-all duration-300 hover:shadow-elevation-2",
-    cardHeader: "flex justify-between items-center mb-4 pb-2.5 border-b border-outline-variant",
+    card: "p-4 bg-surface-container-low border border-outline-variant/40 rounded-xl shadow-elevation-1 transition-all duration-300 hover:shadow-elevation-2",
+    cardHeader: "flex justify-between items-center mb-4 pb-2.5 border-b border-outline-variant/50",
 
     // States
-    error: "p-3 mb-4 text-sm text-error bg-error-container/20 rounded-md border border-error/30",
-    success: "p-3 mb-4 text-sm text-primary bg-primary-container/20 rounded-md border border-primary/30",
-    warning: "p-3 mb-4 text-sm text-tertiary bg-tertiary-container/20 rounded-md border border-tertiary/30",
+    error: "p-3 mb-4 text-sm text-on-error-container bg-error-container/60 rounded-md border border-error/30",
+    success: "p-3 mb-4 text-sm text-on-success-container bg-success-container/60 rounded-md border border-success/30",
+    warning: "p-3 mb-4 text-sm text-on-warning-container bg-warning-container/60 rounded-md border border-warning/30",
     loading: "text-primary animate-spin"
 };
 

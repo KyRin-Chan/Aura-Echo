@@ -161,7 +161,7 @@ function ServerIO({ appState }: ServerIOProps): JSX.Element {
       </div>
 
       {!isCollapsed && (
-        <div className="space-y-4 bg-surface-container-low p-3 rounded-md border border-outline-variant">
+        <div className="space-y-4 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
           {/* Recording Controls */}
           <div className="flex items-center space-x-3">
             <button

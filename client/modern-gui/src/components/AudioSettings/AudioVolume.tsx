@@ -73,7 +73,7 @@ function AudioVolume(): JSX.Element {
   // ---------------- Render ----------------
 
   return (
-    <div className="flex flex-col space-y-4 bg-surface-container-low p-3 rounded-md border border-outline-variant">
+    <div className="flex flex-col space-y-4 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
       <div>
         <label htmlFor="inputGain" className={CSS_CLASSES.label}>
           <FontAwesomeIcon icon={faMicrophone} className="mr-2 text-primary" />

@@ -7,6 +7,15 @@ delete colors['trueGray'];
 delete colors['coolGray'];
 delete colors['blueGray'];
 
+function withOpacity(variableName) {
+  return ({ opacityValue }) => {
+    if (opacityValue !== undefined) {
+      return `rgb(var(${variableName}-rgb) / ${opacityValue})`;
+    }
+    return `var(${variableName})`;
+  };
+}
+
 module.exports = {
   darkMode: 'class',
   content: [
@@ -20,39 +29,59 @@ module.exports = {
       ...colors,
       transparent: 'transparent',
       current: 'currentColor',
-      // MD3 Semantic Colors mapped to CSS variables
-      primary: 'var(--md-sys-color-primary)',
-      'on-primary': 'var(--md-sys-color-on-primary)',
-      'primary-container': 'var(--md-sys-color-primary-container)',
-      'on-primary-container': 'var(--md-sys-color-on-primary-container)',
-      secondary: 'var(--md-sys-color-secondary)',
-      'on-secondary': 'var(--md-sys-color-on-secondary)',
-      'secondary-container': 'var(--md-sys-color-secondary-container)',
-      'on-secondary-container': 'var(--md-sys-color-on-secondary-container)',
-      tertiary: 'var(--md-sys-color-tertiary)',
-      'on-tertiary': 'var(--md-sys-color-on-tertiary)',
-      'tertiary-container': 'var(--md-sys-color-tertiary-container)',
-      'on-tertiary-container': 'var(--md-sys-color-on-tertiary-container)',
-      error: 'var(--md-sys-color-error)',
-      'on-error': 'var(--md-sys-color-on-error)',
-      'error-container': 'var(--md-sys-color-error-container)',
-      'on-error-container': 'var(--md-sys-color-on-error-container)',
-      surface: 'var(--md-sys-color-surface)',
-      'on-surface': 'var(--md-sys-color-on-surface)',
-      'surface-variant': 'var(--md-sys-color-surface-variant)',
-      'on-surface-variant': 'var(--md-sys-color-on-surface-variant)',
-      outline: 'var(--md-sys-color-outline)',
-      'outline-variant': 'var(--md-sys-color-outline-variant)',
-      'surface-container-lowest': 'var(--md-sys-color-surface-container-lowest)',
-      'surface-container-low': 'var(--md-sys-color-surface-container-low)',
-      'surface-container': 'var(--md-sys-color-surface-container)',
-      'surface-container-high': 'var(--md-sys-color-surface-container-high)',
-      'surface-container-highest': 'var(--md-sys-color-surface-container-highest)',
-      'inverse-surface': 'var(--md-sys-color-inverse-surface)',
-      'inverse-on-surface': 'var(--md-sys-color-inverse-on-surface)',
-      scrim: 'var(--md-sys-color-scrim)',
+      // MD3 Semantic Colors mapped to CSS variables with RGB alpha support
+      primary: withOpacity('--md-sys-color-primary'),
+      'on-primary': withOpacity('--md-sys-color-on-primary'),
+      'primary-container': withOpacity('--md-sys-color-primary-container'),
+      'on-primary-container': withOpacity('--md-sys-color-on-primary-container'),
+      secondary: withOpacity('--md-sys-color-secondary'),
+      'on-secondary': withOpacity('--md-sys-color-on-secondary'),
+      'secondary-container': withOpacity('--md-sys-color-secondary-container'),
+      'on-secondary-container': withOpacity('--md-sys-color-on-secondary-container'),
+      tertiary: withOpacity('--md-sys-color-tertiary'),
+      'on-tertiary': withOpacity('--md-sys-color-on-tertiary'),
+      'tertiary-container': withOpacity('--md-sys-color-tertiary-container'),
+      'on-tertiary-container': withOpacity('--md-sys-color-on-tertiary-container'),
+      error: withOpacity('--md-sys-color-error'),
+      'on-error': withOpacity('--md-sys-color-on-error'),
+      'error-container': withOpacity('--md-sys-color-error-container'),
+      'on-error-container': withOpacity('--md-sys-color-on-error-container'),
+      success: withOpacity('--md-sys-color-success'),
+      'on-success': withOpacity('--md-sys-color-on-success'),
+      'success-container': withOpacity('--md-sys-color-success-container'),
+      'on-success-container': withOpacity('--md-sys-color-on-success-container'),
+      warning: withOpacity('--md-sys-color-warning'),
+      'on-warning': withOpacity('--md-sys-color-on-warning'),
+      'warning-container': withOpacity('--md-sys-color-warning-container'),
+      'on-warning-container': withOpacity('--md-sys-color-on-warning-container'),
+      surface: withOpacity('--md-sys-color-surface'),
+      'on-surface': withOpacity('--md-sys-color-on-surface'),
+      'surface-variant': withOpacity('--md-sys-color-surface-variant'),
+      'on-surface-variant': withOpacity('--md-sys-color-on-surface-variant'),
+      outline: withOpacity('--md-sys-color-outline'),
+      'outline-variant': withOpacity('--md-sys-color-outline-variant'),
+      'surface-container-lowest': withOpacity('--md-sys-color-surface-container-lowest'),
+      'surface-container-low': withOpacity('--md-sys-color-surface-container-low'),
+      'surface-container': withOpacity('--md-sys-color-surface-container'),
+      'surface-container-high': withOpacity('--md-sys-color-surface-container-high'),
+      'surface-container-highest': withOpacity('--md-sys-color-surface-container-highest'),
+      'inverse-surface': withOpacity('--md-sys-color-inverse-surface'),
+      'inverse-on-surface': withOpacity('--md-sys-color-inverse-on-surface'),
+      scrim: withOpacity('--md-sys-color-scrim'),
     },
     extend: {
+      opacity: {
+        '4': '0.04',
+        '8': '0.08',
+        '12': '0.12',
+        '15': '0.15',
+      },
+      scale: {
+        '97': '0.97',
+        '98': '0.98',
+        '102': '1.02',
+        '103': '1.03',
+      },
       borderRadius: {
         'xs': 'var(--md-sys-shape-corner-extra-small)',
         'sm': 'var(--md-sys-shape-corner-small)',

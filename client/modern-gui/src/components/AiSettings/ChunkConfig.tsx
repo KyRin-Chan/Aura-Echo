@@ -96,7 +96,7 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
   // ---------------- Render ----------------
 
   return (
-    <div className="flex flex-col space-y-4 bg-surface-container-low p-3 rounded-md border border-outline-variant">
+    <div className="flex flex-col space-y-4 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
       <div>
         <label htmlFor="chunk" className={CSS_CLASSES.label}>
           {t('chunkConfigLabel')}:

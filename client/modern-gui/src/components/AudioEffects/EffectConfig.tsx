@@ -68,7 +68,7 @@ function SliderParameter({ paramKey, definition, value, onChange }: SliderParame
 function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigProps): JSX.Element {
   if (!effect) {
     return (
-      <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
+      <div className="flex flex-col h-full bg-surface-container/50 p-4 rounded-lg border border-outline-variant/50">
         <div className="flex items-center justify-between mb-3 pb-2 border-b border-outline-variant">
           <h5 className="font-semibold text-on-surface">{t('effectConfigTitle')}</h5>
         </div>
@@ -82,7 +82,7 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
   const effectDefinition = getEffectDefinition(effect.type, serverSchema);
   if (!effectDefinition) {
     return (
-      <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
+      <div className="flex flex-col h-full bg-surface-container/50 p-4 rounded-lg border border-outline-variant/50">
         <div className="flex items-center justify-between mb-3 pb-2 border-b border-outline-variant">
           <h5 className="font-semibold text-on-surface">{t('unknownEffectTitle')}</h5>
         </div>
@@ -165,7 +165,7 @@ function EffectConfig({ effect, onParameterChange, serverSchema }: EffectConfigP
   };
 
   return (
-    <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
+    <div className="flex flex-col h-full bg-surface-container/50 p-4 rounded-lg border border-outline-variant/50">
       {/* Header */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-outline-variant">
         <div>

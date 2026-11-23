@@ -29,7 +29,7 @@ const MD3Select: React.FC<MD3SelectProps> = ({
       {label && (
         <label
           htmlFor={id}
-          className={`absolute left-3 -top-2.5 px-1.5 rounded text-[11px] font-medium leading-none tracking-wide transition-all bg-surface-container-low text-on-surface-variant ${
+          className={`absolute left-3 top-1.5 text-[10px] font-semibold leading-none tracking-wide pointer-events-none bg-transparent text-on-surface-variant truncate max-w-[calc(100%-2.5rem)] transition-all ${
             disabled ? 'opacity-50' : ''
           }`}
         >
@@ -41,14 +41,16 @@ const MD3Select: React.FC<MD3SelectProps> = ({
         value={value}
         onChange={onChange}
         disabled={disabled}
-        className={`w-full h-[48px] px-3 pt-2 bg-transparent border rounded-xs focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-on-surface text-sm transition-all duration-200 cursor-pointer appearance-none ${
+        className={`w-full pr-9 bg-surface-container/60 border rounded-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-on-surface text-sm transition-all duration-200 cursor-pointer appearance-none ${
+          label ? 'h-[50px] pt-4 pb-1 px-3' : 'h-[44px] py-2 px-3'
+        } ${
           disabled
-            ? 'border-outline/30 text-on-surface/30 cursor-not-allowed'
-            : 'border-outline hover:border-on-surface-variant'
+            ? 'border-outline-variant/40 text-on-surface/30 cursor-not-allowed'
+            : 'border-outline-variant hover:border-outline'
         }`}
       >
         {options.map((opt) => (
-          <option key={opt.value} value={opt.value} className="bg-surface-container text-on-surface">
+          <option key={opt.value} value={opt.value} className="bg-surface-container-high text-on-surface">
             {opt.label}
           </option>
         ))}

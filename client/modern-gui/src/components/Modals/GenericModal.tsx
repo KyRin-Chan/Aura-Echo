@@ -77,14 +77,14 @@ function GenericModal({
   return createPortal(
     <div
       className={`fixed inset-0 ${
-        transparent === false ? 'bg-black bg-opacity-50 backdrop-blur-sm' : 'opacity-100'
+        transparent === false ? 'bg-scrim/50 backdrop-blur-sm' : 'opacity-100'
       } flex justify-center items-center z-40 p-4 transition-opacity duration-300 ease-in-out ${className}`}
       onClick={closeOnOutsideClick ? onClose : undefined}
     >
       <div
         className={`p-6 rounded-xl shadow-elevation-3 w-full ${getModalWidth(
           size
-        )} max-h-[90vh] flex flex-col transform transition-all duration-300 ease-in-out scale-95 opacity-0 animate-modalFadeInScaleUp overflow-hidden bg-surface-container-highest border border-outline-variant`}
+        )} max-h-[90vh] flex flex-col transform transition-all duration-300 ease-in-out scale-95 opacity-0 animate-modalFadeInScaleUp overflow-hidden bg-surface-container-high border border-outline-variant/60`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}

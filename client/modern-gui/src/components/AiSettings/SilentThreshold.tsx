@@ -67,7 +67,7 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
   // ---------------- Render ----------------
 
   return (
-    <div className="flex flex-col space-y-3.5 bg-surface-container-low p-3 rounded-md border border-outline-variant">
+    <div className="flex flex-col space-y-3.5 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
       <div>
         <div className="flex items-center justify-between mb-1">
           <label htmlFor="inSens" className={`${CSS_CLASSES.label} mb-0`}>

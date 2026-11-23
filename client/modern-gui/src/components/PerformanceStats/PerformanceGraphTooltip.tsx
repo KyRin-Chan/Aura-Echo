@@ -2,9 +2,9 @@ import { PerfStatus } from './PerformanceStatsCard';
 import { t } from '../../locales';
 
 const STATUS_STYLE: Record<PerfStatus, { textKey: 'statusGood' | 'statusWarning' | 'statusCritical'; color: string; bg: string }> = {
-  good: { textKey: 'statusGood', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' },
-  warning: { textKey: 'statusWarning', color: '#fbbf24', bg: 'rgba(251, 191, 36, 0.15)' },
-  critical: { textKey: 'statusCritical', color: '#f43f5e', bg: 'rgba(244, 63, 94, 0.15)' },
+  good: { textKey: 'statusGood', color: 'var(--md-sys-color-on-success-container)', bg: 'var(--md-sys-color-success-container)' },
+  warning: { textKey: 'statusWarning', color: 'var(--md-sys-color-on-warning-container)', bg: 'var(--md-sys-color-warning-container)' },
+  critical: { textKey: 'statusCritical', color: 'var(--md-sys-color-on-error-container)', bg: 'var(--md-sys-color-error-container)' },
 };
 
 function CustomTooltip({ active, payload, label }: any) {

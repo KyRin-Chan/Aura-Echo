@@ -29,10 +29,10 @@ function TrackItem({
 }) {
   return (
     <div
-      className={`p-3 rounded-md border cursor-pointer transition-all duration-150 ${
+      className={`p-3 rounded-lg border cursor-pointer transition-all duration-150 ${
         isSelected
-          ? 'border-primary bg-primary/8 shadow-elevation-1'
-          : 'border-outline-variant bg-surface-container-low hover:border-outline'
+          ? 'border-primary bg-primary/10 shadow-elevation-1'
+          : 'border-outline-variant/60 bg-surface-container-low hover:border-outline'
       }`}
       onClick={onSelect}
     >
@@ -100,7 +100,7 @@ export default function BackgroundList({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   return (
-    <div className="flex flex-col h-full bg-surface-container-low p-4 rounded-md border border-outline-variant">
+    <div className="flex flex-col h-full bg-surface-container/50 p-4 rounded-lg border border-outline-variant/50">
       {/* Header */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-outline-variant">
         <div>
