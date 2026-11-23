@@ -242,6 +242,7 @@ class ServerAudio:
 
         want_ns1 = bool(getattr(self.settings, 'noiseSuppression', False))
         want_ns2 = bool(getattr(self.settings, 'noiseSuppression2', False))
+        ns2_strength = str(getattr(self.settings, 'noiseSuppression2Strength', 'medium'))
 
         with self._aec_lock:
             comm_cap = self._comm_capture
@@ -277,8 +278,9 @@ class ServerAudio:
 
         if want_ns2:
             if cur_dfn3 is None or cur_dfn3.sample_rate != self._out_sr:
-                new_dfn3 = ServerDFN3(sample_rate=self._out_sr)
+                new_dfn3 = ServerDFN3(sample_rate=self._out_sr, strength=ns2_strength)
             else:
+                cur_dfn3.set_strength(ns2_strength)
                 new_dfn3 = cur_dfn3
         else:
             new_dfn3 = None
@@ -291,7 +293,7 @@ class ServerAudio:
             f"[ServerAudio] Input processing state: win_comm_aec={comm_cap is not None and comm_cap.is_running}, "
             f"os_aec={comm_cap.os_aec_active if comm_cap is not None else False}, "
             f"ns1={'os_apo' if (want_ns1 and win_apo_handles_ns1) else ('webrtc' if new_ns is not None else 'off')}, "
-            f"ns2={'dfn3' if (new_dfn3 is not None and new_dfn3.available) else ('unavailable' if want_ns2 else 'off')}, "
+            f"ns2={f'dfn3({new_dfn3.strength})' if (new_dfn3 is not None and new_dfn3.available) else ('unavailable' if want_ns2 else 'off')}, "
             f"sr={self._out_sr}"
         )
 
@@ -1051,7 +1053,7 @@ class ServerAudio:
             if key == 'enableServerAudio' and not val:
                 self.stop()
                 return
-            if key in {'noiseSuppression', 'noiseSuppression2'}:
+            if key in {'noiseSuppression', 'noiseSuppression2', 'noiseSuppression2Strength'}:
                 if self.running:
                     self._sync_audio_processing_state(active=True)
                 return

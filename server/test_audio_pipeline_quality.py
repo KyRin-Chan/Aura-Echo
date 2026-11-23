@@ -1415,6 +1415,62 @@ class TestAudioPipelineQuality(unittest.TestCase):
         )
         self.assertLess(abs(float(fused_oct[2].item()) - 220.0), 15.0)
 
+    def test_rmvpe_fcpe_fast_path_length_align_and_tail_cent(self):
+        # 1. Empty tensor handling
+        empty = torch.empty(0, dtype=torch.float32)
+        out_empty, cent_empty = RMVPEFcpePitchExtractor._fuse_predictions_np(
+            empty, empty, empty, empty
+        )
+        self.assertEqual(out_empty.shape, (0,))
+        self.assertEqual(out_empty.dtype, np.float32)
+        self.assertEqual(cent_empty, 0.0)
+        out_empty_t = RMVPEFcpePitchExtractor.fuse_predictions(empty, empty, empty, empty)
+        self.assertEqual(out_empty_t.shape, (0,))
+        self.assertEqual(out_empty_t.dtype, torch.float32)
+
+        # 2. Fast path: all frames agree with high confidence (no arbitration triggered)
+        f0_r = torch.tensor([200.0, 210.0, 220.0, 230.0, 240.0], dtype=torch.float32)
+        conf_r = torch.full((5,), 0.25, dtype=torch.float32)
+        f0_f = torch.tensor([201.0, 211.0, 221.0, 231.0, 241.0], dtype=torch.float32)
+        conf_f = torch.full((5,), 0.08, dtype=torch.float32)
+
+        f0_np, tail_cent = RMVPEFcpePitchExtractor._fuse_predictions_np(
+            f0_r, conf_r, f0_f, conf_f, initial_prev_cent=0.0
+        )
+        self.assertEqual(f0_np.dtype, np.float32)
+        self.assertTrue(np.all((f0_np >= 200.0) & (f0_np <= 241.5)))
+        expected_tail_cent = 1200.0 * math.log2(float(f0_np[-1]) / 10.0)
+        self.assertAlmostEqual(tail_cent, expected_tail_cent, places=4)
+
+        f0_t = RMVPEFcpePitchExtractor.fuse_predictions(f0_r, conf_r, f0_f, conf_f)
+        self.assertEqual(f0_t.dtype, torch.float32)
+        self.assertTrue(torch.allclose(f0_t, torch.from_numpy(f0_np)))
+
+        # 3. Mismatched FCPE length (< T and > T)
+        f0_f_short = torch.tensor([200.0, 210.0, 220.0], dtype=torch.float32)
+        conf_f_short = torch.full((3,), 0.08, dtype=torch.float32)
+        out_short = RMVPEFcpePitchExtractor.fuse_predictions(f0_r, conf_r, f0_f_short, conf_f_short)
+        self.assertEqual(out_short.shape, (5,))
+        self.assertTrue(torch.all(out_short > 0.0))
+
+        f0_f_long = torch.tensor([201.0, 211.0, 221.0, 231.0, 241.0, 251.0, 261.0], dtype=torch.float32)
+        conf_f_long = torch.full((7,), 0.08, dtype=torch.float32)
+        out_long = RMVPEFcpePitchExtractor.fuse_predictions(f0_r, conf_r, f0_f_long, conf_f_long)
+        self.assertEqual(out_long.shape, (5,))
+        self.assertTrue(torch.allclose(out_long, f0_t))
+
+        # 4. Single-model voiced + trailing silence updates tail_cent from last voiced frame within tail
+        f0_r_tail = torch.tensor([220.0, 220.0, 0.0, 0.0], dtype=torch.float32)
+        conf_r_tail = torch.tensor([0.20, 0.20, 0.0, 0.0], dtype=torch.float32)
+        f0_f_tail = torch.tensor([220.0, 0.0, 0.0, 0.0], dtype=torch.float32)
+        conf_f_tail = torch.tensor([0.05, 0.0, 0.0, 0.0], dtype=torch.float32)
+        f0_np_tail, cent_tail = RMVPEFcpePitchExtractor._fuse_predictions_np(
+            f0_r_tail, conf_r_tail, f0_f_tail, conf_f_tail
+        )
+        self.assertGreater(float(f0_np_tail[1]), 210.0)
+        self.assertEqual(float(f0_np_tail[2]), 0.0)
+        self.assertAlmostEqual(cent_tail, 1200.0 * math.log2(float(f0_np_tail[1]) / 10.0), places=4)
+
     def test_protect_setting_persists_across_initialize_and_restart(self):
         import tempfile
         from voice_changer.VoiceChangerManager import VoiceChangerManager
@@ -1571,6 +1627,13 @@ class TestAudioPipelineQuality(unittest.TestCase):
         self.assertFalse(settings.echoCancel)
         self.assertFalse(settings.noiseSuppression)
         self.assertFalse(settings.noiseSuppression2)
+        self.assertEqual(settings.noiseSuppression2Strength, "medium")
+        settings.noiseSuppression2Strength = "STRONG"
+        self.assertEqual(settings.noiseSuppression2Strength, "strong")
+        settings.noiseSuppression2Strength = "weak"
+        self.assertEqual(settings.noiseSuppression2Strength, "weak")
+        settings.noiseSuppression2Strength = "invalid_level"
+        self.assertEqual(settings.noiseSuppression2Strength, "medium")
 
         sa = ServerAudio(MagicMock(), settings)
         sa.running = True
@@ -1586,6 +1649,8 @@ class TestAudioPipelineQuality(unittest.TestCase):
 
         mock_dfn3 = MagicMock()
         mock_dfn3.available = True
+        mock_dfn3.sample_rate = 48000
+        mock_dfn3.strength = "medium"
         mock_dfn3.process.side_effect = lambda x: x * 0.5
 
         with (
@@ -1631,10 +1696,13 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 mock_comm.set_deep_noise_suppression.assert_called_with(True)
                 self.assertIsNone(sa._ns_processor)
 
-                # 4. noiseSuppression2=True activates streaming ServerDFN3
+                # 4. noiseSuppression2=True activates streaming ServerDFN3 and syncs strength in-place
                 settings.noiseSuppression2 = True
                 sa.update_settings("noiseSuppression2", True, False)
                 self.assertIs(sa._dfn3, mock_dfn3)
+                settings.noiseSuppression2Strength = "weak"
+                sa.update_settings("noiseSuppression2Strength", "weak", "medium")
+                mock_dfn3.set_strength.assert_called_with("weak")
                 sa._worker_in_buf[:] = 0.4
                 sa._apply_input_processing(sa._worker_in_buf)
                 mock_dfn3.process.assert_called_once()
@@ -1938,8 +2006,10 @@ class TestAudioPipelineQuality(unittest.TestCase):
             sa2.update_settings("noiseSuppression", True, False)
             sa2.settings.noiseSuppression2 = True
             sa2.update_settings("noiseSuppression2", True, False)
+            sa2.settings.noiseSuppression2Strength = "strong"
+            sa2.update_settings("noiseSuppression2Strength", "strong", "medium")
             mock_start.assert_not_called()
-            self.assertEqual(mock_sync.call_count, 2)
+            self.assertEqual(mock_sync.call_count, 3)
 
             sa2.settings.echoCancel = True
             sa2.update_settings("echoCancel", True, False)
@@ -2024,7 +2094,16 @@ class TestAudioPipelineQuality(unittest.TestCase):
             )
 
         # Also verify sub-hop 128-sample chunks at 16 kHz preserve exact length and finite float32 output
-        dfn3_sub = ServerDFN3(sample_rate=16000, auto_download=False)
+        # and strength presets map to expected attenuation limits
+        dfn3_sub = ServerDFN3(sample_rate=16000, auto_download=False, strength="weak")
+        self.assertEqual(dfn3_sub.strength, "weak")
+        self.assertEqual(dfn3_sub._atten_lim_db, 12.0)
+        dfn3_sub.set_strength("strong")
+        self.assertEqual(dfn3_sub.strength, "strong")
+        self.assertEqual(dfn3_sub._atten_lim_db, 30.0)
+        dfn3_sub.set_strength("medium")
+        self.assertEqual(dfn3_sub.strength, "medium")
+        self.assertEqual(dfn3_sub._atten_lim_db, 18.0)
         for _ in range(10):
             sub_out = dfn3_sub.process(np.zeros(128, dtype=np.float32))
             self.assertEqual(len(sub_out), 128)

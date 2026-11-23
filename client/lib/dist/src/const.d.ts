@@ -116,6 +116,7 @@ export declare const ServerSettingKey: {
     readonly echoCancel: "echoCancel";
     readonly noiseSuppression: "noiseSuppression";
     readonly noiseSuppression2: "noiseSuppression2";
+    readonly noiseSuppression2Strength: "noiseSuppression2Strength";
     readonly tran: "tran";
     readonly formantShift: "formantShift";
     readonly useONNX: "useONNX";
@@ -193,6 +194,7 @@ export type VoiceChangerServerSetting = {
     echoCancel: boolean;
     noiseSuppression: boolean;
     noiseSuppression2: boolean;
+    noiseSuppression2Strength: "strong" | "medium" | "weak";
     tran: number;
     formantShift: number;
     useONNX: number;

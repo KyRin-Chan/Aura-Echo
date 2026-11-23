@@ -149,6 +149,7 @@ export const ServerSettingKey = {
     echoCancel: "echoCancel",
     noiseSuppression: "noiseSuppression",
     noiseSuppression2: "noiseSuppression2",
+    noiseSuppression2Strength: "noiseSuppression2Strength",
 
     tran: "tran",
     formantShift: "formantShift",
@@ -239,6 +240,7 @@ export type VoiceChangerServerSetting = {
     echoCancel: boolean;
     noiseSuppression: boolean;
     noiseSuppression2: boolean;
+    noiseSuppression2Strength: "strong" | "medium" | "weak";
 
     tran: number;
     formantShift: number;
@@ -411,6 +413,7 @@ export const DefaultServerSetting: ServerInfo = {
     echoCancel: false,
     noiseSuppression: false,
     noiseSuppression2: false,
+    noiseSuppression2Strength: "medium",
 
     // VC Specific
     srcId: 0,

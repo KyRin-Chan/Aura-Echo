@@ -1147,7 +1147,7 @@ class AdaptiveNoiseGate:
             self._f0_hold_sec = 0.0
         else:
             vad_open_thresh = float(np.clip(vad_threshold, 0.05, 0.95))
-            vad_keep_thresh = max(0.10, vad_open_thresh * 0.65)
+            vad_keep_thresh = max(0.08, min(0.15, vad_open_thresh * 0.35))
             if gate_closed:
                 # Opening strictly requires both energy above threshold and VAD speech detection
                 speech_active = energy_ok and (vad_prob >= vad_open_thresh)
@@ -1171,6 +1171,9 @@ class AdaptiveNoiseGate:
                 speech_active = False
                 f0_hold = False
 
+        eff_min_hangover = max(self.min_hangover_sec, 0.22) if use_vad else self.min_hangover_sec
+        eff_max_hangover = max(self.max_hangover_sec, 0.45) if use_vad else self.max_hangover_sec
+
         if speech_active:
             self._speech_duration_sec = min(2.0, self._speech_duration_sec + chunk_dur)
             snr_db = 20.0 * math.log10(max(gate_rms, 1e-8) / max(open_thresh, 1e-8))
@@ -1180,12 +1183,13 @@ class AdaptiveNoiseGate:
             speech_factor = min(1.0, max(0.0, self._speech_duration_sec - chunk_dur) / 0.50)
             snr_factor = min(1.0, self._peak_snr_db / 18.0)
             elastic = 0.80 * speech_factor + 0.20 * snr_factor
-            hangover_sec = self.min_hangover_sec + (self.max_hangover_sec - self.min_hangover_sec) * elastic
+            hangover_sec = eff_min_hangover + (eff_max_hangover - eff_min_hangover) * elastic
             self.hangover_chunks = max(1, int(round(hangover_sec / max(chunk_dur, 1e-4))))
             self.is_open = True
             gate_active = True
         elif f0_hold:
-            self.hangover_chunks = max(1, self.hangover_chunks)
+            min_f0_hangover_chunks = max(1, int(round(eff_min_hangover / max(chunk_dur, 1e-4))))
+            self.hangover_chunks = max(self.hangover_chunks, min_f0_hangover_chunks)
             self.is_open = True
             gate_active = True
         elif self.hangover_chunks > 0:

@@ -15,6 +15,17 @@ from voice_changer.common.ServerAEC import NumpyCausalPolyphaseResampler
 logger = logging.getLogger(__name__)
 
 DFN3_URL = "https://github.com/Rikorose/DeepFilterNet/raw/main/models/DeepFilterNet3.zip"
+DEFAULT_DFN3_STRENGTH = "medium"
+DFN3_STRENGTH_ATTEN_LIM_DB = {
+    "weak": 12.0,
+    "medium": 18.0,
+    "strong": 30.0,
+}
+
+
+def normalize_dfn3_strength(strength: Optional[str]) -> str:
+    val = str(strength or DEFAULT_DFN3_STRENGTH).strip().lower()
+    return val if val in DFN3_STRENGTH_ATTEN_LIM_DB else DEFAULT_DFN3_STRENGTH
 
 try:
     with warnings.catch_warnings():
@@ -103,6 +114,7 @@ class ServerDFN3:
         sample_rate: int = 48000,
         model_dir: Optional[str] = None,
         auto_download: bool = True,
+        strength: str = DEFAULT_DFN3_STRENGTH,
     ):
         self.sample_rate = max(8000, int(sample_rate))
         self._proc_sr = 48000
@@ -111,6 +123,9 @@ class ServerDFN3:
         self.available = False
         self._model = None
         self._df_state = None
+        self.strength = DEFAULT_DFN3_STRENGTH
+        self._atten_lim_db = DFN3_STRENGTH_ATTEN_LIM_DB[DEFAULT_DFN3_STRENGTH]
+        self.set_strength(strength)
 
         if self.sample_rate != self._proc_sr:
             self._resampler_in: Optional[NumpyCausalPolyphaseResampler] = NumpyCausalPolyphaseResampler(
@@ -146,12 +161,16 @@ class ServerDFN3:
                 self.available = False
 
         self._lookahead = 2 * self._hop
-        self._ctx_len = 12 * self._hop
+        self._ctx_len = 24 * self._hop
         self._init_out_pad = int(
             math.ceil((self._hop + self._lookahead) * self.sample_rate / float(self._proc_sr))
         ) + (64 if self.sample_rate != self._proc_sr else 0)
 
         self.reset()
+
+    def set_strength(self, strength: Optional[str]) -> None:
+        self.strength = normalize_dfn3_strength(strength)
+        self._atten_lim_db = DFN3_STRENGTH_ATTEN_LIM_DB[self.strength]
 
     def reset(self) -> None:
         if self._resampler_in is not None:
@@ -185,7 +204,9 @@ class ServerDFN3:
             )
             audio_t = torch.from_numpy(win).unsqueeze(0)
             self._df_state.reset()
-            enhanced_t = _df_enhance(self._model, self._df_state, audio_t)
+            enhanced_t = _df_enhance(
+                self._model, self._df_state, audio_t, atten_lim_db=self._atten_lim_db
+            )
             enhanced_np = enhanced_t.squeeze(0).detach().cpu().numpy().astype(np.float32, copy=False)
             block_48k = enhanced_np[self._ctx_len : self._ctx_len + step]
 

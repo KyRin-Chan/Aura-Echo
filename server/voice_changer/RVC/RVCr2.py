@@ -553,7 +553,7 @@ class RVCr2(VoiceChangerModel):
         hop = min(max(2, int(self._last_pitch_hop_frames)), int(self.pitchf_buffer.shape[0]))
         tail = self.pitchf_buffer[-hop:]
         voiced_ratio = float((tail > 0.0).float().mean().item())
-        return voiced_ratio >= 0.5
+        return voiced_ratio >= 0.25
 
     def inference(self, audio_in: AudioInOutFloat, bypass_silence_gate: bool = False):
         if self.pipeline is None:

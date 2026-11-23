@@ -527,6 +527,7 @@ class VoiceChangerSettings:
     _echoCancel: bool = False
     _noiseSuppression: bool = False
     _noiseSuppression2: bool = False
+    _noiseSuppression2Strength: str = "medium"
     _vadEnabled: bool = False
     _vadThreshold: float = 0.45
 
@@ -569,6 +570,15 @@ class VoiceChangerSettings:
     @noiseSuppression2.setter
     def noiseSuppression2(self, val: Any):
         self._noiseSuppression2 = _parse_bool(val)
+
+    @property
+    def noiseSuppression2Strength(self) -> str:
+        return self._noiseSuppression2Strength
+
+    @noiseSuppression2Strength.setter
+    def noiseSuppression2Strength(self, val: Any):
+        s = str(val or "medium").strip().lower()
+        self._noiseSuppression2Strength = s if s in ("weak", "medium", "strong") else "medium"
 
     @property
     def vadEnabled(self) -> bool:

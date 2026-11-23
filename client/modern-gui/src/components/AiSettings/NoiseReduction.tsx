@@ -1,6 +1,7 @@
 import { ClientState } from "@dannadori/voice-changer-client-js";
 import { CSS_CLASSES } from "../../styles/constants";
 import { t } from "../../locales";
+import MD3Select from "../Helpers/MD3Select";
 import MD3Switch from "../Helpers/MD3Switch";
 
 interface NoiseReductionProps {
@@ -30,6 +31,13 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
   const noiseSuppression2Checked = (isServerAudio
     ? appState.serverSetting.serverSetting.noiseSuppression2
     : appState.setting.voiceChangerClientSetting.noiseSuppression2) ?? false;
+  const noiseSuppression2Strength = appState.serverSetting.serverSetting.noiseSuppression2Strength || 'medium';
+
+  const strengthOptions = [
+    { value: 'strong', label: t('noiseSuppression2StrengthStrong') },
+    { value: 'medium', label: t('noiseSuppression2StrengthMedium') },
+    { value: 'weak', label: t('noiseSuppression2StrengthWeak') },
+  ];
 
   return (
     <div className="flex flex-col space-y-2">
@@ -50,6 +58,21 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
           onChange={(val) => handleToggle('noiseSuppression2', val)}
           label={t('noiseSuppression2Label')}
         />
+        {isServerAudio && noiseSuppression2Checked && (
+          <div className="pt-1">
+            <MD3Select
+              id="dfn3-strength-select"
+              label={t('noiseSuppression2StrengthLabel')}
+              value={noiseSuppression2Strength}
+              options={strengthOptions}
+              onChange={(e) => {
+                appState.serverSetting.updateServerSettings({
+                  noiseSuppression2Strength: e.target.value as 'strong' | 'medium' | 'weak'
+                });
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
