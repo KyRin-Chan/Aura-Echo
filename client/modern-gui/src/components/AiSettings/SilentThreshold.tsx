@@ -3,6 +3,7 @@ import MD3Switch from "../Helpers/MD3Switch";
 import { ClientState } from "@dannadori/voice-changer-client-js";
 import { CSS_CLASSES } from "../../styles/constants";
 import { useEffect, useState } from "react";
+import { usePerformance } from "../../context/AppContext";
 import { UIContextType } from "../../context/UIContext";
 import { t } from "../../locales";
 
@@ -13,6 +14,7 @@ interface SilenceThresholdProps {
 
 function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
   // ---------------- States ----------------
+  const performance = usePerformance();
   const [localSilentThreshold, setLocalSilentThreshold] = useState<number>(
     appState.serverSetting?.serverSetting?.silentThreshold ?? -75
   );
@@ -53,7 +55,7 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
     return () => {
       clearTimeout(timer);
     };
-  }, [appState.performance, uiState.isConverting]);
+  }, [performance, uiState.isConverting]);
 
   // ---------------- Handlers ----------------
 
@@ -85,7 +87,7 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
 
   // Calculate real-time input volume in dB (-90 to 0)
   const isActive = uiState.isConverting && isSignalFresh;
-  const rawVol = isActive ? (appState.performance.vol || 0) : 0;
+  const rawVol = isActive ? (performance.vol || 0) : 0;
   const exactVolumeDb = rawVol > 1e-5 ? 20 * Math.log10(rawVol) : -90;
   const volumeDb = Math.max(Math.round(exactVolumeDb), -90);
   const volumePercent = Math.min(100, Math.max(0, ((exactVolumeDb + 90) / 90) * 100));
@@ -97,18 +99,24 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
   return (
     <div className="flex flex-col space-y-3.5 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
       <div>
-        <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center justify-between mb-1.5">
           <label htmlFor="inSens" className={`${CSS_CLASSES.label} mb-0`}>
             {t('silentThresholdDesc')}
           </label>
-          <div className="flex items-center space-x-1.5">
-            <span
-              className={`inline-block w-2 h-2 rounded-full transition-colors ${
-                isAboveThreshold ? 'bg-primary' : 'bg-outline-variant'
-              }`}
-            />
-            <span className="text-[11px] font-mono tabular-nums text-on-surface-variant">
-              {volumeDb} dB
+          <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-1.5">
+              <span
+                className={`inline-block w-2 h-2 rounded-full transition-colors ${
+                  isAboveThreshold ? 'bg-primary' : 'bg-outline-variant'
+                }`}
+              />
+              <span className="text-[11px] font-mono tabular-nums text-on-surface-variant whitespace-nowrap">
+                {volumeDb} dB
+              </span>
+            </div>
+            <span className="text-outline-variant/60 text-xs">·</span>
+            <span className="text-xs font-semibold font-mono tabular-nums text-primary whitespace-nowrap">
+              {localSilentThreshold} dB
             </span>
           </div>
         </div>
@@ -140,22 +148,26 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
           value={localSilentThreshold}
           onImmediateChange={setLocalSilentThreshold}
           onChange={handleChangeSilentThreshold}
-          showValue={true}
-          valueFormatter={(val) => `${val} dB`}
+          showValue={false}
         />
       </div>
-      <div className="pt-2 border-t border-outline-variant/40 space-y-2.5">
+      <div className="pt-2.5 border-t border-outline-variant/40 space-y-2.5">
         <MD3Switch
           checked={vadEnabled}
           onChange={handleToggleVad}
           label={t('vadEnabledLabel')}
+          size="compact"
+          labelPosition="left"
         />
         {vadEnabled && (
           <div>
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center justify-between mb-1.5">
               <label htmlFor="vadThresh" className={`${CSS_CLASSES.label} mb-0`}>
                 {t('vadThresholdLabel')}
               </label>
+              <span className="text-xs font-semibold font-mono tabular-nums text-on-surface-variant whitespace-nowrap">
+                {localVadThreshold.toFixed(2)}
+              </span>
             </div>
             <MD3Slider
               id="vadThresh"
@@ -165,8 +177,7 @@ function SilentThreshold({ appState, uiState }: SilenceThresholdProps) {
               value={localVadThreshold}
               onImmediateChange={setLocalVadThreshold}
               onChange={handleChangeVadThreshold}
-              showValue={true}
-              valueFormatter={(val) => val.toFixed(2)}
+              showValue={false}
             />
           </div>
         )}

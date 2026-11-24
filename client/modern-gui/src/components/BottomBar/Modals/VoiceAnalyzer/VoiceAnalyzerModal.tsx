@@ -478,7 +478,7 @@ const VoiceAnalyzerModal = ({
     });
     guiState.showError(
       `${t('voiceAnalyzerAppliedFormantSuccess')}${compareResult.recommended_formant_shift >= 0 ? '+' : ''}${
-        compareResult.recommended_formant_shift.toFixed(1)
+        compareResult.recommended_formant_shift.toFixed(2)
       }`,
       'Confirm'
     );
@@ -495,7 +495,7 @@ const VoiceAnalyzerModal = ({
       `${t('voiceAnalyzerAppliedBothSuccess')}${compareResult.recommended_pitch >= 0 ? '+' : ''}${
         compareResult.recommended_pitch
       }, ${t('formantShiftLabel')} ${compareResult.recommended_formant_shift >= 0 ? '+' : ''}${
-        compareResult.recommended_formant_shift.toFixed(1)
+        compareResult.recommended_formant_shift.toFixed(2)
       }`,
       'Confirm'
     );
@@ -912,7 +912,7 @@ const VoiceAnalyzerModal = ({
                       <span className="font-semibold text-xs text-on-surface">{t('voiceAnalyzerRecommendedFormant')}</span>
                       <span className="ml-2 text-xl font-extrabold text-secondary">
                         {compareResult.recommended_formant_shift >= 0 ? '+' : ''}
-                        {compareResult.recommended_formant_shift.toFixed(1)}
+                        {compareResult.recommended_formant_shift.toFixed(2)}
                       </span>
                       <span className="ml-1 text-[10px] text-on-surface-variant font-medium">
                         {t('voiceAnalyzerSemitones')}

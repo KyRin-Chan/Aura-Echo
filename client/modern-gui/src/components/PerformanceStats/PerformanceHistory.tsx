@@ -6,7 +6,7 @@ interface PerformanceHistoryProps {
   setMaxDataPoints: (maxDataPoints: number) => void;
 }
 
-function PerformanceHistory({ maxDataPoints, setMaxDataPoints }: PerformanceHistoryProps) {
+const PerformanceHistory = React.memo(function PerformanceHistory({ maxDataPoints, setMaxDataPoints }: PerformanceHistoryProps) {
   return (
     <div className="flex items-center space-x-2">
       <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">{t('historyLabel')}</span>
@@ -27,6 +27,6 @@ function PerformanceHistory({ maxDataPoints, setMaxDataPoints }: PerformanceHist
       </div>
     </div>
   );
-}
+});
 
 export default PerformanceHistory;

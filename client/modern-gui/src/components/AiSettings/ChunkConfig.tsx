@@ -158,11 +158,16 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
   // ---------------- Render ----------------
 
   return (
-    <div className="flex flex-col space-y-4 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
+    <div className="flex flex-col space-y-3.5 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
       <div>
-        <label htmlFor="chunk" className={CSS_CLASSES.label}>
-          {t('chunkConfigLabel')}:
-        </label>
+        <div className="flex items-center justify-between mb-1.5">
+          <label htmlFor="chunk" className={`${CSS_CLASSES.label} mb-0`}>
+            {t('chunkConfigLabel')}
+          </label>
+          <span className="text-xs font-semibold font-mono tabular-nums text-on-surface-variant whitespace-nowrap">
+            {((localChunkSize * 128 * 1000) / 48000).toFixed(1)} ms
+          </span>
+        </div>
         <MD3Slider
           id="chunk"
           min={15}
@@ -178,14 +183,18 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
           }}
           onChange={handleChangeChunkSize}
           disabled={uiState.isConverting}
-          showValue={true}
-          valueFormatter={(val) => `${((val * 128 * 1000) / 48000).toFixed(1)}ms`}
+          showValue={false}
         />
       </div>
       <div>
-        <label htmlFor="cushion" className={CSS_CLASSES.label}>
-          {t('safetyCushionLabel')}:
-        </label>
+        <div className="flex items-center justify-between mb-1.5">
+          <label htmlFor="cushion" className={`${CSS_CLASSES.label} mb-0`}>
+            {t('safetyCushionLabel')}
+          </label>
+          <span className="text-xs font-semibold font-mono tabular-nums text-on-surface-variant whitespace-nowrap">
+            {localCushion} Chunk
+          </span>
+        </div>
         <MD3Slider
           id="cushion"
           min={1}
@@ -195,14 +204,18 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
           onImmediateChange={setLocalCushion}
           onChange={handleChangeCushion}
           disabled={uiState.isConverting}
-          showValue={true}
-          valueFormatter={(val) => `${val} Chunk`}
+          showValue={false}
         />
       </div>
       <div>
-        <label htmlFor="extra" className={CSS_CLASSES.label}>
-          {t('extraProcessingTimeLabel')}
-        </label>
+        <div className="flex items-center justify-between mb-1.5">
+          <label htmlFor="extra" className={`${CSS_CLASSES.label} mb-0`}>
+            {t('extraProcessingTimeLabel')}
+          </label>
+          <span className="text-xs font-semibold font-mono tabular-nums text-on-surface-variant whitespace-nowrap">
+            {localExtraSize.toFixed(1)} s
+          </span>
+        </div>
         <MD3Slider
           id="extra"
           min={0.1}
@@ -218,8 +231,7 @@ function ChunkConfig({ appState, uiState }: ChunkConfigProps) {
           }}
           onChange={handleChangeExtraSize}
           disabled={uiState.isConverting}
-          showValue={true}
-          valueFormatter={(val) => `${val.toFixed(1)} s`}
+          showValue={false}
         />
       </div>
     </div>

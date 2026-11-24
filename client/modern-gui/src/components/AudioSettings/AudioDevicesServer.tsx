@@ -286,7 +286,7 @@ function AudioDevicesServer() {
           <div className="w-[30%]">
             <MD3Select
               id="inputChannel"
-              label="Channel"
+              label={t('asioChannelLabel')}
               value={appState.serverSetting.serverSetting.asioInputChannel}
               onChange={handleInputChannelChange}
               options={inputChannelOptions}
@@ -310,7 +310,7 @@ function AudioDevicesServer() {
           <div className="w-[30%]">
             <MD3Select
               id="outputChannel"
-              label="Channel"
+              label={t('asioChannelLabel')}
               value={appState.serverSetting.serverSetting.asioOutputChannel}
               onChange={handleOutputChannelChange}
               options={outputChannelOptions}

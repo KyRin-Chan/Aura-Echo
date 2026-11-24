@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import React, { useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlayCircle, faStopCircle } from "@fortawesome/free-solid-svg-icons";
 import { t } from '../../locales';
@@ -10,7 +10,7 @@ interface PerformanceRecordingProps {
   setRecordedData: (recordedData: any[]) => void;
 }
 
-function PerformanceRecording({
+const PerformanceRecording = React.memo(function PerformanceRecording({
   isRecording,
   setIsRecording,
   recordedData,
@@ -66,6 +66,6 @@ function PerformanceRecording({
       <span>{isRecording ? t('btnStop') : t('btnRecord')}</span>
     </button>
   );
-}
+});
 
 export default PerformanceRecording;

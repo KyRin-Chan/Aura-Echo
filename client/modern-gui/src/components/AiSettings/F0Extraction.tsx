@@ -58,18 +58,16 @@ function F0Extraction({ appState, uiState, appGuiSettingState }: F0ExtractionPro
   // ---------------- Render ----------------
 
   return (
-    <div className="bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
-      <MD3Select
-        id="f0Detector"
-        label={t('f0DetectorLabel')}
-        value={appState.serverSetting?.serverSetting?.f0Detector ?? ''}
-        disabled={uiState.isConverting}
-        onChange={async (e) => {
-          await handleChangeF0Detector(e.target.value);
-        }}
-        options={getF0DetOptions()}
-      />
-    </div>
+    <MD3Select
+      id="f0Detector"
+      label={t('f0DetectorLabel')}
+      value={appState.serverSetting?.serverSetting?.f0Detector ?? ''}
+      disabled={uiState.isConverting}
+      onChange={async (e) => {
+        await handleChangeF0Detector(e.target.value);
+      }}
+      options={getF0DetOptions()}
+    />
   );
 }
 

@@ -36,10 +36,10 @@ function AiSettingsCard({ dndAttributes, dndListeners }: AiSettingsCardProps): J
       <div className={CSS_CLASSES.cardHeader}>
         <h4 className={CSS_CLASSES.heading}>{t('aiSettingsTitle')}</h4>
         <div className="flex space-x-1 items-center">
-          <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? "Expand" : "Collapse"}>
+          <button onClick={() => setIsCollapsed(!isCollapsed)} className={CSS_CLASSES.iconButton} title={isCollapsed ? t('expandLabel') : t('collapseLabel')}>
             <FontAwesomeIcon icon={isCollapsed ? faChevronDown : faChevronUp} className="h-5 w-5" />
           </button>
-          <DragHandle attributes={dndAttributes} listeners={dndListeners} title="Drag" />
+          <DragHandle attributes={dndAttributes} listeners={dndListeners} title={t('dragLabel')} />
         </div>
       </div>
       {!isCollapsed && (
@@ -59,12 +59,12 @@ function AiSettingsCard({ dndAttributes, dndListeners }: AiSettingsCardProps): J
               uiState={uiState}
             />
 
-            <GPUConfig
-              appState={appState}
-              uiState={uiState}
-            />
+            <div className="bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50 space-y-3">
+              <GPUConfig
+                appState={appState}
+                uiState={uiState}
+              />
 
-            <div>
               <F0Extraction
                 appState={appState}
                 uiState={uiState}

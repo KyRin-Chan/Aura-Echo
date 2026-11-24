@@ -1600,6 +1600,52 @@ class TestAudioPipelineQuality(unittest.TestCase):
         self.assertEqual(float(f0_np_tail[2]), 0.0)
         self.assertAlmostEqual(cent_tail, 1200.0 * math.log2(float(f0_np_tail[1]) / 10.0), places=4)
 
+    def test_rmvpe_fcpe_tail_single_fcpe_and_glide_sustain(self):
+        # 1. Tail frames where RMVPE drops to 0 and only FCPE stays voiced (conf=0.007) with natural glide remain voiced
+        f0_r = torch.tensor([220.0, 220.0, 0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
+        conf_r = torch.tensor([0.20, 0.20, 0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
+        f0_f = torch.tensor([220.0, 220.0, 220.0, 210.0, 198.0, 188.0], dtype=torch.float32)
+        conf_f = torch.tensor([0.05, 0.05, 0.007, 0.007, 0.007, 0.007], dtype=torch.float32)
+
+        fused_tail = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_r, conf_r, f0_f, conf_f, initial_prev_cent=0.0
+        )
+        self.assertTrue(torch.all(fused_tail > 0.0))
+        self.assertAlmostEqual(float(fused_tail[-1].item()), 188.0, delta=1.5)
+
+        # 2. Tail frame where only FCPE is in sustain band (conf=0.0055) after voiced speech stays voiced
+        f0_r_sus = torch.tensor([220.0, 220.0, 0.0], dtype=torch.float32)
+        conf_r_sus = torch.tensor([0.20, 0.20, 0.0], dtype=torch.float32)
+        f0_f_sus = torch.tensor([220.0, 220.0, 212.0], dtype=torch.float32)
+        conf_f_sus = torch.tensor([0.05, 0.05, 0.0055], dtype=torch.float32)
+
+        fused_sus = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_r_sus, conf_r_sus, f0_f_sus, conf_f_sus, initial_prev_cent=0.0
+        )
+        self.assertGreater(float(fused_sus[2].item()), 200.0)
+
+        # 3. Cold-start single-model weak FCPE (conf=0.007 from silence) is still rejected
+        f0_r_cold = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32)
+        conf_r_cold = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32)
+        f0_f_cold = torch.tensor([220.0, 220.0, 220.0], dtype=torch.float32)
+        conf_f_cold = torch.tensor([0.007, 0.007, 0.007], dtype=torch.float32)
+
+        fused_cold = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_r_cold, conf_r_cold, f0_f_cold, conf_f_cold, initial_prev_cent=0.0
+        )
+        self.assertTrue(torch.all(fused_cold == 0.0))
+
+        # 4. Single-model octave jump during voiced speech (220 -> 440 Hz with conf_f=0.007) is rejected
+        f0_r_jump = torch.tensor([220.0, 220.0, 0.0], dtype=torch.float32)
+        conf_r_jump = torch.tensor([0.20, 0.20, 0.0], dtype=torch.float32)
+        f0_f_jump = torch.tensor([220.0, 220.0, 440.0], dtype=torch.float32)
+        conf_f_jump = torch.tensor([0.05, 0.05, 0.007], dtype=torch.float32)
+
+        fused_jump = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_r_jump, conf_r_jump, f0_f_jump, conf_f_jump, initial_prev_cent=0.0
+        )
+        self.assertEqual(float(fused_jump[2].item()), 0.0)
+
     def test_protect_setting_persists_across_initialize_and_restart(self):
         import tempfile
         from voice_changer.VoiceChangerManager import VoiceChangerManager

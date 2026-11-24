@@ -355,7 +355,7 @@ const DownloaderView = (props: DownloaderViewProps) => {
 
       <div>
         <h3 className="text-sm font-bold uppercase tracking-wider text-primary mb-3 pl-1">
-          {t('f0DetectorLabel')}
+          {t('pitchExtractorsTitle')}
         </h3>
         <div className="space-y-3">
           {sortedPitchExtractors.length > 0 ? (

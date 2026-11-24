@@ -203,10 +203,15 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
                     else:
                         c_act = cent1_l[t] if v1_high_l[t] else cent2_l[t]
                         s_act = s1_l[t] if v1_high_l[t] else s2_l[t]
-                        if prev_cent > 0.0 and abs(c_act - prev_cent) <= 180.0:
-                            accept = s_act >= 0.18
+                        is_tail = t >= T - 4
+                        max_cont_cents = 260.0 if (is_tail and v2_high_l[t]) else 220.0
+                        if prev_cent > 0.0 and unvoiced_run <= 2:
+                            if abs(c_act - prev_cent) <= max_cont_cents:
+                                accept = True
+                            else:
+                                accept = s_act >= 0.45
                         else:
-                            accept = s_act >= 0.45
+                            accept = s_act >= 0.30
 
                         if accept:
                             cent_out_l[t] = c_act
@@ -225,9 +230,9 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
                     accepted = False
                     c_cand = 0.0
                     if prev_cent > 0.0 and unvoiced_run <= 2:
-                        if v1_low_l[t] and v2_low_l[t] and diff_l[t] <= 60.0:
+                        if v1_low_l[t] and v2_low_l[t] and diff_l[t] <= 80.0:
                             c_cand = cent_fused_l[t]
-                            accepted = abs(c_cand - prev_cent) <= 160.0
+                            accepted = abs(c_cand - prev_cent) <= 200.0
                         else:
                             if v1_low_l[t] and v2_low_l[t]:
                                 if abs(cent1_l[t] - prev_cent) <= abs(cent2_l[t] - prev_cent):
@@ -238,7 +243,7 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
                                 c_cand, s_cand = cent1_l[t], s1_l[t]
                             else:
                                 c_cand, s_cand = cent2_l[t], s2_l[t]
-                            accepted = abs(c_cand - prev_cent) <= 140.0 and s_cand >= 0.08
+                            accepted = abs(c_cand - prev_cent) <= 180.0 and s_cand >= 0.035
 
                     if accepted:
                         cent_out_l[t] = c_cand

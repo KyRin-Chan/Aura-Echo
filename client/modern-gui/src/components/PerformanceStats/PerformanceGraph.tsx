@@ -1,4 +1,5 @@
 
+import React from 'react';
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import CustomTooltip from './PerformanceGraphTooltip';
 import { ChartDataPoint } from './PerformanceStatsCard';
@@ -9,13 +10,30 @@ interface PerformanceGraphProps {
   chartData: ChartDataPoint[];
 }
 
-function PerformanceGraph({ chartData }: PerformanceGraphProps) {
+// Accent colors dynamically matching the current selected theme
+const STROKE_COLOR = 'var(--md-sys-color-primary)';
+const REF_LINE_COLOR = 'var(--md-sys-color-secondary)';
+
+const CHART_MARGIN = { top: 15, right: 10, left: -20, bottom: 0 };
+const AXIS_TICK = { fontSize: 9, fill: 'var(--md-sys-color-on-surface-variant)' };
+const AXIS_LINE = { stroke: 'var(--md-sys-color-outline-variant)', strokeWidth: 1 };
+const TICK_LINE = { stroke: 'var(--md-sys-color-outline-variant)' };
+const Y_AXIS_LABEL = { value: 'ms', angle: -90, position: 'insideLeft' as const, fill: 'var(--md-sys-color-on-surface-variant)', fontSize: 10, offset: 10 };
+const Y_AXIS_DOMAIN: [number, (dataMax: number) => number] = [0, (dataMax: number) => Math.max(Math.ceil((dataMax * 1.2) / 50) * 50, 150)];
+const LEGEND_WRAPPER_STYLE = { fontSize: '11px', paddingTop: '5px', color: 'var(--md-sys-color-on-surface)' };
+const AREA_ACTIVE_DOT = { r: 5, strokeWidth: 0, fill: STROKE_COLOR };
+
+const formatXAxisTick = (unixTime: number) =>
+  new Date(unixTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+const formatYAxisTick = (value: number) => String(Math.round(value));
+
+const TOOLTIP_CONTENT = <CustomTooltip />;
+
+const PerformanceGraph = React.memo(function PerformanceGraph({ chartData }: PerformanceGraphProps) {
   // ---------------- State ----------------
   const { theme } = useThemeContext();
 
-  // Accent colors dynamically matching the current selected theme
-  const strokeColor = 'var(--md-sys-color-primary)';
-  const refLineColor = 'var(--md-sys-color-secondary)';
   const gridColor = theme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
 
   // ---------------- Render ----------------
@@ -23,11 +41,11 @@ function PerformanceGraph({ chartData }: PerformanceGraphProps) {
   return (
     <div className="absolute inset-0 p-1">
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={chartData} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
+        <ComposedChart data={chartData} margin={CHART_MARGIN}>
           <defs>
             <linearGradient id="colorPerf" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={strokeColor} stopOpacity={0.3}/>
-              <stop offset="95%" stopColor={strokeColor} stopOpacity={0}/>
+              <stop offset="5%" stopColor={STROKE_COLOR} stopOpacity={0.3}/>
+              <stop offset="95%" stopColor={STROKE_COLOR} stopOpacity={0}/>
             </linearGradient>
           </defs>
           
@@ -35,27 +53,27 @@ function PerformanceGraph({ chartData }: PerformanceGraphProps) {
           
           <XAxis
             dataKey="timestamp"
-            tickFormatter={(unixTime: number) => new Date(unixTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            tickFormatter={formatXAxisTick}
             stroke="var(--md-sys-color-outline)"
-            tick={{ fontSize: 9, fill: "var(--md-sys-color-on-surface-variant)" }}
-            axisLine={{ stroke: "var(--md-sys-color-outline-variant)", strokeWidth: 1 }}
-            tickLine={{ stroke: "var(--md-sys-color-outline-variant)" }}
+            tick={AXIS_TICK}
+            axisLine={AXIS_LINE}
+            tickLine={TICK_LINE}
           />
           
           <YAxis
-            label={{ value: 'ms', angle: -90, position: 'insideLeft', fill: 'var(--md-sys-color-on-surface-variant)', fontSize: 10, offset: 10 }}
+            label={Y_AXIS_LABEL}
             stroke="var(--md-sys-color-outline)"
-            tick={{ fontSize: 9, fill: "var(--md-sys-color-on-surface-variant)" }}
-            tickFormatter={(value: number) => String(Math.round(value))}
-            axisLine={{ stroke: "var(--md-sys-color-outline-variant)", strokeWidth: 1 }}
-            tickLine={{ stroke: "var(--md-sys-color-outline-variant)" }}
-            domain={[0, (dataMax: number) => Math.max(Math.ceil(dataMax * 1.2 / 50) * 50, 150)]}
+            tick={AXIS_TICK}
+            tickFormatter={formatYAxisTick}
+            axisLine={AXIS_LINE}
+            tickLine={TICK_LINE}
+            domain={Y_AXIS_DOMAIN}
           />
           
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip content={TOOLTIP_CONTENT} />
           
           <Legend 
-            wrapperStyle={{ fontSize: "11px", paddingTop: "5px", color: "var(--md-sys-color-on-surface)" }} 
+            wrapperStyle={LEGEND_WRAPPER_STYLE} 
             verticalAlign="top"
             height={32}
           />
@@ -64,10 +82,10 @@ function PerformanceGraph({ chartData }: PerformanceGraphProps) {
           <Area
             type="monotone"
             dataKey="perfTimeValue"
-            stroke={strokeColor}
+            stroke={STROKE_COLOR}
             strokeWidth={2}
             fill="url(#colorPerf)"
-            activeDot={{ r: 5, strokeWidth: 0, fill: strokeColor }}
+            activeDot={AREA_ACTIVE_DOT}
             name={t('mainProcessTimeLabel')}
             isAnimationActive={false}
           />
@@ -76,7 +94,7 @@ function PerformanceGraph({ chartData }: PerformanceGraphProps) {
           <Line
             type="monotone"
             dataKey="chunkTime"
-            stroke={refLineColor}
+            stroke={REF_LINE_COLOR}
             strokeWidth={1.5}
             strokeDasharray="4 4"
             dot={false}
@@ -88,6 +106,6 @@ function PerformanceGraph({ chartData }: PerformanceGraphProps) {
       </ResponsiveContainer>
     </div>
   );
-}
+});
 
 export default PerformanceGraph;

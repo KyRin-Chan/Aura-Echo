@@ -18,7 +18,7 @@ function CustomTooltip({ active, payload, label }: any) {
       const statusConfig = STATUS_STYLE[status];
 
       return (
-        <div className="bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)] rounded-2xl p-3.5 shadow-xl backdrop-blur-md flex flex-col gap-1.5 min-w-[200px]">
+        <div className="bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)] rounded-2xl p-3.5 shadow-lg flex flex-col gap-1.5 min-w-[200px]">
           <div className="flex justify-between items-center pb-1.5 border-b border-[var(--md-sys-color-outline-variant)] mb-1">
             <span className="text-[var(--md-sys-color-on-surface-variant)] text-xs font-medium">
               {new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}

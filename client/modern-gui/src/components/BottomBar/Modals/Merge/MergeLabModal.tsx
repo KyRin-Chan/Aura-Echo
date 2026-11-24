@@ -199,7 +199,7 @@ function MergeLabModal({ appState, guiState, showMerge, setShowMerge }: MergeLab
       title={t('mergeLabTitle')}
       closeOnOutsideClick={false}
       primaryButton={{
-        text: `${appState.serverSetting.isUploading ? `${t('mergingLabel')} (${appState.serverSetting.uploadProgress.toFixed(1)}%)` : t('mergeLabTitle')}`,
+        text: `${appState.serverSetting.isUploading ? `${t('mergingLabel')} (${appState.serverSetting.uploadProgress.toFixed(1)}%)` : t('mergeActionBtn')}`,
         onClick: handleMerge,
         disabled: ((selectedModels.length === 0) || appState.serverSetting.isUploading),
         className: CSS_CLASSES.modalPrimaryButton,

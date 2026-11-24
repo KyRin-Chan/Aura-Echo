@@ -229,15 +229,15 @@ function ModelSettings({
         </label>
         <MD3Slider
           id="formantShift"
-          min={-6}
-          max={6}
-          step={0.1}
+          min={-3}
+          max={3}
+          step={0.05}
           value={appState.serverSetting?.serverSetting?.formantShift ?? 0}
           onChange={handleFormantShiftChange}
           onImmediateChange={setImmediateFormantShift}
           disabled={!model}
           showValue={true}
-          valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(1)}`}
+          valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(2)}`}
         />
       </div>
       <div className="flex items-center space-x-3 py-1">

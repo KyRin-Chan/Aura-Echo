@@ -46,11 +46,11 @@ function AudioSettingsCard({ dndAttributes, dndListeners }: AudioSettingsCardPro
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
             className={CSS_CLASSES.iconButton}
-            title={isCollapsed ? "Expand" : "Collapse"}
+            title={isCollapsed ? t('expandLabel') : t('collapseLabel')}
           >
             <FontAwesomeIcon icon={isCollapsed ? faChevronDown : faChevronUp} className="h-5 w-5" />
           </button>
-          <DragHandle attributes={dndAttributes} listeners={dndListeners} title="Drag" />
+          <DragHandle attributes={dndAttributes} listeners={dndListeners} title={t('dragLabel')} />
         </div>
       </div>
       {!isCollapsed && (

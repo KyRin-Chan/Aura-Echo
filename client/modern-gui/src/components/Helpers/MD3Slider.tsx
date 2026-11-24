@@ -141,7 +141,7 @@ const MD3Slider: React.FC<MD3SliderProps> = ({
           }`}
         />
         {showValue && (
-          <span className={`text-xs font-semibold select-none w-12 text-right ${disabled ? 'text-on-surface-variant/50' : 'text-on-surface-variant'}`}>
+          <span className={`text-xs font-semibold select-none min-w-[3.75rem] whitespace-nowrap shrink-0 tabular-nums text-right ${disabled ? 'text-on-surface-variant/50' : 'text-on-surface-variant'}`}>
             {displayVal}
           </span>
         )}

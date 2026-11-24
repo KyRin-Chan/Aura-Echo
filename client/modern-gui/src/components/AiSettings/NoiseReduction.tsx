@@ -40,40 +40,46 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
   ];
 
   return (
-    <div className="flex flex-col space-y-2">
-      <label className={CSS_CLASSES.label}>{t('noiseReductionLabel')}</label>
-      <div className="space-y-2.5 mt-1 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
-        <MD3Switch
-          checked={echoCancelChecked}
-          onChange={(val) => handleToggle('echoCancel', val)}
-          label={t('echoCancellationLabel')}
-        />
-        <MD3Switch
-          checked={noiseSuppressionChecked}
-          onChange={(val) => handleToggle('noiseSuppression', val)}
-          label={t('noiseSuppressionLabel')}
-        />
-        <MD3Switch
-          checked={noiseSuppression2Checked}
-          onChange={(val) => handleToggle('noiseSuppression2', val)}
-          label={isServerAudio ? t('noiseSuppression2ServerLabel') : t('noiseSuppression2ClientLabel')}
-        />
-        {isServerAudio && noiseSuppression2Checked && (
-          <div className="pt-1">
-            <MD3Select
-              id="dfn3-strength-select"
-              label={t('noiseSuppression2StrengthLabel')}
-              value={noiseSuppression2Strength}
-              options={strengthOptions}
-              onChange={(e) => {
-                appState.serverSetting.updateServerSettings({
-                  noiseSuppression2Strength: e.target.value as 'strong' | 'medium' | 'weak'
-                });
-              }}
-            />
-          </div>
-        )}
+    <div className="bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50 space-y-2.5">
+      <div className="text-xs font-semibold text-on-surface-variant pb-1.5 border-b border-outline-variant/30">
+        {t('noiseReductionLabel')}
       </div>
+      <MD3Switch
+        checked={echoCancelChecked}
+        onChange={(val) => handleToggle('echoCancel', val)}
+        label={t('echoCancellationLabel')}
+        size="compact"
+        labelPosition="left"
+      />
+      <MD3Switch
+        checked={noiseSuppressionChecked}
+        onChange={(val) => handleToggle('noiseSuppression', val)}
+        label={t('noiseSuppressionLabel')}
+        size="compact"
+        labelPosition="left"
+      />
+      <MD3Switch
+        checked={noiseSuppression2Checked}
+        onChange={(val) => handleToggle('noiseSuppression2', val)}
+        label={isServerAudio ? t('noiseSuppression2ServerLabel') : t('noiseSuppression2ClientLabel')}
+        size="compact"
+        labelPosition="left"
+      />
+      {isServerAudio && noiseSuppression2Checked && (
+        <div className="pt-1">
+          <MD3Select
+            id="dfn3-strength-select"
+            label={t('noiseSuppression2StrengthLabel')}
+            value={noiseSuppression2Strength}
+            options={strengthOptions}
+            onChange={(e) => {
+              appState.serverSetting.updateServerSettings({
+                noiseSuppression2Strength: e.target.value as 'strong' | 'medium' | 'weak'
+              });
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

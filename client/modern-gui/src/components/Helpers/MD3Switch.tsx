@@ -6,6 +6,8 @@ interface MD3SwitchProps {
   disabled?: boolean;
   label?: string;
   id?: string;
+  size?: 'default' | 'compact';
+  labelPosition?: 'right' | 'left';
 }
 
 const MD3Switch: React.FC<MD3SwitchProps> = ({
@@ -13,7 +15,9 @@ const MD3Switch: React.FC<MD3SwitchProps> = ({
   onChange,
   disabled = false,
   label,
-  id
+  id,
+  size = 'default',
+  labelPosition = 'right'
 }) => {
   const handleToggle = () => {
     if (!disabled) {
@@ -28,28 +32,54 @@ const MD3Switch: React.FC<MD3SwitchProps> = ({
     }
   };
 
+  const isCompact = size === 'compact';
+  const trackClasses = isCompact ? 'h-6 w-11' : 'h-8 w-[52px]';
+  const thumbClasses = isCompact
+    ? checked
+      ? 'translate-x-[20px] w-4 h-4 bg-on-primary'
+      : 'translate-x-[3px] w-3 h-3 bg-outline'
+    : checked
+    ? 'translate-x-[22px] w-6 h-6 bg-on-primary'
+    : 'translate-x-[4px] w-4 h-4 bg-outline';
+
+  const switchButton = (
+    <button
+      id={id}
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onKeyDown={handleKeyDown}
+      className={`relative inline-flex ${trackClasses} shrink-0 items-center rounded-full border-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+        checked
+          ? 'bg-primary border-primary'
+          : 'bg-surface-container-highest border-outline'
+      } ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+    >
+      <span
+        className={`pointer-events-none block rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out ${thumbClasses}`}
+      />
+    </button>
+  );
+
+  if (labelPosition === 'left') {
+    return (
+      <div
+        className={`flex items-center justify-between w-full select-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+        onClick={handleToggle}
+      >
+        {label && (
+          <span className="text-sm font-medium text-on-surface pr-3">
+            {label}
+          </span>
+        )}
+        {switchButton}
+      </div>
+    );
+  }
+
   return (
     <div className={`flex items-center select-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`} onClick={handleToggle}>
-      <button
-        id={id}
-        role="switch"
-        aria-checked={checked}
-        disabled={disabled}
-        onKeyDown={handleKeyDown}
-        className={`relative inline-flex h-8 w-[52px] shrink-0 items-center rounded-full border-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-          checked
-            ? 'bg-primary border-primary'
-            : 'bg-surface-container-highest border-outline'
-        } ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-      >
-        <span
-          className={`pointer-events-none block rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out ${
-            checked
-              ? 'translate-x-[22px] w-6 h-6 bg-on-primary'
-              : 'translate-x-[4px] w-4 h-4 bg-outline'
-          }`}
-        />
-      </button>
+      {switchButton}
       {label && (
         <span className="ml-3 text-sm font-medium text-on-surface">
           {label}

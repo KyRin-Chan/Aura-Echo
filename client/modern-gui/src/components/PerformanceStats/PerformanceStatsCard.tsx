@@ -2,7 +2,7 @@ import { JSX, useState, useEffect, useMemo, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronUp, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import DragHandle from './../Helpers/DragHandle';
-import { useAppState } from '../../context/AppContext';
+import { useAppState, usePerformance } from '../../context/AppContext';
 import PerformanceRecording from './PerformanceRecording';
 import PerformanceStats from './PerformanceStats';
 import PerformanceHistory from './PerformanceHistory';
@@ -54,6 +54,7 @@ const DEFAULT_MAX_CHART_DATA_POINTS = 50;
 function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsCardProps): JSX.Element {
   // ---------------- States ----------------
   const appState = useAppState();
+  const performance = usePerformance();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -64,35 +65,39 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
 
   // ---------------- Hooks ----------------
 
-  //Calculate the next DataPoint using appState performance values
+  //Calculate the next DataPoint using performance values
   const calculatedMetrics = useMemo((): CalculatedMetricValues => {
-    const volumeDb = Math.max(Math.round(20 * Math.log10(appState.performance.vol || 0.00001)), -90);
+    const volumeDb = Math.max(Math.round(20 * Math.log10(performance.vol || 0.00001)), -90);
     const chunkTime = ((appState.serverSetting.serverSetting.serverReadChunkSize * 128 * 1000) / 48000); // Assuming 48kHz sample rate, 128 samples per frame for chunk size unit
-    const totalLatencyTime = Math.ceil(chunkTime + appState.performance.responseTime + appState.serverSetting.serverSetting.crossFadeOverlapSize * 1000);
+    const totalLatencyTime = Math.ceil(chunkTime + performance.responseTime + appState.serverSetting.serverSetting.crossFadeOverlapSize * 1000);
 
     let perfStatus: PerfStatus = 'good';
     const eightyPercentChunkTime = 0.8 * chunkTime;
-    if (appState.performance.mainprocessTime > chunkTime) {
+    if (performance.mainprocessTime > chunkTime) {
       perfStatus = 'critical';
-    } else if (appState.performance.mainprocessTime > eightyPercentChunkTime) { // totalLatencyTime <= chunkTime is implicit
+    } else if (performance.mainprocessTime > eightyPercentChunkTime) { // totalLatencyTime <= chunkTime is implicit
       perfStatus = 'warning';
     }
 
     return {
       volumeDb,
-      ping: appState.performance.responseTime,
+      ping: performance.responseTime,
       totalLatencyTime,
-      perfTime: appState.performance.mainprocessTime,
+      perfTime: performance.mainprocessTime,
       chunkTime,
       perfStatus,
     };
-  }, [appState.performance, appState.serverSetting.serverSetting.serverReadChunkSize, appState.serverSetting.serverSetting.crossFadeOverlapSize]);
+  }, [performance, appState.serverSetting.serverSetting.serverReadChunkSize, appState.serverSetting.serverSetting.crossFadeOverlapSize]);
 
   const lastChartUpdateTimeRef = useRef<number>(0);
   const CHART_UPDATE_INTERVAL_MS = 1000; // Throttle updates to once per second
 
   //Format DataPoint into ChartDataPoint and add to ChartData
   useEffect(() => {
+    if (isCollapsed && !isRecording) {
+      return;
+    }
+
     const now = Date.now();
     if (now - lastChartUpdateTimeRef.current < CHART_UPDATE_INTERVAL_MS) {
       return;
@@ -116,11 +121,13 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
       greenTime: gt, yellowTime: yt, redTime: rt,
     };
 
-    //Add DataPoint to ChartData
-    setChartData(prevData => {
-      const newChartData = [...prevData, newDataPoint];
-      return newChartData.length > maxDataPoints ? newChartData.slice(newChartData.length - maxDataPoints) : newChartData;
-    });
+    //Add DataPoint to ChartData only when graph is expanded
+    if (!isCollapsed) {
+      setChartData(prevData => {
+        const newChartData = [...prevData, newDataPoint];
+        return newChartData.length > maxDataPoints ? newChartData.slice(newChartData.length - maxDataPoints) : newChartData;
+      });
+    }
 
     //Add DataPoint to RecordedData
     if (isRecording) {
@@ -130,7 +137,7 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
         perfValueString: `${Math.round(calculatedMetrics.totalLatencyTime)}ms of ${Math.round(calculatedMetrics.chunkTime)}ms`
       }]);
     }
-  }, [calculatedMetrics, maxDataPoints, isRecording]);
+  }, [calculatedMetrics, maxDataPoints, isRecording, isCollapsed]);
 
   // ---------------- Render ----------------
 

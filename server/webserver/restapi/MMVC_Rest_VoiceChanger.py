@@ -174,7 +174,7 @@ class MMVC_Rest_VoiceChanger:
                 if cent_tgt > 0 and cent_in > 0:
                     leakage_coefficient = 0.35
                     raw_shift = leakage_coefficient * 12.0 * float(np.log2(cent_tgt / cent_in))
-                    recommended_formant = round(float(np.clip(raw_shift, -4.0, 4.0)), 1)
+                    recommended_formant = round(round(float(np.clip(raw_shift, -3.0, 3.0)) * 20.0) / 20.0, 2)
 
                 return JSONResponse({
                     "success": True,

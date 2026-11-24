@@ -43,18 +43,16 @@ function GPUConfig({ appState, uiState }: GPUConfigProps) {
     : [{ value: -1, label: t('noGpusAvailable') }];
 
   return (
-    <div className="bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50">
-      <MD3Select
-        id="gpu"
-        label={t('gpuConfigLabel')}
-        value={appState.serverSetting?.serverSetting?.gpu ?? -1}
-        onChange={async (e) => {
-          await handleChangeGpu(parseInt(e.target.value));
-        }}
-        options={options}
-        disabled={gpus.length === 0}
-      />
-    </div>
+    <MD3Select
+      id="gpu"
+      label={t('gpuConfigLabel')}
+      value={appState.serverSetting?.serverSetting?.gpu ?? -1}
+      onChange={async (e) => {
+        await handleChangeGpu(parseInt(e.target.value));
+      }}
+      options={options}
+      disabled={gpus.length === 0}
+    />
   );
 }
 
