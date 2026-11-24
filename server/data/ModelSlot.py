@@ -51,6 +51,7 @@ class RVCModelSlot(ModelSlot):
     formantProfileStrength: float = 0.35
     formantProfilePitchScale: float = 1.0
     formantProfilePitchOffset: float = 0.0
+    formantProfilePitchMode: str = "speech"
 
 ModelSlots: TypeAlias = Union[
     ModelSlot,

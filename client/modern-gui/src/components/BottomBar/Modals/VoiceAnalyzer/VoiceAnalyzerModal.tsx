@@ -180,6 +180,7 @@ const VoiceAnalyzerModal = ({
   const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopMeterRef = useRef<(() => void) | null>(null);
 
   // Tab 2: Match EQ Calibration & Profile Manager State
   const [profiles, setProfiles] = useState<FormantProfile[]>([]);
@@ -202,6 +203,62 @@ const VoiceAnalyzerModal = ({
   const [calRecordingSeconds, setCalRecordingSeconds] = useState<number>(0);
   const calMediaRecorderRef = useRef<MediaRecorder | null>(null);
   const calRecordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopCalMeterRef = useRef<(() => void) | null>(null);
+
+  // Shared recording microphone selector & live level meter
+  const [selectedMicDeviceId, setSelectedMicDeviceId] = useState<string>('');
+  const [micInputLevel, setMicInputLevel] = useState<number>(0);
+  const previewUrlsRef = useRef<{
+    target: string;
+    input: string;
+    calTarget: string;
+    calInput: string;
+  }>({ target: '', input: '', calTarget: '', calInput: '' });
+
+  const replaceTargetPreviewUrl = (url: string) => {
+    if (previewUrlsRef.current.target) URL.revokeObjectURL(previewUrlsRef.current.target);
+    previewUrlsRef.current.target = url;
+    setTargetPreviewUrl(url);
+  };
+  const replaceInputPreviewUrl = (url: string) => {
+    if (previewUrlsRef.current.input) URL.revokeObjectURL(previewUrlsRef.current.input);
+    previewUrlsRef.current.input = url;
+    setInputPreviewUrl(url);
+  };
+  const replaceCalTargetPreviewUrl = (url: string) => {
+    if (previewUrlsRef.current.calTarget) URL.revokeObjectURL(previewUrlsRef.current.calTarget);
+    previewUrlsRef.current.calTarget = url;
+    setCalTargetPreviewUrl(url);
+  };
+  const replaceCalInputPreviewUrl = (url: string) => {
+    if (previewUrlsRef.current.calInput) URL.revokeObjectURL(previewUrlsRef.current.calInput);
+    previewUrlsRef.current.calInput = url;
+    setCalInputPreviewUrl(url);
+  };
+
+  const resolveDefaultRecordingDeviceId = (): string => {
+    const inputs = (guiState.inputAudioDeviceInfo || []).filter((d) => d.deviceId && d.deviceId !== '');
+    const guiInput = guiState.audioInputForGUI;
+    if (guiInput && guiInput !== 'none' && inputs.some((d) => d.deviceId === guiInput)) {
+      return guiInput;
+    }
+
+    const srvSetting = appState.serverSetting?.serverSetting;
+    if (srvSetting && Number(srvSetting.enableServerAudio) === 1) {
+      const srvDevs = srvSetting.serverAudioInputDevices || [];
+      const activeSrvDev = srvDevs.find((d) => d.index === srvSetting.serverInputDeviceId);
+      if (activeSrvDev?.name) {
+        const srvNameLower = activeSrvDev.name.toLowerCase();
+        const matched = inputs.find((d) => {
+          const lbl = (d.label || '').toLowerCase();
+          return lbl && (lbl.includes(srvNameLower) || srvNameLower.includes(lbl));
+        });
+        if (matched) return matched.deviceId;
+      }
+    }
+
+    return inputs.length > 0 ? inputs[0].deviceId : '';
+  };
 
   const activeSlotIndex = appState.serverSetting?.serverSetting?.modelSlotIndex ?? -1;
   const activeSlot =
@@ -229,20 +286,42 @@ const VoiceAnalyzerModal = ({
   useEffect(() => {
     if (showVoiceAnalyzer) {
       loadProfilesAndBindings();
+      if (!guiState.inputAudioDeviceInfo || guiState.inputAudioDeviceInfo.length === 0) {
+        guiState.reloadDeviceInfo().catch(() => {});
+      }
     }
   }, [showVoiceAnalyzer, activeModalTab]);
 
-  // Clean up object URLs and recording timers
+  useEffect(() => {
+    if (!showVoiceAnalyzer) return;
+    setSelectedMicDeviceId((prev) => {
+      const inputs = (guiState.inputAudioDeviceInfo || []).filter((d) => d.deviceId && d.deviceId !== '');
+      if (prev && inputs.some((d) => d.deviceId === prev)) {
+        return prev;
+      }
+      return resolveDefaultRecordingDeviceId();
+    });
+  }, [
+    showVoiceAnalyzer,
+    guiState.inputAudioDeviceInfo,
+    guiState.audioInputForGUI,
+    appState.serverSetting?.serverSetting?.enableServerAudio,
+    appState.serverSetting?.serverSetting?.serverInputDeviceId
+  ]);
+
+  // Clean up object URLs and timers on unmount only
   useEffect(() => {
     return () => {
-      if (targetPreviewUrl) URL.revokeObjectURL(targetPreviewUrl);
-      if (inputPreviewUrl) URL.revokeObjectURL(inputPreviewUrl);
-      if (calTargetPreviewUrl) URL.revokeObjectURL(calTargetPreviewUrl);
-      if (calInputPreviewUrl) URL.revokeObjectURL(calInputPreviewUrl);
+      if (previewUrlsRef.current.target) URL.revokeObjectURL(previewUrlsRef.current.target);
+      if (previewUrlsRef.current.input) URL.revokeObjectURL(previewUrlsRef.current.input);
+      if (previewUrlsRef.current.calTarget) URL.revokeObjectURL(previewUrlsRef.current.calTarget);
+      if (previewUrlsRef.current.calInput) URL.revokeObjectURL(previewUrlsRef.current.calInput);
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       if (calRecordingTimerRef.current) clearInterval(calRecordingTimerRef.current);
+      if (stopMeterRef.current) stopMeterRef.current();
+      if (stopCalMeterRef.current) stopCalMeterRef.current();
     };
-  }, [targetPreviewUrl, inputPreviewUrl, calTargetPreviewUrl, calInputPreviewUrl]);
+  }, []);
 
   // Tab change cleanup
   useEffect(() => {
@@ -255,14 +334,10 @@ const VoiceAnalyzerModal = ({
     setCalTargetFile(null);
     setCalInputFile(null);
     setCalResult(null);
-    if (targetPreviewUrl) URL.revokeObjectURL(targetPreviewUrl);
-    if (inputPreviewUrl) URL.revokeObjectURL(inputPreviewUrl);
-    if (calTargetPreviewUrl) URL.revokeObjectURL(calTargetPreviewUrl);
-    if (calInputPreviewUrl) URL.revokeObjectURL(calInputPreviewUrl);
-    setTargetPreviewUrl('');
-    setInputPreviewUrl('');
-    setCalTargetPreviewUrl('');
-    setCalInputPreviewUrl('');
+    replaceTargetPreviewUrl('');
+    replaceInputPreviewUrl('');
+    replaceCalTargetPreviewUrl('');
+    replaceCalInputPreviewUrl('');
   }, [activeModalTab]);
 
   // ---------------- Helpers ----------------
@@ -275,39 +350,154 @@ const VoiceAnalyzerModal = ({
     return `${notes[noteIndex]}${notes[noteIndex] ? octave : ''} (${Math.round(hz)} Hz)`;
   };
 
-  // Recording for Tab 1 Comparison Input
-  const startRecording = async () => {
+  const openMicStream = async (deviceId: string): Promise<MediaStream> => {
+    const rawConstraints: MediaTrackConstraints = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false
+    };
+    if (deviceId) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          audio: { ...rawConstraints, deviceId: { exact: deviceId } },
+          video: false
+        });
+      } catch {
+        try {
+          return await navigator.mediaDevices.getUserMedia({
+            audio: { ...rawConstraints, deviceId: { ideal: deviceId } },
+            video: false
+          });
+        } catch {
+          // Fall through to generic raw audio
+        }
+      }
+    }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      return await navigator.mediaDevices.getUserMedia({
+        audio: rawConstraints,
+        video: false
+      });
+    } catch {
+      return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+  };
+
+  const startMicMeter = (stream: MediaStream, onLevel: (pct: number) => void): (() => void) => {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) {
+      onLevel(0);
+      return () => {};
+    }
+    let stopped = false;
+    let ctx: AudioContext | null = null;
+    let source: MediaStreamAudioSourceNode | null = null;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    try {
+      ctx = new AudioCtx();
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+      source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      const buf = new Float32Array(analyser.fftSize);
+      timer = setInterval(() => {
+        if (stopped) return;
+        analyser.getFloatTimeDomainData(buf);
+        let sumSq = 0;
+        for (let i = 0; i < buf.length; i++) {
+          sumSq += buf[i] * buf[i];
+        }
+        const rms = Math.sqrt(sumSq / buf.length);
+        const pct = Math.min(100, Math.round(rms * 400));
+        onLevel(pct);
+      }, 60);
+    } catch {
+      onLevel(0);
+    }
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      if (timer) clearInterval(timer);
+      try {
+        source?.disconnect();
+      } catch {
+        // Ignore disconnect error
+      }
+      if (ctx) {
+        ctx.close().catch(() => {});
+      }
+      onLevel(0);
+    };
+  };
+
+  const beginMicRecording = async (opts: {
+    filename: string;
+    recorderRef: React.MutableRefObject<MediaRecorder | null>;
+    timerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>;
+    meterRef: React.MutableRefObject<(() => void) | null>;
+    setRecording: (active: boolean) => void;
+    setSeconds: (sec: number) => void;
+    onStop: () => void;
+    onFileReady: (file: File) => void;
+  }) => {
+    try {
+      const stream = await openMicStream(selectedMicDeviceId);
       const recorder = new MediaRecorder(stream);
       const chunks: Blob[] = [];
 
+      const stopStreamAndMeter = () => {
+        if (opts.meterRef.current) {
+          opts.meterRef.current();
+          opts.meterRef.current = null;
+        }
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      opts.meterRef.current = startMicMeter(stream, setMicInputLevel);
+
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onerror = (ev) => {
+        console.error('MediaRecorder error:', ev);
+        stopStreamAndMeter();
+        opts.setRecording(false);
+        if (opts.timerRef.current) {
+          clearInterval(opts.timerRef.current);
+          opts.timerRef.current = null;
+        }
+        guiState.showError('Could not access microphone. Please check permissions.', 'Error');
       };
 
       recorder.onstop = async () => {
+        stopStreamAndMeter();
         const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-        const file = await encodeBlobToWavFile(blob, 'mic_input.wav');
-        setInputFile(file);
-
-        if (inputPreviewUrl) URL.revokeObjectURL(inputPreviewUrl);
-        setInputPreviewUrl(URL.createObjectURL(file));
-        setCompareResult(null);
+        if (chunks.length === 0 || blob.size === 0) {
+          guiState.showError(t('voiceAnalyzerEmptyRecordingWarning'), 'Warning');
+          return;
+        }
+        const file = await encodeBlobToWavFile(blob, opts.filename);
+        opts.onFileReady(file);
       };
 
-      mediaRecorderRef.current = recorder;
-      recorder.start();
-      setIsRecording(true);
-      setRecordingSeconds(0);
+      opts.recorderRef.current = recorder;
+      recorder.start(250);
+      opts.setRecording(true);
+      opts.setSeconds(0);
 
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (opts.timerRef.current) clearInterval(opts.timerRef.current);
       let elapsed = 0;
-      recordingTimerRef.current = setInterval(() => {
+      opts.timerRef.current = setInterval(() => {
         elapsed += 1;
-        setRecordingSeconds(elapsed);
+        opts.setSeconds(elapsed);
         if (elapsed >= 10) {
-          stopRecording();
+          opts.onStop();
         }
       }, 1000);
     } catch (err) {
@@ -316,11 +506,28 @@ const VoiceAnalyzerModal = ({
     }
   };
 
+  // Recording for Tab 1 Comparison Input
+  const startRecording = () => {
+    void beginMicRecording({
+      filename: 'mic_input.wav',
+      recorderRef: mediaRecorderRef,
+      timerRef: recordingTimerRef,
+      meterRef: stopMeterRef,
+      setRecording: setIsRecording,
+      setSeconds: setRecordingSeconds,
+      onStop: stopRecording,
+      onFileReady: (file) => {
+        setInputFile(file);
+        replaceInputPreviewUrl(URL.createObjectURL(file));
+        setCompareResult(null);
+      }
+    });
+  };
+
   const stopRecording = () => {
     const rec = mediaRecorderRef.current;
     if (rec && rec.state !== 'inactive') {
       rec.stop();
-      rec.stream.getTracks().forEach((track) => track.stop());
     }
     setIsRecording(false);
     if (recordingTimerRef.current) {
@@ -330,51 +537,27 @@ const VoiceAnalyzerModal = ({
   };
 
   // Recording for Tab 2 Calibration Input
-  const startCalRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      const chunks: Blob[] = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-
-      recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-        const file = await encodeBlobToWavFile(blob, 'calibration_mic.wav');
+  const startCalRecording = () => {
+    void beginMicRecording({
+      filename: 'calibration_mic.wav',
+      recorderRef: calMediaRecorderRef,
+      timerRef: calRecordingTimerRef,
+      meterRef: stopCalMeterRef,
+      setRecording: setIsCalRecording,
+      setSeconds: setCalRecordingSeconds,
+      onStop: stopCalRecording,
+      onFileReady: (file) => {
         setCalInputFile(file);
-
-        if (calInputPreviewUrl) URL.revokeObjectURL(calInputPreviewUrl);
-        setCalInputPreviewUrl(URL.createObjectURL(file));
+        replaceCalInputPreviewUrl(URL.createObjectURL(file));
         setCalResult(null);
-      };
-
-      calMediaRecorderRef.current = recorder;
-      recorder.start();
-      setIsCalRecording(true);
-      setCalRecordingSeconds(0);
-
-      if (calRecordingTimerRef.current) clearInterval(calRecordingTimerRef.current);
-      let elapsed = 0;
-      calRecordingTimerRef.current = setInterval(() => {
-        elapsed += 1;
-        setCalRecordingSeconds(elapsed);
-        if (elapsed >= 10) {
-          stopCalRecording();
-        }
-      }, 1000);
-    } catch (err) {
-      console.error('Failed to start recording:', err);
-      guiState.showError('Could not access microphone. Please check permissions.', 'Error');
-    }
+      }
+    });
   };
 
   const stopCalRecording = () => {
     const rec = calMediaRecorderRef.current;
     if (rec && rec.state !== 'inactive') {
       rec.stop();
-      rec.stream.getTracks().forEach((track) => track.stop());
     }
     setIsCalRecording(false);
     if (calRecordingTimerRef.current) {
@@ -388,8 +571,7 @@ const VoiceAnalyzerModal = ({
     const file = e.target.files?.[0];
     if (file) {
       setTargetFile(file);
-      if (targetPreviewUrl) URL.revokeObjectURL(targetPreviewUrl);
-      setTargetPreviewUrl(URL.createObjectURL(file));
+      replaceTargetPreviewUrl(URL.createObjectURL(file));
       setCompareResult(null);
     }
   };
@@ -398,8 +580,7 @@ const VoiceAnalyzerModal = ({
     const file = e.target.files?.[0];
     if (file) {
       setInputFile(file);
-      if (inputPreviewUrl) URL.revokeObjectURL(inputPreviewUrl);
-      setInputPreviewUrl(URL.createObjectURL(file));
+      replaceInputPreviewUrl(URL.createObjectURL(file));
       setCompareResult(null);
     }
   };
@@ -408,8 +589,7 @@ const VoiceAnalyzerModal = ({
     const file = e.target.files?.[0];
     if (file) {
       setCalTargetFile(file);
-      if (calTargetPreviewUrl) URL.revokeObjectURL(calTargetPreviewUrl);
-      setCalTargetPreviewUrl(URL.createObjectURL(file));
+      replaceCalTargetPreviewUrl(URL.createObjectURL(file));
       setCalResult(null);
     }
   };
@@ -418,8 +598,7 @@ const VoiceAnalyzerModal = ({
     const file = e.target.files?.[0];
     if (file) {
       setCalInputFile(file);
-      if (calInputPreviewUrl) URL.revokeObjectURL(calInputPreviewUrl);
-      setCalInputPreviewUrl(URL.createObjectURL(file));
+      replaceCalInputPreviewUrl(URL.createObjectURL(file));
       setCalResult(null);
     }
   };
@@ -637,6 +816,7 @@ const VoiceAnalyzerModal = ({
       const defaultStrength = 0.5;
       const defaultPitchScale = 1.0;
       const defaultPitchOffset = 0.0;
+      const defaultPitchMode: 'speech' | 'singing' = 'speech';
       const serializedPitchStats = serializePitchStats(baselineProfile, targetProfile);
       if (activeSlotIndex !== undefined && activeSlotIndex !== -1) {
         saveFormantBinding(activeSlotIndex, {
@@ -645,7 +825,8 @@ const VoiceAnalyzerModal = ({
           active: true,
           strength: defaultStrength,
           pitchScale: defaultPitchScale,
-          pitchOffset: defaultPitchOffset
+          pitchOffset: defaultPitchOffset,
+          pitchMode: defaultPitchMode
         });
 
         appState.serverSetting.updateServerSettings({
@@ -658,7 +839,8 @@ const VoiceAnalyzerModal = ({
           formantProfileStrength: defaultStrength,
           formantProfilePitchStats: serializedPitchStats,
           formantProfilePitchScale: defaultPitchScale,
-          formantProfilePitchOffset: defaultPitchOffset
+          formantProfilePitchOffset: defaultPitchOffset,
+          formantProfilePitchMode: defaultPitchMode
         });
       }
 
@@ -689,15 +871,49 @@ const VoiceAnalyzerModal = ({
     setCalTargetFile(null);
     setCalInputFile(null);
     setCalResult(null);
-    if (targetPreviewUrl) URL.revokeObjectURL(targetPreviewUrl);
-    if (inputPreviewUrl) URL.revokeObjectURL(inputPreviewUrl);
-    if (calTargetPreviewUrl) URL.revokeObjectURL(calTargetPreviewUrl);
-    if (calInputPreviewUrl) URL.revokeObjectURL(calInputPreviewUrl);
-    setTargetPreviewUrl('');
-    setInputPreviewUrl('');
-    setCalTargetPreviewUrl('');
-    setCalInputPreviewUrl('');
+    replaceTargetPreviewUrl('');
+    replaceInputPreviewUrl('');
+    replaceCalTargetPreviewUrl('');
+    replaceCalInputPreviewUrl('');
   };
+
+  const micDeviceOptions = (guiState.inputAudioDeviceInfo || []).filter(
+    (d) => d.deviceId && d.deviceId !== ''
+  );
+
+  const renderMicControls = (disabledWhileBusy: boolean) => (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider shrink-0">
+          {t('voiceAnalyzerMicDeviceLabel')}
+        </span>
+        <select
+          value={selectedMicDeviceId}
+          onChange={(e) => setSelectedMicDeviceId(e.target.value)}
+          disabled={disabledWhileBusy || isRecording || isCalRecording}
+          className="min-w-0 flex-1 px-2 py-1 rounded-lg bg-surface-container border border-outline-variant/60 text-[11px] text-on-surface truncate focus:outline-none focus:ring-1 focus:ring-secondary disabled:opacity-50"
+        >
+          {micDeviceOptions.length === 0 ? (
+            <option value="">{t('voiceAnalyzerDefaultMicOption')}</option>
+          ) : (
+            micDeviceOptions.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || d.deviceId}
+              </option>
+            ))
+          )}
+        </select>
+      </div>
+      {(isRecording || isCalRecording) && (
+        <div className="w-full h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+          <div
+            className="h-full bg-secondary transition-all duration-75"
+            style={{ width: `${micInputLevel}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
 
   const activeBinding = activeSlotIndex >= 0 ? bindings[activeSlotIndex] : undefined;
   const activeBoundBase = activeBinding?.inputProfileId
@@ -814,6 +1030,7 @@ const VoiceAnalyzerModal = ({
                     </label>
                   ) : (
                     <div className="flex flex-col space-y-3">
+                      {renderMicControls(isComparing)}
                       <div className="p-3 bg-surface-container rounded-xl border border-outline-variant/40 text-[11px] leading-relaxed">
                         <p className="text-secondary font-bold mb-1 text-[9px] uppercase tracking-wider">
                           {t('voiceAnalyzerScriptGuidance')}
@@ -1084,6 +1301,7 @@ const VoiceAnalyzerModal = ({
                       </label>
                     ) : (
                       <div className="flex flex-col space-y-2.5">
+                        {renderMicControls(isCalibrating)}
                         <div className="p-2.5 bg-surface-container rounded-lg border border-outline-variant/40 text-[10px] leading-relaxed">
                           <p className="text-secondary font-bold mb-0.5 uppercase tracking-wider">
                             {t('voiceAnalyzerScriptGuidance')}

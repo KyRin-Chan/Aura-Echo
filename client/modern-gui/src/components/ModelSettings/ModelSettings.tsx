@@ -55,6 +55,9 @@ function ModelSettings({
   const [immediatePitchOffset, setImmediatePitchOffset] = useState<number>(
     appState.serverSetting?.serverSetting?.formantProfilePitchOffset ?? 0.0
   );
+  const [immediatePitchMode, setImmediatePitchMode] = useState<'speech' | 'singing'>(
+    appState.serverSetting?.serverSetting?.formantProfilePitchMode === 'singing' ? 'singing' : 'speech'
+  );
 
   const [profiles, setProfiles] = useState<FormantProfile[]>([]);
   const [bindings, setBindings] = useState<Record<string | number, ModelFormantBinding>>({});
@@ -91,6 +94,9 @@ function ModelSettings({
       setImmediateStrength(appState.serverSetting.serverSetting.formantProfileStrength ?? 0.35);
       setImmediatePitchScale(appState.serverSetting.serverSetting.formantProfilePitchScale ?? 1.0);
       setImmediatePitchOffset(appState.serverSetting.serverSetting.formantProfilePitchOffset ?? 0.0);
+      setImmediatePitchMode(
+        appState.serverSetting.serverSetting.formantProfilePitchMode === 'singing' ? 'singing' : 'speech'
+      );
     }
   }, [
     appState.serverSetting?.serverSetting?.tran,
@@ -98,7 +104,8 @@ function ModelSettings({
     appState.serverSetting?.serverSetting?.indexRatio,
     appState.serverSetting?.serverSetting?.formantProfileStrength,
     appState.serverSetting?.serverSetting?.formantProfilePitchScale,
-    appState.serverSetting?.serverSetting?.formantProfilePitchOffset
+    appState.serverSetting?.serverSetting?.formantProfilePitchOffset,
+    appState.serverSetting?.serverSetting?.formantProfilePitchMode
   ]);
 
   const handleModeChange = (isCalibration: boolean) => {
@@ -121,7 +128,8 @@ function ModelSettings({
               formantProfileInputSr: inputProfile.sr,
               formantProfilePitchStats: serializePitchStats(inputProfile, targetProfile),
               formantProfilePitchScale: currentBinding.pitchScale ?? appState.serverSetting?.serverSetting?.formantProfilePitchScale ?? 1.0,
-              formantProfilePitchOffset: currentBinding.pitchOffset ?? appState.serverSetting?.serverSetting?.formantProfilePitchOffset ?? 0.0
+              formantProfilePitchOffset: currentBinding.pitchOffset ?? appState.serverSetting?.serverSetting?.formantProfilePitchOffset ?? 0.0,
+              formantProfilePitchMode: currentBinding.pitchMode ?? appState.serverSetting?.serverSetting?.formantProfilePitchMode ?? 'speech'
             };
           }
         }
@@ -243,6 +251,20 @@ function ModelSettings({
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       formantProfilePitchOffset: val
+    });
+  };
+
+  const handlePitchModeChange = (mode: 'speech' | 'singing') => {
+    setImmediatePitchMode(mode);
+    const activeSlot = appState.serverSetting?.serverSetting?.modelSlotIndex;
+    if (activeSlot !== undefined && activeSlot !== -1) {
+      saveFormantBinding(activeSlot, { pitchMode: mode });
+      setBindings(getAllFormantBindings());
+    }
+
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      formantProfilePitchMode: mode
     });
   };
 
@@ -385,8 +407,47 @@ function ModelSettings({
             </p>
           )}
 
-          {/* Pitch Dynamic Range Scale Slider */}
+          {/* Pitch Mapping Mode Toggle: Speech vs Singing */}
           <div>
+            <label className={CSS_CLASSES.label}>
+              {t('pitchMappingModeLabel')}
+            </label>
+            <div className="inline-flex w-full rounded-full border border-outline overflow-hidden mt-1">
+              <button
+                type="button"
+                onClick={() => handlePitchModeChange('speech')}
+                disabled={!model}
+                className={`flex-1 px-3 py-1 text-xs font-semibold transition-all duration-150 ${
+                  immediatePitchMode === 'speech'
+                    ? "bg-secondary-container text-on-secondary-container"
+                    : "bg-transparent text-on-surface hover:bg-surface-variant/20"
+                }`}
+              >
+                {t('pitchModeSpeechLabel')}
+              </button>
+              <div className="w-[1px] bg-outline" />
+              <button
+                type="button"
+                onClick={() => handlePitchModeChange('singing')}
+                disabled={!model}
+                className={`flex-1 px-3 py-1 text-xs font-semibold transition-all duration-150 ${
+                  immediatePitchMode === 'singing'
+                    ? "bg-secondary-container text-on-secondary-container"
+                    : "bg-transparent text-on-surface hover:bg-surface-variant/20"
+                }`}
+              >
+                {t('pitchModeSingingLabel')}
+              </button>
+            </div>
+            {immediatePitchMode === 'singing' && (
+              <p className="mt-1.5 text-[11px] text-on-surface-variant">
+                {t('pitchModeSingingHint')}
+              </p>
+            )}
+          </div>
+
+          {/* Pitch Dynamic Range Scale Slider */}
+          <div className={immediatePitchMode === 'singing' ? 'opacity-50' : ''}>
             <label htmlFor="formantProfilePitchScale" className={CSS_CLASSES.label}>
               {t('pitchDynamicScaleLabel')}
             </label>
@@ -395,10 +456,10 @@ function ModelSettings({
               min={0.5}
               max={1.5}
               step={0.05}
-              value={immediatePitchScale}
+              value={immediatePitchMode === 'singing' ? 1.0 : immediatePitchScale}
               onChange={handlePitchScaleChange}
               onImmediateChange={setImmediatePitchScale}
-              disabled={!model}
+              disabled={!model || immediatePitchMode === 'singing'}
               showValue={true}
               valueFormatter={(val) => `${Math.round(val * 100)}%`}
             />

@@ -64,7 +64,8 @@ function App(): JSX.Element {
               formantProfileStrength: binding.strength !== undefined ? binding.strength : (currentSetting.formantProfileStrength ?? 0.35),
               formantProfilePitchStats: serializePitchStats(inputProfile, targetProfile),
               formantProfilePitchScale: binding.pitchScale !== undefined ? binding.pitchScale : (currentSetting.formantProfilePitchScale ?? 1.0),
-              formantProfilePitchOffset: binding.pitchOffset !== undefined ? binding.pitchOffset : (currentSetting.formantProfilePitchOffset ?? 0.0)
+              formantProfilePitchOffset: binding.pitchOffset !== undefined ? binding.pitchOffset : (currentSetting.formantProfilePitchOffset ?? 0.0),
+              formantProfilePitchMode: binding.pitchMode ?? currentSetting.formantProfilePitchMode ?? 'speech'
             });
             console.log(`Auto-loaded Match EQ profiles for model slot ${slotIndex}, active: ${isActive}`);
           } else if (appState.serverSetting?.serverSetting?.formantProfileActive) {

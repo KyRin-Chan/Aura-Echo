@@ -246,25 +246,28 @@ class MMVC_Rest_VoiceChanger:
             with open(input_path, "wb") as f:
                 f.write(await input_file.read())
 
-            _, sr_tgt, tgt_res = await asyncio.to_thread(self._load_and_analyze_file, target_path)
+            vcmodel = getattr(self.voiceChangerManager.vc, "vcmodel", None)
+            pe = getattr(getattr(vcmodel, "pipeline", None), "pitchExtractor", None)
+            pe_device = getattr(getattr(vcmodel, "device_manager", None), "device", None)
+
+            def _analyze_with_active_pe(y_arr, sr_val):
+                if pe is not None:
+                    with self.voiceChangerManager.device_manager.lock:
+                        return analyze_voice_acoustics(
+                            y_arr,
+                            int(sr_val),
+                            pitch_extractor=pe,
+                            pitch_extractor_device=pe_device,
+                        )
+                return analyze_voice_acoustics(y_arr, int(sr_val))
+
+            y_tgt, sr_tgt = await asyncio.to_thread(lambda p: librosa.load(p, sr=None, mono=True), target_path)
+            tgt_res = await asyncio.to_thread(_analyze_with_active_pe, y_tgt, sr_tgt)
             y_in, sr_in = await asyncio.to_thread(lambda p: librosa.load(p, sr=None, mono=True), input_path)
-            dry_in_res = await asyncio.to_thread(analyze_voice_acoustics, y_in, int(sr_in))
 
+            dry_in_res = None
             pitch_dist_cfg = None
-            if dry_in_res.get("f0_log2_mean", 0.0) > 0.0 and tgt_res.get("f0_log2_mean", 0.0) > 0.0:
-                pitch_dist_cfg = {
-                    "src_mean": float(dry_in_res["f0_log2_mean"]),
-                    "src_std": float(dry_in_res.get("f0_log2_std", 0.0)),
-                    "tgt_mean": float(tgt_res["f0_log2_mean"]),
-                    "tgt_std": float(tgt_res.get("f0_log2_std", 0.0)),
-                    "tgt_p10": float(tgt_res.get("f0_p10", 0.0)),
-                    "tgt_p90": float(tgt_res.get("f0_p90", 0.0)),
-                    "pitch_scale": 1.0,
-                    "pitch_offset": 0.0,
-                }
-
             if run_rvc:
-                vcmodel = getattr(self.voiceChangerManager.vc, "vcmodel", None)
                 if (
                     vcmodel is None
                     or not hasattr(vcmodel, "convert_offline")
@@ -274,6 +277,20 @@ class MMVC_Rest_VoiceChanger:
                         "success": False,
                         "error": "No active RVC model loaded. Please select an RVC model first, or disable RVC conversion to supply an already-converted sample.",
                     }, status_code=400)
+
+                dry_in_res = await asyncio.to_thread(_analyze_with_active_pe, y_in, sr_in)
+                if dry_in_res.get("f0_log2_mean", 0.0) > 0.0 and tgt_res.get("f0_log2_mean", 0.0) > 0.0:
+                    pitch_dist_cfg = {
+                        "src_mean": float(dry_in_res["f0_log2_mean"]),
+                        "src_std": float(dry_in_res.get("f0_log2_std", 0.0)),
+                        "tgt_mean": float(tgt_res["f0_log2_mean"]),
+                        "tgt_std": float(tgt_res.get("f0_log2_std", 0.0)),
+                        "tgt_p10": float(tgt_res.get("f0_p10", 0.0)),
+                        "tgt_p90": float(tgt_res.get("f0_p90", 0.0)),
+                        "pitch_scale": 1.0,
+                        "pitch_offset": 0.0,
+                        "pitch_mode": "speech",
+                    }
 
                 def _run_offline():
                     with self.voiceChangerManager.device_manager.lock:
@@ -293,7 +310,7 @@ class MMVC_Rest_VoiceChanger:
             else:
                 y_base, sr_base = y_in, int(sr_in)
 
-            base_res = await asyncio.to_thread(analyze_voice_acoustics, y_base, int(sr_base))
+            base_res = await asyncio.to_thread(_analyze_with_active_pe, y_base, sr_base)
 
             settings = self.voiceChangerManager.settings
             post_sr = int(getattr(settings, "outputSampleRate", 48000) or 48000)
@@ -319,10 +336,10 @@ class MMVC_Rest_VoiceChanger:
                 "target_centroid": round(float(tgt_res["centroid"]), 1),
                 "target_envelope": tgt_res["envelope"].tolist(),
                 "target_sr": int(tgt_res["sr"]),
-                "input_f0_log2_mean": float(dry_in_res.get("f0_log2_mean", 0.0)),
-                "input_f0_log2_std": float(dry_in_res.get("f0_log2_std", 0.0)),
-                "input_f0_p10": round(float(dry_in_res.get("f0_p10", 0.0)), 1),
-                "input_f0_p90": round(float(dry_in_res.get("f0_p90", 0.0)), 1),
+                "input_f0_log2_mean": float(dry_in_res.get("f0_log2_mean", 0.0)) if dry_in_res else 0.0,
+                "input_f0_log2_std": float(dry_in_res.get("f0_log2_std", 0.0)) if dry_in_res else 0.0,
+                "input_f0_p10": round(float(dry_in_res.get("f0_p10", 0.0)), 1) if dry_in_res else 0.0,
+                "input_f0_p90": round(float(dry_in_res.get("f0_p90", 0.0)), 1) if dry_in_res else 0.0,
                 "baseline_f0": round(float(base_res["f0"]), 1),
                 "baseline_centroid": round(float(base_res["centroid"]), 1),
                 "baseline_envelope": base_res["envelope"].tolist(),

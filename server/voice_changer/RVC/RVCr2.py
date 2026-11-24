@@ -335,7 +335,9 @@ class RVCr2(VoiceChangerModel):
         stats_str = str(getattr(self.settings, "formantProfilePitchStats", "{}") or "{}")
         pitch_scale = float(getattr(self.settings, "formantProfilePitchScale", 1.0))
         pitch_offset = float(getattr(self.settings, "formantProfilePitchOffset", 0.0))
-        pitch_key = (active, stats_str, pitch_scale, pitch_offset)
+        pitch_mode = str(getattr(self.settings, "formantProfilePitchMode", "speech") or "speech")
+        pitch_mode = "singing" if pitch_mode.strip().lower() == "singing" else "speech"
+        pitch_key = (active, stats_str, pitch_scale, pitch_offset, pitch_mode)
         if pitch_key != self._pitch_dist_cache_key:
             self._pitch_dist_cache_key = pitch_key
             if not active:
@@ -357,6 +359,7 @@ class RVCr2(VoiceChangerModel):
                             "tgt_p90": float(parsed.get("tgt_p90", 0.0)),
                             "pitch_scale": pitch_scale,
                             "pitch_offset": pitch_offset,
+                            "pitch_mode": pitch_mode,
                         }
                     else:
                         self._pitch_dist_cfg = None

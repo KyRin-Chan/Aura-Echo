@@ -469,6 +469,7 @@ class VoiceChangerSettings:
     _formantProfilePitchStats: str = "{}"
     _formantProfilePitchScale: float = 1.0
     _formantProfilePitchOffset: float = 0.0
+    _formantProfilePitchMode: str = "speech"
 
     @property
     def formantProfileActive(self):
@@ -555,6 +556,14 @@ class VoiceChangerSettings:
             self._formantProfilePitchOffset = max(-6.0, min(6.0, float(val)))
         except (ValueError, TypeError):
             pass
+
+    @property
+    def formantProfilePitchMode(self):
+        return self._formantProfilePitchMode
+
+    @formantProfilePitchMode.setter
+    def formantProfilePitchMode(self, val: Any):
+        self._formantProfilePitchMode = "singing" if str(val).strip().lower() == "singing" else "speech"
 
     _agcEnabled: bool = False
     _passThroughEffects: bool = False

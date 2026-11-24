@@ -301,10 +301,117 @@ def _select_highest_energy_segment(y: np.ndarray, sr: int, max_duration_sec: flo
     return y[best_start : best_start + max_len]
 
 
+def _select_uniform_f0_audio(y: np.ndarray, sr: int, max_f0_duration_sec: float = 90.0) -> np.ndarray:
+    """Sample evenly spaced contiguous segments across the full recording for unbiased F0 statistics."""
+    max_len = int(round(max_f0_duration_sec * sr))
+    if max_len <= 0 or y.shape[0] <= max_len:
+        return y
+    n_segments = 6
+    seg_len = max(sr, max_len // n_segments)
+    if seg_len >= y.shape[0]:
+        return y
+    starts = np.linspace(0, y.shape[0] - seg_len, n_segments, dtype=np.int64)
+    return np.concatenate([y[int(s) : int(s) + seg_len] for s in starts])
+
+
+def _resample_to_16k(y_mono: np.ndarray, sr_int: int) -> np.ndarray:
+    if sr_int == 16000:
+        return y_mono
+    g = math.gcd(16000, sr_int)
+    up, down = 16000 // g, sr_int // g
+    if max(up, down) <= 2000:
+        return scipy_signal.resample_poly(y_mono, up, down).astype(np.float32, copy=False)
+    target_len = max(1, int(round(y_mono.shape[0] * 16000.0 / float(sr_int))))
+    return scipy_signal.resample(y_mono, target_len).astype(np.float32, copy=False)
+
+
+def _filter_f0_octave_outliers(f0_vals: np.ndarray, max_oct_dev: float = 1.2) -> np.ndarray:
+    """Remove gross octave-jump outliers relative to the log2 median."""
+    valid = f0_vals[np.isfinite(f0_vals) & (f0_vals > 0.0)]
+    if valid.size < 5:
+        return valid
+    log2_vals = np.log2(valid.astype(np.float64))
+    med = float(np.median(log2_vals))
+    inliers = valid[np.abs(log2_vals - med) <= max_oct_dev]
+    return inliers if inliers.size >= 3 else valid
+
+
+def _compute_pitch_stats(f0_voiced: np.ndarray) -> tuple[float, float, float, float, float]:
+    """Compute robust F0 median, log2 median, log2 robust std, p10, and p90."""
+    in_range = f0_voiced[np.isfinite(f0_voiced) & (f0_voiced >= 55.0) & (f0_voiced <= 800.0)]
+    cleaned = _filter_f0_octave_outliers(in_range)
+    if cleaned.size == 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+    f0_median = float(np.median(cleaned))
+    log2_f0 = np.log2(np.maximum(cleaned.astype(np.float64), 1e-3))
+    f0_log2_mean = float(np.median(log2_f0))
+    f0_p10 = float(np.percentile(cleaned, 10))
+    f0_p90 = float(np.percentile(cleaned, 90))
+    if cleaned.size >= 5:
+        f0_log2_std = float((np.percentile(log2_f0, 90) - np.percentile(log2_f0, 10)) / 2.5631)
+    else:
+        f0_log2_std = float(np.std(log2_f0))
+    return f0_median, f0_log2_mean, f0_log2_std, f0_p10, f0_p90
+
+
+def _compute_16k_frame_rms(y_16k: np.ndarray, frame_length: int = 1024, hop_length: int = 160) -> np.ndarray:
+    if y_16k.size == 0:
+        return np.empty(0, dtype=np.float32)
+    pad = frame_length // 2
+    pad_mode = "reflect" if y_16k.size > pad else "constant"
+    y_pad = np.pad(y_16k, (pad, pad), mode=pad_mode)
+    if y_pad.size < frame_length:
+        y_pad = np.pad(y_pad, (0, frame_length - y_pad.size), mode="constant")
+    frames = np.lib.stride_tricks.sliding_window_view(y_pad, frame_length)[::hop_length]
+    return np.sqrt(np.mean(frames.astype(np.float32) ** 2, axis=1))
+
+
+def _extract_f0_with_pitch_extractor(
+    y_16k: np.ndarray,
+    pitch_extractor: Any,
+    device: Any = None,
+    window_size: int = 160,
+) -> np.ndarray:
+    """Extract F0 at 16 kHz using the active neural pitch extractor in bounded chunks."""
+    if y_16k.size < window_size:
+        return np.empty(0, dtype=np.float32)
+
+    dev = device or getattr(pitch_extractor, "device", None)
+    if dev is None:
+        dev = torch.device("cpu")
+
+    saved_cent = getattr(pitch_extractor, "_last_voiced_cent", None)
+    if hasattr(pitch_extractor, "reset"):
+        pitch_extractor.reset()
+
+    chunk_samples = 30 * 16000
+    f0_chunks = []
+    try:
+        with torch.no_grad():
+            for start in range(0, y_16k.shape[0], chunk_samples):
+                chunk = np.ascontiguousarray(y_16k[start : start + chunk_samples], dtype=np.float32)
+                if chunk.size < window_size:
+                    continue
+                chunk_t = torch.from_numpy(chunk).to(device=dev, dtype=torch.float32)
+                out = pitch_extractor.extract(chunk_t, 16000, window_size)
+                f0_chunks.append(out.detach().float().reshape(-1).cpu().numpy())
+    finally:
+        if hasattr(pitch_extractor, "reset"):
+            pitch_extractor.reset()
+        if saved_cent is not None and hasattr(pitch_extractor, "_last_voiced_cent"):
+            pitch_extractor._last_voiced_cent = saved_cent
+
+    if not f0_chunks:
+        return np.empty(0, dtype=np.float32)
+    return np.concatenate(f0_chunks).astype(np.float32, copy=False)
+
+
 def analyze_voice_acoustics(
     y: np.ndarray,
     sr: int,
     max_duration_sec: float = 30.0,
+    pitch_extractor: Any = None,
+    pitch_extractor_device: Any = None,
 ) -> Dict[str, Any]:
     """
     Extract pitch (F0), SR-invariant formant centroid, and physical-time cepstral
@@ -331,34 +438,25 @@ def analyze_voice_acoustics(
             "voiced_ratio": 0.0,
         }
 
-    y_mono = _select_highest_energy_segment(y_mono, sr_int, max_duration_sec)
+    # Spectral envelope uses the highest-energy segment for high SNR;
+    # F0 statistics cover the full recording (or uniform slices if very long) to avoid loud-burst pitch bias.
+    y_env = _select_highest_energy_segment(y_mono, sr_int, max_duration_sec)
+    y_f0 = _select_uniform_f0_audio(y_mono, sr_int, max_f0_duration_sec=max(90.0, max_duration_sec))
 
-    # Resample to 16 kHz solely for YIN F0 / periodicity analysis
-    if sr_int == 16000:
-        y_16k = y_mono
-    else:
-        g = math.gcd(16000, sr_int)
-        up, down = 16000 // g, sr_int // g
-        if max(up, down) <= 2000:
-            y_16k = scipy_signal.resample_poly(y_mono, up, down).astype(
-                np.float32, copy=False
-            )
-        else:
-            target_len = max(1, int(round(y_mono.shape[0] * 16000.0 / float(sr_int))))
-            y_16k = scipy_signal.resample(y_mono, target_len).astype(
-                np.float32, copy=False
-            )
+    y_16k_env = _resample_to_16k(y_env, sr_int)
+    same_f0_segment = y_f0 is y_env or (y_f0.shape[0] == y_env.shape[0] and y_mono.shape[0] <= int(round(max_duration_sec * sr_int)))
+    y_16k_f0 = y_16k_env if same_f0_segment else _resample_to_16k(y_f0, sr_int)
 
     yin_hop = 160
-    f0_yin, aper_yin, _ = _extract_voiced_f0_yin_16k(
-        y_16k, sr_16k=16000, frame_length=1024, hop_length=yin_hop, fmin=55.0, fmax=800.0
+    f0_yin, aper_yin, rms_yin = _extract_voiced_f0_yin_16k(
+        y_16k_env, sr_16k=16000, frame_length=1024, hop_length=yin_hop, fmin=55.0, fmax=800.0
     )
 
     # STFT on native sample rate with physically consistent window size
     hop_length = n_fft // 4
     pad = n_fft // 2
-    pad_mode = "reflect" if y_mono.size > pad else "constant"
-    y_pad = np.pad(y_mono, (pad, pad), mode=pad_mode)
+    pad_mode = "reflect" if y_env.size > pad else "constant"
+    y_pad = np.pad(y_env, (pad, pad), mode=pad_mode)
     frames = np.lib.stride_tricks.sliding_window_view(y_pad, n_fft)[::hop_length]
     win = np.hanning(n_fft).astype(np.float32)
     win_rms = float(np.sqrt(np.mean(win * win))) or 1.0
@@ -401,29 +499,50 @@ def analyze_voice_acoustics(
     voiced_ratio = float(voiced_count) / float(active_count) if active_count > 0 else 0.0
 
     if voiced_count >= 3:
-        f0_voiced = f0_stft[voiced_mask]
-        f0_median = float(np.median(f0_voiced))
         use_mask = voiced_mask
     else:
-        fallback_f0 = (f0_stft >= 55.0) & (f0_stft <= 800.0) & energy_mask
-        f0_voiced = f0_stft[fallback_f0] if np.any(fallback_f0) else np.empty(0, dtype=np.float32)
-        f0_median = float(np.median(f0_voiced)) if f0_voiced.size > 0 else 0.0
         use_mask = energy_mask if active_count > 0 else np.ones(n_frames, dtype=bool)
 
-    if f0_voiced.size > 0:
-        log2_f0 = np.log2(np.maximum(f0_voiced.astype(np.float64), 1e-3))
-        f0_log2_mean = float(np.median(log2_f0))
-        f0_p10 = float(np.percentile(f0_voiced, 10))
-        f0_p90 = float(np.percentile(f0_voiced, 90))
-        if f0_voiced.size >= 5:
-            f0_log2_std = float((np.percentile(log2_f0, 90) - np.percentile(log2_f0, 10)) / 2.5631)
+    # Extract unbiased F0 distribution across y_16k_f0 (preferring active neural pitch extractor)
+    f0_voiced_full = np.empty(0, dtype=np.float32)
+    if pitch_extractor is not None:
+        try:
+            f0_pe = _extract_f0_with_pitch_extractor(
+                y_16k_f0, pitch_extractor, device=pitch_extractor_device, window_size=yin_hop
+            )
+            rms_16k = _compute_16k_frame_rms(y_16k_f0, frame_length=1024, hop_length=yin_hop)
+            if f0_pe.size > 0 and rms_16k.size > 0:
+                rms_pe_p95 = float(np.percentile(rms_16k, 95))
+                rms_pe_thresh = max(1e-4, 0.05 * rms_pe_p95)
+                idx_pe = np.linspace(0, rms_16k.size - 1, f0_pe.size).round().astype(np.int64)
+                pe_mask = (
+                    (rms_16k[idx_pe] > rms_pe_thresh)
+                    & (f0_pe >= 55.0)
+                    & (f0_pe <= 800.0)
+                )
+                if int(np.sum(pe_mask)) >= 3:
+                    f0_voiced_full = f0_pe[pe_mask]
+        except Exception:
+            f0_voiced_full = np.empty(0, dtype=np.float32)
+
+    if f0_voiced_full.size < 3:
+        if same_f0_segment:
+            f0_yin_f0, aper_yin_f0, rms_yin_f0 = f0_yin, aper_yin, rms_yin
         else:
-            f0_log2_std = float(np.std(log2_f0))
-    else:
-        f0_log2_mean = 0.0
-        f0_log2_std = 0.0
-        f0_p10 = 0.0
-        f0_p90 = 0.0
+            f0_yin_f0, aper_yin_f0, rms_yin_f0 = _extract_voiced_f0_yin_16k(
+                y_16k_f0, sr_16k=16000, frame_length=1024, hop_length=yin_hop, fmin=55.0, fmax=800.0
+            )
+        rms_f0_p95 = float(np.percentile(rms_yin_f0, 95)) if rms_yin_f0.size > 0 else 0.0
+        rms_f0_thresh = max(1e-4, 0.05 * rms_f0_p95)
+        e_f0_mask = rms_yin_f0 > rms_f0_thresh
+        yin_voiced = e_f0_mask & (aper_yin_f0 < 0.25) & (f0_yin_f0 >= 55.0) & (f0_yin_f0 <= 800.0)
+        if int(np.sum(yin_voiced)) >= 3:
+            f0_voiced_full = f0_yin_f0[yin_voiced]
+        else:
+            fallback_f0 = e_f0_mask & (f0_yin_f0 >= 55.0) & (f0_yin_f0 <= 800.0)
+            f0_voiced_full = f0_yin_f0[fallback_f0] if np.any(fallback_f0) else np.empty(0, dtype=np.float32)
+
+    f0_median, f0_log2_mean, f0_log2_std, f0_p10, f0_p90 = _compute_pitch_stats(f0_voiced_full)
 
     # Physical-time cepstral liftering (symmetric raised cosine)
     tau_c = float(np.clip(0.65 / f0_median, 0.0012, 0.0022)) if f0_median > 0.0 else 0.0018
@@ -495,11 +614,15 @@ def map_f0_distribution(
     pitch_scale: float = 1.0,
     pitch_offset_semitones: float = 0.0,
     soft_margin_semitones: float = 4.0,
+    pitch_mode: str = "speech",
 ) -> torch.Tensor:
     """
     Map voiced F0 frames from source log2 center into target speaker's log2
-    center while preserving natural semitone intonation (1:1 at pitch_scale=1.0)
-    and applying gentle tanh soft-compression only beyond a wide comfort zone.
+    center.
+    - speech: preserves natural semitone intonation (1:1 at pitch_scale=1.0)
+      with gentle tanh soft-compression beyond a wide comfort zone.
+    - singing: snaps center shift to the nearest integer semitone, locks scale
+      to 1.0, and disables soft-compression so musical intervals stay in tune.
     Unvoiced frames (f0 <= 0) remain 0.
     """
     del src_log2_std, tgt_log2_std
@@ -512,32 +635,37 @@ def map_f0_distribution(
     if not torch.any(voiced_mask):
         return f0
 
-    scale = max(0.30, min(1.50, float(pitch_scale)))
+    mode = "singing" if str(pitch_mode).strip().lower() == "singing" else "speech"
     offset_oct = float(pitch_offset_semitones) / 12.0
-    tgt_center = float(tgt_log2_mean) + offset_oct
-
     log2_in = torch.log2(torch.clamp(f0_f32, min=1e-3))
-    mapped = tgt_center + scale * (log2_in - float(src_log2_mean))
 
-    lo_min_comfort = tgt_center - 6.0 / 12.0
-    hi_min_comfort = tgt_center + 7.0 / 12.0
-    if tgt_f0_p10 > 0.0 and tgt_f0_p90 > tgt_f0_p10:
-        lo = min(math.log2(float(tgt_f0_p10)) + offset_oct - 2.0 / 12.0, lo_min_comfort)
-        hi = max(math.log2(float(tgt_f0_p90)) + offset_oct + 2.0 / 12.0, hi_min_comfort)
+    if mode == "singing":
+        shift_oct = round((float(tgt_log2_mean) - float(src_log2_mean)) * 12.0) / 12.0
+        soft_mapped = log2_in + shift_oct + offset_oct
     else:
-        lo = lo_min_comfort
-        hi = hi_min_comfort
+        scale = max(0.30, min(1.50, float(pitch_scale)))
+        tgt_center = float(tgt_log2_mean) + offset_oct
+        mapped = tgt_center + scale * (log2_in - float(src_log2_mean))
 
-    margin = max(0.10, float(soft_margin_semitones) / 12.0)
-    soft_mapped = torch.where(
-        mapped > hi,
-        hi + margin * torch.tanh((mapped - hi) / margin),
-        torch.where(
-            mapped < lo,
-            lo - margin * torch.tanh((lo - mapped) / margin),
-            mapped,
-        ),
-    )
+        lo_min_comfort = tgt_center - 6.0 / 12.0
+        hi_min_comfort = tgt_center + 7.0 / 12.0
+        if tgt_f0_p10 > 0.0 and tgt_f0_p90 > tgt_f0_p10:
+            lo = min(math.log2(float(tgt_f0_p10)) + offset_oct - 2.0 / 12.0, lo_min_comfort)
+            hi = max(math.log2(float(tgt_f0_p90)) + offset_oct + 2.0 / 12.0, hi_min_comfort)
+        else:
+            lo = lo_min_comfort
+            hi = hi_min_comfort
+
+        margin = max(0.10, float(soft_margin_semitones) / 12.0)
+        soft_mapped = torch.where(
+            mapped > hi,
+            hi + margin * torch.tanh((mapped - hi) / margin),
+            torch.where(
+                mapped < lo,
+                lo - margin * torch.tanh((lo - mapped) / margin),
+                mapped,
+            ),
+        )
 
     out_hz = torch.pow(2.0, soft_mapped).clamp(50.0, 1100.0)
     out = torch.where(voiced_mask, out_hz, torch.zeros_like(f0_f32))

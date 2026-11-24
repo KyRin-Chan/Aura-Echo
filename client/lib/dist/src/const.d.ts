@@ -144,6 +144,7 @@ export declare const ServerSettingKey: {
     readonly formantProfilePitchStats: "formantProfilePitchStats";
     readonly formantProfilePitchScale: "formantProfilePitchScale";
     readonly formantProfilePitchOffset: "formantProfilePitchOffset";
+    readonly formantProfilePitchMode: "formantProfilePitchMode";
     readonly embedders: "embedders";
     readonly pitchExtractors: "pitchExtractors";
     readonly vocoders: "vocoders";
@@ -225,6 +226,7 @@ export type VoiceChangerServerSetting = {
     formantProfilePitchStats: string;
     formantProfilePitchScale: number;
     formantProfilePitchOffset: number;
+    formantProfilePitchMode: string;
     embedders: ModelInfoDict;
     pitchExtractors: ModelInfoDict;
     vocoders: ModelInfoDict;

@@ -63,6 +63,7 @@ export interface ModelFormantBinding {
   strength?: number;
   pitchScale?: number;
   pitchOffset?: number;
+  pitchMode?: 'speech' | 'singing';
   recommendedPitch?: number;
   recommendedFormantShift?: number;
 }

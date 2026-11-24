@@ -299,6 +299,7 @@ class Pipeline:
                 tgt_f0_p90=float(pitch_dist_cfg.get("tgt_p90", 0.0)),
                 pitch_scale=float(pitch_dist_cfg.get("pitch_scale", 1.0)),
                 pitch_offset_semitones=float(pitch_dist_cfg.get("pitch_offset", 0.0)),
+                pitch_mode=str(pitch_dist_cfg.get("pitch_mode", "speech")),
             )
         else:
             f0 = f0 * (2 ** (f0_up_key / 12))

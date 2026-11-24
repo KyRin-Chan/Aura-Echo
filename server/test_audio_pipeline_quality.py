@@ -2679,8 +2679,137 @@ class TestAudioPipelineQuality(unittest.TestCase):
             self.assertEqual(captured_exec["formant_length"], expected_fl)
             expected_pitchf = 120.0 * (2.0 ** ((12.0 - 2.5) / 12.0)) * (expected_fl / float(rvc.return_length))
             self.assertAlmostEqual(captured_exec["pitchf_mean"], expected_pitchf, delta=3.0)
+
+            # Singing mode: snaps center shift to integer semitone (+10 st from 120 -> 220 Hz)
+            # and ignores pitch_scale != 1.0.
+            settings.formantProfileActive = True
+            settings.formantProfilePitchMode = "singing"
+            settings.formantProfilePitchScale = 0.5
+            captured_exec.clear()
+            rvc.inference(audio_chunk, bypass_silence_gate=True)
+            expected_singing_hz = 120.0 * (2.0 ** (10.0 / 12.0))
+            self.assertAlmostEqual(captured_exec["pitchf_mean"], expected_singing_hz, delta=2.0)
         finally:
             pipe._executor.shutdown(wait=True)
+
+    def test_analyze_voice_acoustics_uses_pitch_extractor_and_filters_octave_outliers(self):
+        sr = 16000
+        t = np.arange(sr, dtype=np.float32) / float(sr)
+        y = (0.2 * np.sin(2.0 * math.pi * 150.0 * t)).astype(np.float32)
+
+        class MockPitchExtractor:
+            def __init__(self):
+                self.device = torch.device("cpu")
+                self._last_voiced_cent = 1234.0
+                self.extract_calls = 0
+
+            def reset(self):
+                self._last_voiced_cent = 0.0
+
+            def extract(self, audio, sr_arg, window):
+                self.extract_calls += 1
+                n_frames = max(10, int(audio.shape[0] // window))
+                out = torch.full((n_frames,), 150.0, dtype=torch.float32, device=audio.device)
+                # Inject octave-up and octave-down outliers (exceeding +/-1.2 octaves)
+                out[:3] = 380.0
+                out[3:6] = 60.0
+                return out
+
+        pe = MockPitchExtractor()
+        res = analyze_voice_acoustics(y, sr, pitch_extractor=pe, pitch_extractor_device=torch.device("cpu"))
+        self.assertGreaterEqual(pe.extract_calls, 1)
+        self.assertEqual(pe._last_voiced_cent, 1234.0)
+        self.assertAlmostEqual(res["f0"], 150.0, delta=1.0)
+        self.assertAlmostEqual(res["f0_p10"], 150.0, delta=1.0)
+        self.assertAlmostEqual(res["f0_p90"], 150.0, delta=1.0)
+
+    def test_analyze_voice_acoustics_long_audio_avoids_loud_burst_bias(self):
+        sr = 16000
+        t_main = np.arange(33 * sr, dtype=np.float32) / float(sr)
+        y_main = (0.08 * np.sin(2.0 * math.pi * 120.0 * t_main)).astype(np.float32)
+        t_burst = np.arange(3 * sr, dtype=np.float32) / float(sr)
+        y_burst = (0.65 * np.sin(2.0 * math.pi * 300.0 * t_burst)).astype(np.float32)
+        y = np.concatenate([y_main, y_burst])
+
+        res = analyze_voice_acoustics(y, sr, max_duration_sec=5.0)
+        self.assertGreater(res["f0"], 105.0)
+        self.assertLess(res["f0"], 135.0)
+
+    def test_map_f0_distribution_singing_mode(self):
+        src_mean = math.log2(120.0)
+        tgt_mean = math.log2(220.0)  # +10.491 st -> nearest integer is +10 st
+        f0 = torch.tensor(
+            [
+                0.0,
+                120.0,
+                120.0 * (2.0 ** (4.0 / 12.0)),
+                120.0 * (2.0 ** (14.0 / 12.0)),
+            ],
+            dtype=torch.float32,
+        )
+        mapped = map_f0_distribution(
+            f0,
+            src_log2_mean=src_mean,
+            src_log2_std=0.45,
+            tgt_log2_mean=tgt_mean,
+            tgt_log2_std=0.12,
+            tgt_f0_p10=195.0,
+            tgt_f0_p90=245.0,
+            pitch_scale=0.5,
+            pitch_offset_semitones=0.0,
+            pitch_mode="singing",
+        )
+        self.assertEqual(float(mapped[0].item()), 0.0)
+        self.assertAlmostEqual(float(mapped[1].item()), 120.0 * (2.0 ** (10.0 / 12.0)), delta=0.2)
+        self.assertAlmostEqual(float(mapped[2].item()), 120.0 * (2.0 ** (14.0 / 12.0)), delta=0.2)
+        # No tanh soft compression on high notes in singing mode
+        self.assertAlmostEqual(float(mapped[3].item()), 120.0 * (2.0 ** (24.0 / 12.0)), delta=0.5)
+
+    def test_calibrate_match_eq_run_rvc_false_clears_input_pitch_stats(self):
+        import io
+        import wave
+        from webserver.restapi.MMVC_Rest_VoiceChanger import MMVC_Rest_VoiceChanger
+
+        def _make_wav_bytes(freq_hz: float, dur_sec: float = 0.6, sr: int = 16000) -> bytes:
+            t = np.arange(int(dur_sec * sr), dtype=np.float32) / float(sr)
+            pcm = np.clip(0.3 * np.sin(2.0 * math.pi * freq_hz * t) * 32767.0, -32768, 32767).astype(np.int16)
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sr)
+                wf.writeframes(pcm.tobytes())
+            return buf.getvalue()
+
+        class DummyUpload:
+            def __init__(self, filename: str, payload: bytes):
+                self.filename = filename
+                self._payload = payload
+
+            async def read(self):
+                return self._payload
+
+        vc_mgr = MagicMock()
+        vc_mgr.settings = VoiceChangerSettings()
+        vc_mgr.vc = MagicMock()
+        vc_mgr.vc.vcmodel = None
+        rest = MMVC_Rest_VoiceChanger(vc_mgr)
+
+        resp = _run_coro(
+            rest.post_calibrate_match_eq(
+                target_file=DummyUpload("tgt.wav", _make_wav_bytes(220.0)),
+                input_file=DummyUpload("conv.wav", _make_wav_bytes(210.0)),
+                run_rvc=False,
+            )
+        )
+        data = json.loads(resp.body.decode("utf-8"))
+        self.assertTrue(data["success"])
+        self.assertFalse(data["calibrated_with_rvc"])
+        self.assertEqual(data["input_f0_log2_mean"], 0.0)
+        self.assertEqual(data["input_f0_log2_std"], 0.0)
+        self.assertEqual(data["input_f0_p10"], 0.0)
+        self.assertEqual(data["input_f0_p90"], 0.0)
+        self.assertGreater(data["target_f0_log2_mean"], 0.0)
 
 
 if __name__ == "__main__":
