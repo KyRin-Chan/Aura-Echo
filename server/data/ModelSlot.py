@@ -49,6 +49,8 @@ class RVCModelSlot(ModelSlot):
     formantTargetProfileId: str = ""
     formantProfileActive: bool = False
     formantProfileStrength: float = 0.35
+    formantProfilePitchScale: float = 0.85
+    formantProfilePitchOffset: float = 0.0
 
 ModelSlots: TypeAlias = Union[
     ModelSlot,

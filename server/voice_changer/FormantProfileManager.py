@@ -108,6 +108,8 @@ class FormantProfileManager:
                 target_id = getattr(slot_info, "formantTargetProfileId", "")
                 active = getattr(slot_info, "formantProfileActive", False)
                 strength = getattr(slot_info, "formantProfileStrength", 0.35)
+                pitch_scale = getattr(slot_info, "formantProfilePitchScale", 0.85)
+                pitch_offset = getattr(slot_info, "formantProfilePitchOffset", 0.0)
 
                 if input_id or target_id or active:
                     bindings[str(slot_index)] = {
@@ -115,7 +117,9 @@ class FormantProfileManager:
                         "inputProfileId": input_id,
                         "targetProfileId": target_id,
                         "active": active,
-                        "strength": strength
+                        "strength": strength,
+                        "pitchScale": pitch_scale,
+                        "pitchOffset": pitch_offset,
                     }
         except Exception as e:
             logger.error(f"Error getting slot bindings from model params.json: {e}")
@@ -133,7 +137,9 @@ class FormantProfileManager:
                     "inputProfileId": getattr(slot_info, "formantInputProfileId", ""),
                     "targetProfileId": getattr(slot_info, "formantTargetProfileId", ""),
                     "active": getattr(slot_info, "formantProfileActive", False),
-                    "strength": getattr(slot_info, "formantProfileStrength", 0.35)
+                    "strength": getattr(slot_info, "formantProfileStrength", 0.35),
+                    "pitchScale": getattr(slot_info, "formantProfilePitchScale", 0.85),
+                    "pitchOffset": getattr(slot_info, "formantProfilePitchOffset", 0.0),
                 }
         except Exception as e:
             logger.error(f"Error reading binding for slot {slot_index}: {e}")
@@ -156,6 +162,10 @@ class FormantProfileManager:
                     slot_info.formantProfileActive = bool(binding_data["active"])
                 if "strength" in binding_data:
                     slot_info.formantProfileStrength = float(binding_data["strength"])
+                if "pitchScale" in binding_data:
+                    slot_info.formantProfilePitchScale = max(0.30, min(1.30, float(binding_data["pitchScale"])))
+                if "pitchOffset" in binding_data:
+                    slot_info.formantProfilePitchOffset = max(-6.0, min(6.0, float(binding_data["pitchOffset"])))
 
                 slot_mgr.save_model_slot(idx, slot_info)
                 logger.info(f"Saved formant binding directly into model params.json for slot {idx}")
@@ -174,6 +184,8 @@ class FormantProfileManager:
                 slot_info.formantInputProfileId = ""
                 slot_info.formantTargetProfileId = ""
                 slot_info.formantProfileActive = False
+                slot_info.formantProfilePitchScale = 0.85
+                slot_info.formantProfilePitchOffset = 0.0
                 slot_mgr.save_model_slot(idx, slot_info)
                 logger.info(f"Reset formant binding in params.json for slot {idx}")
                 return True

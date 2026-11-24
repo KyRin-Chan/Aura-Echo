@@ -284,7 +284,7 @@ class VoiceChangerManager(ServerAudioCallbacks):
 
     def update_settings(self, key: str, val: Any):
         # Only log audio effects changes and large envelopes at debug level to reduce noise
-        if key in ['audioEffects', 'formantProfileInputEnvelope', 'formantProfileTargetEnvelope']:
+        if key in ['audioEffects', 'formantProfileInputEnvelope', 'formantProfileTargetEnvelope', 'formantProfilePitchStats']:
             log_val = val
             if isinstance(val, str) and len(val) > 80:
                 log_val = val[:77] + "..."

@@ -179,6 +179,9 @@ export const ServerSettingKey = {
     formantProfileInputEnvelope: "formantProfileInputEnvelope",
     formantProfileInputSr: "formantProfileInputSr",
     formantProfileStrength: "formantProfileStrength",
+    formantProfilePitchStats: "formantProfilePitchStats",
+    formantProfilePitchScale: "formantProfilePitchScale",
+    formantProfilePitchOffset: "formantProfilePitchOffset",
     
     embedders: "embedders",
     pitchExtractors: "pitchExtractors",
@@ -270,6 +273,9 @@ export type VoiceChangerServerSetting = {
     formantProfileInputEnvelope: string;
     formantProfileInputSr: number;
     formantProfileStrength: number;
+    formantProfilePitchStats: string;
+    formantProfilePitchScale: number;
+    formantProfilePitchOffset: number;
 
     embedders: ModelInfoDict;
     pitchExtractors: ModelInfoDict;
@@ -449,6 +455,9 @@ export const DefaultServerSetting: ServerInfo = {
     formantProfileInputEnvelope: "[]",
     formantProfileInputSr: 0,
     formantProfileStrength: 0.35,
+    formantProfilePitchStats: "{}",
+    formantProfilePitchScale: 0.85,
+    formantProfilePitchOffset: 0.0,
 
     gpus: [],
 

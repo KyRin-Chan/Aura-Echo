@@ -1,6 +1,7 @@
 """
 VoiceChangerV2向け
 """
+import json
 import logging
 import os
 from time import perf_counter
@@ -87,6 +88,8 @@ class RVCr2(VoiceChangerModel):
         self._last_block_frame: int = 0
         self._last_pitch_hop_frames: int = 4
         self._init_succeeded: bool = False
+        self._pitch_dist_cache_key = None
+        self._pitch_dist_cfg: Optional[dict] = None
 
     @property
     def _gate_open(self) -> bool:
@@ -316,8 +319,9 @@ class RVCr2(VoiceChangerModel):
                 self.pipeline.pitchExtractor.reset()
 
     def _sync_formant_filter(self) -> None:
+        active = bool(getattr(self.settings, "formantProfileActive", False))
         self.formant_filter.update_config(
-            active=getattr(self.settings, "formantProfileActive", False),
+            active=active,
             target_env=getattr(self.settings, "formantProfileTargetEnvelope", "[]"),
             target_sr=getattr(self.settings, "formantProfileTargetSr", 0),
             input_env=getattr(self.settings, "formantProfileInputEnvelope", "[]"),
@@ -327,6 +331,37 @@ class RVCr2(VoiceChangerModel):
             post_sr=self.output_sample_rate,
             device=self.device_manager.device,
         )
+
+        stats_str = str(getattr(self.settings, "formantProfilePitchStats", "{}") or "{}")
+        pitch_scale = float(getattr(self.settings, "formantProfilePitchScale", 0.85))
+        pitch_offset = float(getattr(self.settings, "formantProfilePitchOffset", 0.0))
+        pitch_key = (active, stats_str, pitch_scale, pitch_offset)
+        if pitch_key != self._pitch_dist_cache_key:
+            self._pitch_dist_cache_key = pitch_key
+            if not active:
+                self._pitch_dist_cfg = None
+            else:
+                try:
+                    parsed = json.loads(stats_str) if isinstance(stats_str, str) else stats_str
+                    if (
+                        isinstance(parsed, dict)
+                        and float(parsed.get("src_mean", 0.0)) > 0.0
+                        and float(parsed.get("tgt_mean", 0.0)) > 0.0
+                    ):
+                        self._pitch_dist_cfg = {
+                            "src_mean": float(parsed["src_mean"]),
+                            "src_std": float(parsed.get("src_std", 0.0)),
+                            "tgt_mean": float(parsed["tgt_mean"]),
+                            "tgt_std": float(parsed.get("tgt_std", 0.0)),
+                            "tgt_p10": float(parsed.get("tgt_p10", 0.0)),
+                            "tgt_p90": float(parsed.get("tgt_p90", 0.0)),
+                            "pitch_scale": pitch_scale,
+                            "pitch_offset": pitch_offset,
+                        }
+                    else:
+                        self._pitch_dist_cfg = None
+                except Exception:
+                    self._pitch_dist_cfg = None
 
     def _shift_pitch_buffers_zero(self, pitch_hop_frames: int) -> None:
         if self.pitch_buffer is None or self.pitchf_buffer is None:
@@ -378,6 +413,8 @@ class RVCr2(VoiceChangerModel):
         audio_in: AudioInOutFloat,
         sample_rate: int,
         max_duration_sec: float = 12.0,
+        pitch_dist_cfg: Optional[dict] = None,
+        formant_shift_override: Optional[float] = None,
     ) -> tuple[np.ndarray, int]:
         """
         Convert an offline dry vocal sample through the active RVC pipeline using
@@ -462,7 +499,11 @@ class RVCr2(VoiceChangerModel):
 
         tmp_pitch = torch.zeros(feats_len + 1, dtype=torch.int64, device=dev)
         tmp_pitchf = torch.zeros(feats_len + 1, dtype=self.dtype, device=dev)
-        formant_shift = float(getattr(self.settings, "formantShift", 0.0))
+        formant_shift = (
+            float(formant_shift_override)
+            if formant_shift_override is not None
+            else float(getattr(self.settings, "formantShift", 0.0))
+        )
 
         saved_last_f0 = self.pipeline.last_f0_smoothed
         self.pipeline.last_f0_smoothed = None
@@ -491,6 +532,7 @@ class RVCr2(VoiceChangerModel):
                     return_length,
                     self.settings.protect,
                     formant_shift=formant_shift,
+                    pitch_dist_cfg=pitch_dist_cfg,
                 )
 
                 uses_standalone = getattr(
@@ -606,6 +648,10 @@ class RVCr2(VoiceChangerModel):
 
         buf_rms = torch.sqrt(torch.mean(self.audio_buffer.float() ** 2) + 1e-8)
 
+        calibration_active = bool(getattr(self.settings, "formantProfileActive", False))
+        effective_formant_shift = 0.0 if calibration_active else float(getattr(self.settings, "formantShift", 0.0))
+        pitch_dist_cfg = self._pitch_dist_cfg if calibration_active else None
+
         audio_model = self.pipeline.exec(
             self.settings.dstId,
             self.convert_buffer,
@@ -623,7 +669,8 @@ class RVCr2(VoiceChangerModel):
             pitch_hop_frames=pitch_hop_frames,
             pitch_scratch=self._pitch_scratch,
             pitchf_scratch=self._pitchf_scratch,
-            formant_shift=float(getattr(self.settings, "formantShift", 0.0)),
+            formant_shift=effective_formant_shift,
+            pitch_dist_cfg=pitch_dist_cfg,
         )
 
         # Smoothed adaptive RMS normalization (zero GPU->CPU sync, prevents pumping and noise boost)

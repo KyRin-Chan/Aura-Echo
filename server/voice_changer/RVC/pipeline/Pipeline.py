@@ -12,6 +12,7 @@ from torchaudio import transforms as tat
 
 from const import F0_MEL_MIN, F0_MEL_MAX, HUBERT_SAMPLE_RATE, WINDOW_SIZE
 from voice_changer.audio_effects.AudioEffectsManager import AudioEffectsManager
+from voice_changer.common.AudioDSP import map_f0_distribution
 from voice_changer.common.TorchUtils import circular_write
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.embedder.Embedder import Embedder
@@ -275,14 +276,33 @@ class Pipeline:
         pitch_hop_frames: Optional[int] = None,
         pitch_scratch: Optional[torch.Tensor] = None,
         pitchf_scratch: Optional[torch.Tensor] = None,
+        pitch_dist_cfg: Optional[dict] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         f0 = self.pitchExtractor.extract(
             audio,
             HUBERT_SAMPLE_RATE,
             WINDOW_SIZE,
         )
-        f0 = f0 * (2 ** (f0_up_key / 12))
-        f0 = self._stabilize_f0(f0)
+        if (
+            pitch_dist_cfg is not None
+            and float(pitch_dist_cfg.get("src_mean", 0.0)) > 0.0
+            and float(pitch_dist_cfg.get("tgt_mean", 0.0)) > 0.0
+        ):
+            f0 = self._stabilize_f0(f0)
+            f0 = map_f0_distribution(
+                f0,
+                src_log2_mean=float(pitch_dist_cfg["src_mean"]),
+                src_log2_std=float(pitch_dist_cfg.get("src_std", 0.0)),
+                tgt_log2_mean=float(pitch_dist_cfg["tgt_mean"]),
+                tgt_log2_std=float(pitch_dist_cfg.get("tgt_std", 0.0)),
+                tgt_f0_p10=float(pitch_dist_cfg.get("tgt_p10", 0.0)),
+                tgt_f0_p90=float(pitch_dist_cfg.get("tgt_p90", 0.0)),
+                pitch_scale=float(pitch_dist_cfg.get("pitch_scale", 0.85)),
+                pitch_offset_semitones=float(pitch_dist_cfg.get("pitch_offset", 0.0)),
+            )
+        else:
+            f0 = f0 * (2 ** (f0_up_key / 12))
+            f0 = self._stabilize_f0(f0)
 
         auto_tune_effect = self._get_active_autotune()
         hop_frames = (
@@ -426,6 +446,7 @@ class Pipeline:
         pitch_scratch: Optional[torch.Tensor] = None,
         pitchf_scratch: Optional[torch.Tensor] = None,
         formant_shift: float = 0.0,
+        pitch_dist_cfg: Optional[dict] = None,
     ) -> torch.Tensor:
         with Timer2("Pipeline-Exec", False) as t:
             assert audio.dim() == 1, audio.dim()
@@ -486,6 +507,7 @@ class Pipeline:
                                 pitch_hop_frames=pitch_hop_frames,
                                 pitch_scratch=pitch_scratch,
                                 pitchf_scratch=pitchf_scratch,
+                                pitch_dist_cfg=pitch_dist_cfg,
                             )
                         cur.wait_stream(self._pitch_stream)
                     else:
@@ -497,6 +519,7 @@ class Pipeline:
                             pitch_hop_frames=pitch_hop_frames,
                             pitch_scratch=pitch_scratch,
                             pitchf_scratch=pitchf_scratch,
+                            pitch_dist_cfg=pitch_dist_cfg,
                         )
                     pitch_ok = True
                 finally:

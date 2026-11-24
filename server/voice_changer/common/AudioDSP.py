@@ -321,6 +321,10 @@ def analyze_voice_acoustics(
     if y_mono.size < 512 or float(np.max(np.abs(y_mono))) < 1e-6:
         return {
             "f0": 0.0,
+            "f0_log2_mean": 0.0,
+            "f0_log2_std": 0.0,
+            "f0_p10": 0.0,
+            "f0_p90": 0.0,
             "centroid": 0.0,
             "envelope": flat_env,
             "sr": sr_int,
@@ -397,12 +401,29 @@ def analyze_voice_acoustics(
     voiced_ratio = float(voiced_count) / float(active_count) if active_count > 0 else 0.0
 
     if voiced_count >= 3:
-        f0_median = float(np.median(f0_stft[voiced_mask]))
+        f0_voiced = f0_stft[voiced_mask]
+        f0_median = float(np.median(f0_voiced))
         use_mask = voiced_mask
     else:
         fallback_f0 = (f0_stft >= 55.0) & (f0_stft <= 800.0) & energy_mask
-        f0_median = float(np.median(f0_stft[fallback_f0])) if np.any(fallback_f0) else 0.0
+        f0_voiced = f0_stft[fallback_f0] if np.any(fallback_f0) else np.empty(0, dtype=np.float32)
+        f0_median = float(np.median(f0_voiced)) if f0_voiced.size > 0 else 0.0
         use_mask = energy_mask if active_count > 0 else np.ones(n_frames, dtype=bool)
+
+    if f0_voiced.size > 0:
+        log2_f0 = np.log2(np.maximum(f0_voiced.astype(np.float64), 1e-3))
+        f0_log2_mean = float(np.median(log2_f0))
+        f0_p10 = float(np.percentile(f0_voiced, 10))
+        f0_p90 = float(np.percentile(f0_voiced, 90))
+        if f0_voiced.size >= 5:
+            f0_log2_std = float((np.percentile(log2_f0, 90) - np.percentile(log2_f0, 10)) / 2.5631)
+        else:
+            f0_log2_std = float(np.std(log2_f0))
+    else:
+        f0_log2_mean = 0.0
+        f0_log2_std = 0.0
+        f0_p10 = 0.0
+        f0_p90 = 0.0
 
     # Physical-time cepstral liftering (symmetric raised cosine)
     tau_c = float(np.clip(0.65 / f0_median, 0.0012, 0.0022)) if f0_median > 0.0 else 0.0018
@@ -452,11 +473,78 @@ def analyze_voice_acoustics(
 
     return {
         "f0": f0_median,
+        "f0_log2_mean": f0_log2_mean,
+        "f0_log2_std": f0_log2_std,
+        "f0_p10": f0_p10,
+        "f0_p90": f0_p90,
         "centroid": centroid,
         "envelope": envelope,
         "sr": sr_int,
         "voiced_ratio": voiced_ratio,
     }
+
+
+def map_f0_distribution(
+    f0: torch.Tensor,
+    src_log2_mean: float,
+    src_log2_std: float,
+    tgt_log2_mean: float,
+    tgt_log2_std: float,
+    tgt_f0_p10: float = 0.0,
+    tgt_f0_p90: float = 0.0,
+    pitch_scale: float = 0.85,
+    pitch_offset_semitones: float = 0.0,
+    soft_margin_semitones: float = 2.0,
+) -> torch.Tensor:
+    """
+    Map voiced F0 frames from source log2 distribution into target speaker's
+    log2 distribution with smooth tanh boundary soft-compression.
+    Unvoiced frames (f0 <= 0) remain 0.
+    """
+    if f0.numel() == 0 or src_log2_mean <= 0.0 or tgt_log2_mean <= 0.0:
+        return f0
+
+    orig_dtype = f0.dtype
+    f0_f32 = f0.float()
+    voiced_mask = f0_f32 > 0.0
+    if not torch.any(voiced_mask):
+        return f0
+
+    s_src = max(float(src_log2_std), 0.08)
+    s_tgt = max(float(tgt_log2_std), 0.08)
+    scale = max(0.25, min(2.0, float(pitch_scale) * (s_tgt / s_src)))
+    offset_oct = float(pitch_offset_semitones) / 12.0
+    tgt_center = float(tgt_log2_mean) + offset_oct
+
+    log2_in = torch.log2(torch.clamp(f0_f32, min=1e-3))
+    mapped = tgt_center + scale * (log2_in - float(src_log2_mean))
+
+    if tgt_f0_p10 > 0.0 and tgt_f0_p90 > tgt_f0_p10:
+        lo = math.log2(float(tgt_f0_p10)) + offset_oct
+        hi = math.log2(float(tgt_f0_p90)) + offset_oct
+    else:
+        lo = tgt_center - 1.28 * s_tgt
+        hi = tgt_center + 1.28 * s_tgt
+
+    min_span = 3.0 / 12.0
+    if hi - lo < min_span:
+        lo = tgt_center - 0.5 * min_span
+        hi = tgt_center + 0.5 * min_span
+
+    margin = max(0.05, float(soft_margin_semitones) / 12.0)
+    soft_mapped = torch.where(
+        mapped > hi,
+        hi + margin * torch.tanh((mapped - hi) / margin),
+        torch.where(
+            mapped < lo,
+            lo - margin * torch.tanh((lo - mapped) / margin),
+            mapped,
+        ),
+    )
+
+    out_hz = torch.pow(2.0, soft_mapped).clamp(50.0, 1100.0)
+    out = torch.where(voiced_mask, out_hz, torch.zeros_like(f0_f32))
+    return out.to(dtype=orig_dtype)
 
 
 def _parse_envelope_to_log(env_raw: Any) -> Optional[np.ndarray]:

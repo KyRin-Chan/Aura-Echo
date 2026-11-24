@@ -27,6 +27,7 @@ import {
   deleteFormantBinding,
   syncProfilesFromServer,
   syncBindingsFromServer,
+  serializePitchStats,
   serializeProfileEnvelope
 } from '../../../../utils/formantStorage';
 
@@ -58,9 +59,17 @@ interface CalibrationResult {
   calibrated_tran: number;
   calibrated_formant_shift: number;
   target_f0: number;
+  target_f0_log2_mean?: number;
+  target_f0_log2_std?: number;
+  target_f0_p10?: number;
+  target_f0_p90?: number;
   target_centroid: number;
   target_envelope: number[];
   target_sr: number;
+  input_f0_log2_mean?: number;
+  input_f0_log2_std?: number;
+  input_f0_p10?: number;
+  input_f0_p90?: number;
   baseline_f0: number;
   baseline_centroid: number;
   baseline_envelope: number[];
@@ -596,6 +605,10 @@ const VoiceAnalyzerModal = ({
         envelope: calData.target_envelope,
         sr: calData.target_sr,
         f0: calData.target_f0,
+        f0Log2Mean: calData.target_f0_log2_mean,
+        f0Log2Std: calData.target_f0_log2_std,
+        f0P10: calData.target_f0_p10,
+        f0P90: calData.target_f0_p90,
         centroid: calData.target_centroid
       };
 
@@ -607,6 +620,10 @@ const VoiceAnalyzerModal = ({
         envelope: calData.baseline_envelope,
         sr: calData.baseline_sr,
         f0: calData.baseline_f0,
+        f0Log2Mean: calData.input_f0_log2_mean,
+        f0Log2Std: calData.input_f0_log2_std,
+        f0P10: calData.input_f0_p10,
+        f0P90: calData.input_f0_p90,
         centroid: calData.baseline_centroid,
         modelSlotIndex: calData.model_slot_index,
         calibratedTran: calData.calibrated_tran,
@@ -618,12 +635,17 @@ const VoiceAnalyzerModal = ({
       saveFormantProfile(baselineProfile);
 
       const defaultStrength = 0.5;
+      const defaultPitchScale = 0.85;
+      const defaultPitchOffset = 0.0;
+      const serializedPitchStats = serializePitchStats(baselineProfile, targetProfile);
       if (activeSlotIndex !== undefined && activeSlotIndex !== -1) {
         saveFormantBinding(activeSlotIndex, {
           inputProfileId: baselineProfile.id,
           targetProfileId: targetProfile.id,
           active: true,
-          strength: defaultStrength
+          strength: defaultStrength,
+          pitchScale: defaultPitchScale,
+          pitchOffset: defaultPitchOffset
         });
 
         appState.serverSetting.updateServerSettings({
@@ -633,7 +655,10 @@ const VoiceAnalyzerModal = ({
           formantProfileTargetSr: targetProfile.sr,
           formantProfileInputEnvelope: serializeProfileEnvelope(baselineProfile),
           formantProfileInputSr: baselineProfile.sr,
-          formantProfileStrength: defaultStrength
+          formantProfileStrength: defaultStrength,
+          formantProfilePitchStats: serializedPitchStats,
+          formantProfilePitchScale: defaultPitchScale,
+          formantProfilePitchOffset: defaultPitchOffset
         });
       }
 
@@ -1169,6 +1194,15 @@ const VoiceAnalyzerModal = ({
                         {Math.round(calResult.baseline_centroid)} Hz
                       </span>
                     </div>
+                    {Boolean(calResult.input_f0_p90 && calResult.target_f0_p90) && (
+                      <div className="flex justify-between md:col-span-2 pt-1 border-t border-outline-variant/20">
+                        <span className="text-on-surface-variant">{t('matchEqPitchRangeLabel')}</span>
+                        <span className="font-mono font-semibold text-on-surface">
+                          {Math.round(calResult.input_f0_p10 || 0)}–{Math.round(calResult.input_f0_p90 || 0)} Hz →{' '}
+                          {Math.round(calResult.target_f0_p10 || 0)}–{Math.round(calResult.target_f0_p90 || 0)} Hz
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

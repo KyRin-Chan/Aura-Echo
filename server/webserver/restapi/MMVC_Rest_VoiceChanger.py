@@ -248,6 +248,20 @@ class MMVC_Rest_VoiceChanger:
 
             _, sr_tgt, tgt_res = await asyncio.to_thread(self._load_and_analyze_file, target_path)
             y_in, sr_in = await asyncio.to_thread(lambda p: librosa.load(p, sr=None, mono=True), input_path)
+            dry_in_res = await asyncio.to_thread(analyze_voice_acoustics, y_in, int(sr_in))
+
+            pitch_dist_cfg = None
+            if dry_in_res.get("f0_log2_mean", 0.0) > 0.0 and tgt_res.get("f0_log2_mean", 0.0) > 0.0:
+                pitch_dist_cfg = {
+                    "src_mean": float(dry_in_res["f0_log2_mean"]),
+                    "src_std": float(dry_in_res.get("f0_log2_std", 0.0)),
+                    "tgt_mean": float(tgt_res["f0_log2_mean"]),
+                    "tgt_std": float(tgt_res.get("f0_log2_std", 0.0)),
+                    "tgt_p10": float(tgt_res.get("f0_p10", 0.0)),
+                    "tgt_p90": float(tgt_res.get("f0_p90", 0.0)),
+                    "pitch_scale": 0.85,
+                    "pitch_offset": 0.0,
+                }
 
             if run_rvc:
                 vcmodel = getattr(self.voiceChangerManager.vc, "vcmodel", None)
@@ -263,7 +277,12 @@ class MMVC_Rest_VoiceChanger:
 
                 def _run_offline():
                     with self.voiceChangerManager.device_manager.lock:
-                        return vcmodel.convert_offline(y_in, int(sr_in))
+                        return vcmodel.convert_offline(
+                            y_in,
+                            int(sr_in),
+                            pitch_dist_cfg=pitch_dist_cfg,
+                            formant_shift_override=0.0,
+                        )
 
                 y_base, sr_base = await asyncio.to_thread(_run_offline)
                 if y_base is None or y_base.size == 0:
@@ -293,9 +312,17 @@ class MMVC_Rest_VoiceChanger:
                 "calibrated_tran": float(getattr(settings, "tran", 0.0)),
                 "calibrated_formant_shift": float(getattr(settings, "formantShift", 0.0)),
                 "target_f0": round(float(tgt_res["f0"]), 1),
+                "target_f0_log2_mean": float(tgt_res.get("f0_log2_mean", 0.0)),
+                "target_f0_log2_std": float(tgt_res.get("f0_log2_std", 0.0)),
+                "target_f0_p10": round(float(tgt_res.get("f0_p10", 0.0)), 1),
+                "target_f0_p90": round(float(tgt_res.get("f0_p90", 0.0)), 1),
                 "target_centroid": round(float(tgt_res["centroid"]), 1),
                 "target_envelope": tgt_res["envelope"].tolist(),
                 "target_sr": int(tgt_res["sr"]),
+                "input_f0_log2_mean": float(dry_in_res.get("f0_log2_mean", 0.0)),
+                "input_f0_log2_std": float(dry_in_res.get("f0_log2_std", 0.0)),
+                "input_f0_p10": round(float(dry_in_res.get("f0_p10", 0.0)), 1),
+                "input_f0_p90": round(float(dry_in_res.get("f0_p90", 0.0)), 1),
                 "baseline_f0": round(float(base_res["f0"]), 1),
                 "baseline_centroid": round(float(base_res["centroid"]), 1),
                 "baseline_envelope": base_res["envelope"].tolist(),

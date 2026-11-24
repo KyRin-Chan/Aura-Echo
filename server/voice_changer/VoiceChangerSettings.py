@@ -10,7 +10,8 @@ STATEFUL_KEYS = [
     'passThrough',
     'recordIO',
     'formantProfileTargetEnvelope',
-    'formantProfileInputEnvelope'
+    'formantProfileInputEnvelope',
+    'formantProfilePitchStats'
 ]
 
 def _js_bool_to_bool(value: str) -> bool:
@@ -465,6 +466,9 @@ class VoiceChangerSettings:
     _formantProfileInputEnvelope: str = "[]"
     _formantProfileInputSr: int = 0
     _formantProfileStrength: float = 0.35
+    _formantProfilePitchStats: str = "{}"
+    _formantProfilePitchScale: float = 0.85
+    _formantProfilePitchOffset: float = 0.0
 
     @property
     def formantProfileActive(self):
@@ -519,6 +523,36 @@ class VoiceChangerSettings:
     def formantProfileStrength(self, val: Any):
         try:
             self._formantProfileStrength = float(val)
+        except (ValueError, TypeError):
+            pass
+
+    @property
+    def formantProfilePitchStats(self):
+        return self._formantProfilePitchStats
+
+    @formantProfilePitchStats.setter
+    def formantProfilePitchStats(self, val: Any):
+        self._formantProfilePitchStats = str(val) if val is not None else "{}"
+
+    @property
+    def formantProfilePitchScale(self):
+        return self._formantProfilePitchScale
+
+    @formantProfilePitchScale.setter
+    def formantProfilePitchScale(self, val: Any):
+        try:
+            self._formantProfilePitchScale = max(0.30, min(1.30, float(val)))
+        except (ValueError, TypeError):
+            pass
+
+    @property
+    def formantProfilePitchOffset(self):
+        return self._formantProfilePitchOffset
+
+    @formantProfilePitchOffset.setter
+    def formantProfilePitchOffset(self, val: Any):
+        try:
+            self._formantProfilePitchOffset = max(-6.0, min(6.0, float(val)))
         except (ValueError, TypeError):
             pass
 

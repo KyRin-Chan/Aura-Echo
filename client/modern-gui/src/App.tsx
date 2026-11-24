@@ -7,7 +7,7 @@ import { RVCModelSlot } from '@dannadori/voice-changer-client-js';
 import MainContent from './components/MainContent';
 import { useAppState } from './context/AppContext';
 import { useUIContext } from './context/UIContext';
-import { getFormantBinding, getFormantProfile, serializeProfileEnvelope, syncBindingsFromServer, syncProfilesFromServer } from './utils/formantStorage';
+import { getFormantBinding, getFormantProfile, serializePitchStats, serializeProfileEnvelope, syncBindingsFromServer, syncProfilesFromServer } from './utils/formantStorage';
 
 function App(): JSX.Element {
   // ---------------- State ----------------
@@ -61,19 +61,24 @@ function App(): JSX.Element {
               formantProfileTargetSr: targetProfile.sr,
               formantProfileInputEnvelope: serializeProfileEnvelope(inputProfile),
               formantProfileInputSr: inputProfile.sr,
-              formantProfileStrength: binding.strength !== undefined ? binding.strength : (currentSetting.formantProfileStrength ?? 0.35)
+              formantProfileStrength: binding.strength !== undefined ? binding.strength : (currentSetting.formantProfileStrength ?? 0.35),
+              formantProfilePitchStats: serializePitchStats(inputProfile, targetProfile),
+              formantProfilePitchScale: binding.pitchScale !== undefined ? binding.pitchScale : (currentSetting.formantProfilePitchScale ?? 0.85),
+              formantProfilePitchOffset: binding.pitchOffset !== undefined ? binding.pitchOffset : (currentSetting.formantProfilePitchOffset ?? 0.0)
             });
             console.log(`Auto-loaded Match EQ profiles for model slot ${slotIndex}, active: ${isActive}`);
           } else if (appState.serverSetting?.serverSetting?.formantProfileActive) {
             appState.serverSetting.updateServerSettings({
               ...appState.serverSetting.serverSetting,
-              formantProfileActive: false
+              formantProfileActive: false,
+              formantProfilePitchStats: '{}'
             });
           }
         } else if (appState.serverSetting?.serverSetting?.formantProfileActive) {
           appState.serverSetting.updateServerSettings({
             ...appState.serverSetting.serverSetting,
-            formantProfileActive: false
+            formantProfileActive: false,
+            formantProfilePitchStats: '{}'
           });
         }
       } catch (e) {

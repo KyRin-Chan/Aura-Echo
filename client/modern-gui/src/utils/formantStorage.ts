@@ -13,6 +13,10 @@ export interface FormantProfile {
   };
   sr: number;
   f0?: number;
+  f0Log2Mean?: number;
+  f0Log2Std?: number;
+  f0P10?: number;
+  f0P90?: number;
   centroid?: number;
   modelSlotIndex?: number;
   calibratedTran?: number;
@@ -27,12 +31,38 @@ export const serializeProfileEnvelope = (profile: FormantProfile): string => {
   return JSON.stringify(profile.envelopes ?? []);
 };
 
+export const serializePitchStats = (
+  inputProfile?: FormantProfile | null,
+  targetProfile?: FormantProfile | null
+): string => {
+  if (
+    !inputProfile ||
+    !targetProfile ||
+    !inputProfile.f0Log2Mean ||
+    !targetProfile.f0Log2Mean ||
+    inputProfile.f0Log2Mean <= 0 ||
+    targetProfile.f0Log2Mean <= 0
+  ) {
+    return '{}';
+  }
+  return JSON.stringify({
+    src_mean: inputProfile.f0Log2Mean,
+    src_std: inputProfile.f0Log2Std ?? 0,
+    tgt_mean: targetProfile.f0Log2Mean,
+    tgt_std: targetProfile.f0Log2Std ?? 0,
+    tgt_p10: targetProfile.f0P10 ?? 0,
+    tgt_p90: targetProfile.f0P90 ?? 0
+  });
+};
+
 export interface ModelFormantBinding {
   slotIndex: number | string;
   inputProfileId?: string;
   targetProfileId?: string;
   active?: boolean;
   strength?: number;
+  pitchScale?: number;
+  pitchOffset?: number;
   recommendedPitch?: number;
   recommendedFormantShift?: number;
 }

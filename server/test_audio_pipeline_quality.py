@@ -27,6 +27,7 @@ from voice_changer.common.AudioDSP import (
     StatefulPeakLimiter,
     analyze_voice_acoustics,
     compute_residual_match_eq_curve,
+    map_f0_distribution,
     soft_knee_limit_np,
 )
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
@@ -2512,6 +2513,164 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 break
         self.assertGreaterEqual(long_hang, 4)
         self.assertGreater(long_hang, short_hang)
+
+    def test_analyze_voice_acoustics_pitch_distribution_stats(self):
+        sr = 48000
+        # 1.5 s voiced signal stepping across 110 Hz, 140 Hz, 180 Hz
+        segs = []
+        for f0_val in (110.0, 140.0, 180.0):
+            t_seg = np.arange(sr // 2, dtype=np.float32) / float(sr)
+            harm = sum(
+                (1.0 / k) * np.sin(2.0 * math.pi * (k * f0_val) * t_seg)
+                for k in range(1, 12)
+            ).astype(np.float32)
+            harm *= 0.2 / max(float(np.std(harm)), 1e-6)
+            segs.append(harm)
+        y = np.concatenate(segs)
+
+        res = analyze_voice_acoustics(y, sr)
+        self.assertGreater(res["f0_log2_mean"], 0.0)
+        self.assertGreater(res["f0_log2_std"], 0.05)
+        self.assertGreater(res["f0_p10"], 100.0)
+        self.assertLess(res["f0_p10"], 125.0)
+        self.assertGreater(res["f0_p90"], 165.0)
+        self.assertLess(res["f0_p90"], 195.0)
+        self.assertAlmostEqual(2.0 ** res["f0_log2_mean"], res["f0"], delta=res["f0"] * 0.03)
+
+        sil_res = analyze_voice_acoustics(np.zeros(2048, dtype=np.float32), sr)
+        self.assertEqual(sil_res["f0_log2_mean"], 0.0)
+        self.assertEqual(sil_res["f0_log2_std"], 0.0)
+        self.assertEqual(sil_res["f0_p10"], 0.0)
+        self.assertEqual(sil_res["f0_p90"], 0.0)
+
+    def test_map_f0_distribution_mapping_and_soft_clip(self):
+        src_mean = math.log2(120.0)
+        src_std = 0.25
+        tgt_mean = math.log2(220.0)
+        tgt_std = 0.20
+        tgt_p10 = 180.0
+        tgt_p90 = 270.0
+
+        f0 = torch.tensor([0.0, 60.0, 120.0, 160.0, 260.0], dtype=torch.float32)
+        mapped = map_f0_distribution(
+            f0,
+            src_log2_mean=src_mean,
+            src_log2_std=src_std,
+            tgt_log2_mean=tgt_mean,
+            tgt_log2_std=tgt_std,
+            tgt_f0_p10=tgt_p10,
+            tgt_f0_p90=tgt_p90,
+            pitch_scale=0.85,
+            pitch_offset_semitones=0.0,
+            soft_margin_semitones=2.0,
+        )
+
+        # Unvoiced 0 remains 0
+        self.assertEqual(float(mapped[0].item()), 0.0)
+        # Source median maps directly to target median
+        self.assertAlmostEqual(float(mapped[2].item()), 220.0, delta=0.5)
+        # Soft-clipped bounds: strictly inside [lo - margin, hi + margin] and monotonic
+        margin_oct = 2.0 / 12.0
+        lo_bound = tgt_p10 * (2.0 ** (-margin_oct))
+        hi_bound = tgt_p90 * (2.0 ** margin_oct)
+        self.assertGreater(float(mapped[1].item()), lo_bound)
+        self.assertLess(float(mapped[4].item()), hi_bound)
+        self.assertLess(float(mapped[1].item()), float(mapped[2].item()))
+        self.assertLess(float(mapped[2].item()), float(mapped[3].item()))
+        self.assertLess(float(mapped[3].item()), float(mapped[4].item()))
+
+        # Fine-tune offset (+2 semitones) shifts median cleanly
+        mapped_up = map_f0_distribution(
+            f0,
+            src_log2_mean=src_mean,
+            src_log2_std=src_std,
+            tgt_log2_mean=tgt_mean,
+            tgt_log2_std=tgt_std,
+            tgt_f0_p10=tgt_p10,
+            tgt_f0_p90=tgt_p90,
+            pitch_scale=0.85,
+            pitch_offset_semitones=2.0,
+        )
+        self.assertAlmostEqual(float(mapped_up[2].item()), 220.0 * (2.0 ** (2.0 / 12.0)), delta=0.5)
+
+    def test_calibration_mode_bypasses_formant_shift_and_maps_f0(self):
+        captured_exec = {}
+
+        class DummyEmbedder:
+            def extract_features(self, feats, embOutputLayer=9, useFinalProj=True):
+                return torch.zeros((1, feats.shape[1] // 320, 768), dtype=feats.dtype, device=feats.device)
+
+        class DummyPitchExtractor:
+            def extract(self, audio, sr, window):
+                n_frames = audio.shape[0] // window + 1
+                return torch.full((n_frames,), 120.0, dtype=torch.float32, device=audio.device)
+
+        class DummyInferencer:
+            is_refinegan = False
+
+            def uses_standalone_vocoder(self):
+                return False
+
+            def infer(self, feats, p_len, pitch, pitchf, sid, skip_head, return_length, formant_length):
+                captured_exec["pitchf_mean"] = float(pitchf.mean().item())
+                captured_exec["formant_length"] = int(formant_length)
+                captured_exec["return_length"] = int(return_length)
+                return torch.zeros(formant_length * 400, dtype=torch.float32, device=feats.device)
+
+        pipe = Pipeline(
+            embedder=DummyEmbedder(),
+            inferencer=DummyInferencer(),
+            pitchExtractor=DummyPitchExtractor(),
+            index=None,
+            index_reconstruct=None,
+            use_f0=True,
+            model_sr=40000,
+            embChannels=768,
+        )
+
+        try:
+            settings = VoiceChangerSettings()
+            settings.inputSampleRate = 16000
+            settings.outputSampleRate = 40000
+            settings.tran = 12.0
+            settings.formantShift = 2.5
+            settings.formantProfileActive = True
+            settings.formantProfilePitchStats = json.dumps({
+                "src_mean": math.log2(120.0),
+                "src_std": 0.25,
+                "tgt_mean": math.log2(220.0),
+                "tgt_std": 0.20,
+                "tgt_p10": 180.0,
+                "tgt_p90": 270.0,
+            })
+            settings.formantProfilePitchScale = 0.85
+            settings.formantProfilePitchOffset = 0.0
+
+            slot = RVCModelSlot(slotIndex=0, samplingRate=40000, f0=True, embChannels=768)
+            rvc = RVCr2(slot, settings)
+            rvc.pipeline = pipe
+            rvc.resampler_in = lambda x: x
+            rvc.resampler_out = BypassResampler()
+            rvc.realloc(1600, 1600, 640, 192)
+
+            audio_chunk = np.full(1600, 0.1, dtype=np.float32)
+
+            # Calibration mode: formantShift=2.5 is bypassed (formant_length == return_length),
+            # tran=12.0 is ignored, and 120 Hz maps to 220 Hz.
+            rvc.inference(audio_chunk, bypass_silence_gate=True)
+            self.assertEqual(captured_exec["formant_length"], captured_exec["return_length"])
+            self.assertAlmostEqual(captured_exec["pitchf_mean"], 220.0, delta=2.0)
+
+            # Manual mode: formantShift=2.5 and tran=12.0 take effect as before.
+            settings.formantProfileActive = False
+            captured_exec.clear()
+            rvc.inference(audio_chunk, bypass_silence_gate=True)
+            expected_fl = math.ceil(rvc.return_length * (2.0 ** (2.5 / 12.0)))
+            self.assertEqual(captured_exec["formant_length"], expected_fl)
+            expected_pitchf = 120.0 * (2.0 ** ((12.0 - 2.5) / 12.0)) * (expected_fl / float(rvc.return_length))
+            self.assertAlmostEqual(captured_exec["pitchf_mean"], expected_pitchf, delta=3.0)
+        finally:
+            pipe._executor.shutdown(wait=True)
 
 
 if __name__ == "__main__":

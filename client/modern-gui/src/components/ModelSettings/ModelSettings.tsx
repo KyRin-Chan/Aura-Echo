@@ -3,7 +3,6 @@ import { RVCModelSlot, ClientState } from "@dannadori/voice-changer-client-js";
 import { CSS_CLASSES } from "../../styles/constants";
 import MD3Slider from "../Helpers/MD3Slider";
 import MD3Select from "../Helpers/MD3Select";
-import MD3Switch from "../Helpers/MD3Switch";
 import { useAppState } from "../../context/AppContext";
 import { t } from '../../locales';
 import {
@@ -14,6 +13,7 @@ import {
   saveFormantBinding,
   syncProfilesFromServer,
   syncBindingsFromServer,
+  serializePitchStats,
   serializeProfileEnvelope
 } from "../../utils/formantStorage";
 
@@ -49,6 +49,12 @@ function ModelSettings({
   const [immediateStrength, setImmediateStrength] = useState<number>(
     appState.serverSetting?.serverSetting?.formantProfileStrength ?? 0.35
   );
+  const [immediatePitchScale, setImmediatePitchScale] = useState<number>(
+    appState.serverSetting?.serverSetting?.formantProfilePitchScale ?? 0.85
+  );
+  const [immediatePitchOffset, setImmediatePitchOffset] = useState<number>(
+    appState.serverSetting?.serverSetting?.formantProfilePitchOffset ?? 0.0
+  );
 
   const [profiles, setProfiles] = useState<FormantProfile[]>([]);
   const [bindings, setBindings] = useState<Record<string | number, ModelFormantBinding>>({});
@@ -73,7 +79,8 @@ function ModelSettings({
     appState.serverSetting?.serverSetting?.modelSlotIndex,
     appState.serverSetting?.serverSetting?.formantProfileActive,
     appState.serverSetting?.serverSetting?.formantProfileInputEnvelope,
-    appState.serverSetting?.serverSetting?.formantProfileTargetEnvelope
+    appState.serverSetting?.serverSetting?.formantProfileTargetEnvelope,
+    appState.serverSetting?.serverSetting?.formantProfilePitchStats
   ]);
 
   useEffect(() => {
@@ -82,22 +89,26 @@ function ModelSettings({
       setImmediateFormantShift(appState.serverSetting.serverSetting.formantShift ?? 0);
       setImmediateIndexRatio(appState.serverSetting.serverSetting.indexRatio);
       setImmediateStrength(appState.serverSetting.serverSetting.formantProfileStrength ?? 0.35);
+      setImmediatePitchScale(appState.serverSetting.serverSetting.formantProfilePitchScale ?? 0.85);
+      setImmediatePitchOffset(appState.serverSetting.serverSetting.formantProfilePitchOffset ?? 0.0);
     }
   }, [
     appState.serverSetting?.serverSetting?.tran,
     appState.serverSetting?.serverSetting?.formantShift,
     appState.serverSetting?.serverSetting?.indexRatio,
-    appState.serverSetting?.serverSetting?.formantProfileStrength
+    appState.serverSetting?.serverSetting?.formantProfileStrength,
+    appState.serverSetting?.serverSetting?.formantProfilePitchScale,
+    appState.serverSetting?.serverSetting?.formantProfilePitchOffset
   ]);
 
-  const handleWarpSwitchChange = (checked: boolean) => {
+  const handleModeChange = (isCalibration: boolean) => {
     const activeSlot = appState.serverSetting?.serverSetting?.modelSlotIndex;
     let extraSettings: any = {};
     if (activeSlot !== undefined && activeSlot !== -1) {
-      saveFormantBinding(activeSlot, { active: checked });
+      saveFormantBinding(activeSlot, { active: isCalibration });
       setBindings(getAllFormantBindings());
 
-      if (checked) {
+      if (isCalibration) {
         const currentBinding = bindings[activeSlot];
         if (currentBinding) {
           const inputProfile = profiles.find((p) => p.id === currentBinding.inputProfileId);
@@ -107,7 +118,10 @@ function ModelSettings({
               formantProfileTargetEnvelope: serializeProfileEnvelope(targetProfile),
               formantProfileTargetSr: targetProfile.sr,
               formantProfileInputEnvelope: serializeProfileEnvelope(inputProfile),
-              formantProfileInputSr: inputProfile.sr
+              formantProfileInputSr: inputProfile.sr,
+              formantProfilePitchStats: serializePitchStats(inputProfile, targetProfile),
+              formantProfilePitchScale: currentBinding.pitchScale ?? appState.serverSetting?.serverSetting?.formantProfilePitchScale ?? 0.85,
+              formantProfilePitchOffset: currentBinding.pitchOffset ?? appState.serverSetting?.serverSetting?.formantProfilePitchOffset ?? 0.0
             };
           }
         }
@@ -116,7 +130,7 @@ function ModelSettings({
 
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
-      formantProfileActive: checked,
+      formantProfileActive: isCalibration,
       ...extraSettings
     });
   };
@@ -133,11 +147,16 @@ function ModelSettings({
     });
     setBindings(getAllFormantBindings());
 
+    const pairedTargetProfile = currentBinding.targetProfileId
+      ? profiles.find((p) => p.id === currentBinding.targetProfileId)
+      : undefined;
+
     if (inputProfileId === "") {
       appState.serverSetting.updateServerSettings({
         ...appState.serverSetting.serverSetting,
         formantProfileInputEnvelope: "[]",
-        formantProfileInputSr: 0
+        formantProfileInputSr: 0,
+        formantProfilePitchStats: "{}"
       });
     } else {
       const inputProfile = profiles.find((p) => p.id === inputProfileId);
@@ -145,7 +164,8 @@ function ModelSettings({
         appState.serverSetting.updateServerSettings({
           ...appState.serverSetting.serverSetting,
           formantProfileInputEnvelope: serializeProfileEnvelope(inputProfile),
-          formantProfileInputSr: inputProfile.sr
+          formantProfileInputSr: inputProfile.sr,
+          formantProfilePitchStats: serializePitchStats(inputProfile, pairedTargetProfile)
         });
       }
     }
@@ -163,11 +183,16 @@ function ModelSettings({
     });
     setBindings(getAllFormantBindings());
 
+    const pairedInputProfile = currentBinding.inputProfileId
+      ? profiles.find((p) => p.id === currentBinding.inputProfileId)
+      : undefined;
+
     if (targetProfileId === "") {
       appState.serverSetting.updateServerSettings({
         ...appState.serverSetting.serverSetting,
         formantProfileTargetEnvelope: "[]",
-        formantProfileTargetSr: 0
+        formantProfileTargetSr: 0,
+        formantProfilePitchStats: "{}"
       });
     } else {
       const targetProfile = profiles.find((p) => p.id === targetProfileId);
@@ -175,7 +200,8 @@ function ModelSettings({
         appState.serverSetting.updateServerSettings({
           ...appState.serverSetting.serverSetting,
           formantProfileTargetEnvelope: serializeProfileEnvelope(targetProfile),
-          formantProfileTargetSr: targetProfile.sr
+          formantProfileTargetSr: targetProfile.sr,
+          formantProfilePitchStats: serializePitchStats(pairedInputProfile, targetProfile)
         });
       }
     }
@@ -194,6 +220,44 @@ function ModelSettings({
     });
   };
 
+  const handlePitchScaleChange = (val: number) => {
+    const activeSlot = appState.serverSetting?.serverSetting?.modelSlotIndex;
+    if (activeSlot !== undefined && activeSlot !== -1) {
+      saveFormantBinding(activeSlot, { pitchScale: val });
+      setBindings(getAllFormantBindings());
+    }
+
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      formantProfilePitchScale: val
+    });
+  };
+
+  const handlePitchOffsetChange = (val: number) => {
+    const activeSlot = appState.serverSetting?.serverSetting?.modelSlotIndex;
+    if (activeSlot !== undefined && activeSlot !== -1) {
+      saveFormantBinding(activeSlot, { pitchOffset: val });
+      setBindings(getAllFormantBindings());
+    }
+
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      formantProfilePitchOffset: val
+    });
+  };
+
+  const isCalibrationMode = Boolean(appState.serverSetting?.serverSetting?.formantProfileActive);
+  const activeSlotIndex = appState.serverSetting?.serverSetting?.modelSlotIndex;
+  const activeBinding = activeSlotIndex !== undefined && activeSlotIndex !== -1 ? bindings[activeSlotIndex] : undefined;
+  const boundInputProfile = activeBinding?.inputProfileId
+    ? profiles.find((p) => p.id === activeBinding.inputProfileId)
+    : undefined;
+  const boundTargetProfile = activeBinding?.targetProfileId
+    ? profiles.find((p) => p.id === activeBinding.targetProfileId)
+    : undefined;
+  const hasBoundPair = Boolean(boundInputProfile && boundTargetProfile);
+  const hasPitchMappingStats = serializePitchStats(boundInputProfile, boundTargetProfile) !== "{}";
+
   const speakerOptions =
     model && model.speakers && Object.keys(model.speakers).length > 0
       ? Object.entries(model.speakers).map(([id, name]) => ({
@@ -206,48 +270,78 @@ function ModelSettings({
 
   return (
     <div className={`space-y-4 bg-surface-container/60 p-3 rounded-lg border border-outline-variant/50 ${!model ? 'opacity-50 pointer-events-none' : ''}`}>
+      {/* Two-way exclusive mode toggle: Manual Tuning vs. Timbre Calibration */}
       <div>
-        <label htmlFor="pitch" className={CSS_CLASSES.label}>
-          {t('pitchLabel')}
+        <label className={CSS_CLASSES.label}>
+          {t('pitchControlModeLabel')}
         </label>
-        <MD3Slider
-          id="pitch"
-          min={-50}
-          max={50}
-          step={0.5}
-          value={appState.serverSetting?.serverSetting?.tran ?? 0}
-          onChange={handlePitchChange}
-          onImmediateChange={setImmediatePitch}
-          disabled={!model}
-          showValue={true}
-          valueFormatter={(val) => `${val > 0 ? '+' : ''}${val}`}
-        />
+        <div className="inline-flex w-full rounded-full border border-outline overflow-hidden mt-1">
+          <button
+            type="button"
+            onClick={() => handleModeChange(false)}
+            disabled={!model}
+            className={`flex-1 px-4 py-1.5 text-xs font-semibold transition-all duration-150 ${
+              !isCalibrationMode
+                ? "bg-secondary-container text-on-secondary-container"
+                : "bg-transparent text-on-surface hover:bg-surface-variant/20"
+            }`}
+          >
+            {t('manualTuningModeLabel')}
+          </button>
+          <div className="w-[1px] bg-outline" />
+          <button
+            type="button"
+            onClick={() => handleModeChange(true)}
+            disabled={!model}
+            className={`flex-1 px-4 py-1.5 text-xs font-semibold transition-all duration-150 ${
+              isCalibrationMode
+                ? "bg-secondary-container text-on-secondary-container"
+                : "bg-transparent text-on-surface hover:bg-surface-variant/20"
+            }`}
+          >
+            {t('calibrationModeLabel')}
+          </button>
+        </div>
       </div>
-      <div>
-        <label htmlFor="formantShift" className={CSS_CLASSES.label}>
-          {t('formantShiftLabel')}
-        </label>
-        <MD3Slider
-          id="formantShift"
-          min={-3}
-          max={3}
-          step={0.05}
-          value={appState.serverSetting?.serverSetting?.formantShift ?? 0}
-          onChange={handleFormantShiftChange}
-          onImmediateChange={setImmediateFormantShift}
-          disabled={!model}
-          showValue={true}
-          valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(2)}`}
-        />
-      </div>
-      <div className="flex items-center space-x-3 py-1">
-        <MD3Switch
-          checked={appState.serverSetting?.serverSetting?.formantProfileActive ?? false}
-          onChange={handleWarpSwitchChange}
-          label={t('timbreWarpFilterLabel')}
-        />
-      </div>
-      {appState.serverSetting?.serverSetting?.formantProfileActive && (
+
+      {!isCalibrationMode ? (
+        <div className="space-y-4 animate-fadeIn">
+          <div>
+            <label htmlFor="pitch" className={CSS_CLASSES.label}>
+              {t('pitchLabel')}
+            </label>
+            <MD3Slider
+              id="pitch"
+              min={-50}
+              max={50}
+              step={0.5}
+              value={immediatePitch}
+              onChange={handlePitchChange}
+              onImmediateChange={setImmediatePitch}
+              disabled={!model}
+              showValue={true}
+              valueFormatter={(val) => `${val > 0 ? '+' : ''}${val}`}
+            />
+          </div>
+          <div>
+            <label htmlFor="formantShift" className={CSS_CLASSES.label}>
+              {t('formantShiftLabel')}
+            </label>
+            <MD3Slider
+              id="formantShift"
+              min={-3}
+              max={3}
+              step={0.05}
+              value={immediateFormantShift}
+              onChange={handleFormantShiftChange}
+              onImmediateChange={setImmediateFormantShift}
+              disabled={!model}
+              showValue={true}
+              valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(2)}`}
+            />
+          </div>
+        </div>
+      ) : (
         <div className="space-y-3 animate-fadeIn border-l-2 border-primary/20 pl-3">
           {/* Baseline (Model Output) Profile Dropdown */}
           <div>
@@ -285,6 +379,50 @@ function ModelSettings({
             />
           </div>
 
+          {hasBoundPair && !hasPitchMappingStats && (
+            <p className="text-[11px] text-on-surface-variant bg-surface-container-high/60 px-2.5 py-1.5 rounded-md border border-outline-variant/40">
+              {t('legacyProfileNoPitchStatsHint')}
+            </p>
+          )}
+
+          {/* Pitch Dynamic Range Scale Slider */}
+          <div>
+            <label htmlFor="formantProfilePitchScale" className={CSS_CLASSES.label}>
+              {t('pitchDynamicScaleLabel')}
+            </label>
+            <MD3Slider
+              id="formantProfilePitchScale"
+              min={0.3}
+              max={1.3}
+              step={0.05}
+              value={immediatePitchScale}
+              onChange={handlePitchScaleChange}
+              onImmediateChange={setImmediatePitchScale}
+              disabled={!model}
+              showValue={true}
+              valueFormatter={(val) => `${Math.round(val * 100)}%`}
+            />
+          </div>
+
+          {/* Pitch Fine-Tune Offset Slider */}
+          <div>
+            <label htmlFor="formantProfilePitchOffset" className={CSS_CLASSES.label}>
+              {t('pitchFineTuneLabel')}
+            </label>
+            <MD3Slider
+              id="formantProfilePitchOffset"
+              min={-6}
+              max={6}
+              step={0.5}
+              value={immediatePitchOffset}
+              onChange={handlePitchOffsetChange}
+              onImmediateChange={setImmediatePitchOffset}
+              disabled={!model}
+              showValue={true}
+              valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(1)}`}
+            />
+          </div>
+
           {/* Correction Strength Slider */}
           <div>
             <label htmlFor="formantProfileStrength" className={CSS_CLASSES.label}>
@@ -295,7 +433,7 @@ function ModelSettings({
               min={0.0}
               max={1.0}
               step={0.05}
-              value={appState.serverSetting?.serverSetting?.formantProfileStrength ?? 0.35}
+              value={immediateStrength}
               onChange={handleWarpFilterStrengthChange}
               onImmediateChange={setImmediateStrength}
               disabled={!model}
