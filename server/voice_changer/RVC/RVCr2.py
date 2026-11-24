@@ -333,7 +333,7 @@ class RVCr2(VoiceChangerModel):
         )
 
         stats_str = str(getattr(self.settings, "formantProfilePitchStats", "{}") or "{}")
-        pitch_scale = float(getattr(self.settings, "formantProfilePitchScale", 0.85))
+        pitch_scale = float(getattr(self.settings, "formantProfilePitchScale", 1.0))
         pitch_offset = float(getattr(self.settings, "formantProfilePitchOffset", 0.0))
         pitch_key = (active, stats_str, pitch_scale, pitch_offset)
         if pitch_key != self._pitch_dist_cache_key:

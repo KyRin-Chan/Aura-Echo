@@ -456,7 +456,7 @@ export const DefaultServerSetting: ServerInfo = {
     formantProfileInputSr: 0,
     formantProfileStrength: 0.35,
     formantProfilePitchStats: "{}",
-    formantProfilePitchScale: 0.85,
+    formantProfilePitchScale: 1.0,
     formantProfilePitchOffset: 0.0,
 
     gpus: [],

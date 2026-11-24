@@ -259,7 +259,7 @@ class MMVC_Rest_VoiceChanger:
                     "tgt_std": float(tgt_res.get("f0_log2_std", 0.0)),
                     "tgt_p10": float(tgt_res.get("f0_p10", 0.0)),
                     "tgt_p90": float(tgt_res.get("f0_p90", 0.0)),
-                    "pitch_scale": 0.85,
+                    "pitch_scale": 1.0,
                     "pitch_offset": 0.0,
                 }
 

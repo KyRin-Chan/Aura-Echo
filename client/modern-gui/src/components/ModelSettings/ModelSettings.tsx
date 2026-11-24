@@ -50,7 +50,7 @@ function ModelSettings({
     appState.serverSetting?.serverSetting?.formantProfileStrength ?? 0.35
   );
   const [immediatePitchScale, setImmediatePitchScale] = useState<number>(
-    appState.serverSetting?.serverSetting?.formantProfilePitchScale ?? 0.85
+    appState.serverSetting?.serverSetting?.formantProfilePitchScale ?? 1.0
   );
   const [immediatePitchOffset, setImmediatePitchOffset] = useState<number>(
     appState.serverSetting?.serverSetting?.formantProfilePitchOffset ?? 0.0
@@ -89,7 +89,7 @@ function ModelSettings({
       setImmediateFormantShift(appState.serverSetting.serverSetting.formantShift ?? 0);
       setImmediateIndexRatio(appState.serverSetting.serverSetting.indexRatio);
       setImmediateStrength(appState.serverSetting.serverSetting.formantProfileStrength ?? 0.35);
-      setImmediatePitchScale(appState.serverSetting.serverSetting.formantProfilePitchScale ?? 0.85);
+      setImmediatePitchScale(appState.serverSetting.serverSetting.formantProfilePitchScale ?? 1.0);
       setImmediatePitchOffset(appState.serverSetting.serverSetting.formantProfilePitchOffset ?? 0.0);
     }
   }, [
@@ -120,7 +120,7 @@ function ModelSettings({
               formantProfileInputEnvelope: serializeProfileEnvelope(inputProfile),
               formantProfileInputSr: inputProfile.sr,
               formantProfilePitchStats: serializePitchStats(inputProfile, targetProfile),
-              formantProfilePitchScale: currentBinding.pitchScale ?? appState.serverSetting?.serverSetting?.formantProfilePitchScale ?? 0.85,
+              formantProfilePitchScale: currentBinding.pitchScale ?? appState.serverSetting?.serverSetting?.formantProfilePitchScale ?? 1.0,
               formantProfilePitchOffset: currentBinding.pitchOffset ?? appState.serverSetting?.serverSetting?.formantProfilePitchOffset ?? 0.0
             };
           }
@@ -392,8 +392,8 @@ function ModelSettings({
             </label>
             <MD3Slider
               id="formantProfilePitchScale"
-              min={0.3}
-              max={1.3}
+              min={0.5}
+              max={1.5}
               step={0.05}
               value={immediatePitchScale}
               onChange={handlePitchScaleChange}

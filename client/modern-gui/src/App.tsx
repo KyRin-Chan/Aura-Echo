@@ -63,7 +63,7 @@ function App(): JSX.Element {
               formantProfileInputSr: inputProfile.sr,
               formantProfileStrength: binding.strength !== undefined ? binding.strength : (currentSetting.formantProfileStrength ?? 0.35),
               formantProfilePitchStats: serializePitchStats(inputProfile, targetProfile),
-              formantProfilePitchScale: binding.pitchScale !== undefined ? binding.pitchScale : (currentSetting.formantProfilePitchScale ?? 0.85),
+              formantProfilePitchScale: binding.pitchScale !== undefined ? binding.pitchScale : (currentSetting.formantProfilePitchScale ?? 1.0),
               formantProfilePitchOffset: binding.pitchOffset !== undefined ? binding.pitchOffset : (currentSetting.formantProfilePitchOffset ?? 0.0)
             });
             console.log(`Auto-loaded Match EQ profiles for model slot ${slotIndex}, active: ${isActive}`);

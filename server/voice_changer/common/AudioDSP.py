@@ -492,15 +492,17 @@ def map_f0_distribution(
     tgt_log2_std: float,
     tgt_f0_p10: float = 0.0,
     tgt_f0_p90: float = 0.0,
-    pitch_scale: float = 0.85,
+    pitch_scale: float = 1.0,
     pitch_offset_semitones: float = 0.0,
-    soft_margin_semitones: float = 2.0,
+    soft_margin_semitones: float = 4.0,
 ) -> torch.Tensor:
     """
-    Map voiced F0 frames from source log2 distribution into target speaker's
-    log2 distribution with smooth tanh boundary soft-compression.
+    Map voiced F0 frames from source log2 center into target speaker's log2
+    center while preserving natural semitone intonation (1:1 at pitch_scale=1.0)
+    and applying gentle tanh soft-compression only beyond a wide comfort zone.
     Unvoiced frames (f0 <= 0) remain 0.
     """
+    del src_log2_std, tgt_log2_std
     if f0.numel() == 0 or src_log2_mean <= 0.0 or tgt_log2_mean <= 0.0:
         return f0
 
@@ -510,28 +512,23 @@ def map_f0_distribution(
     if not torch.any(voiced_mask):
         return f0
 
-    s_src = max(float(src_log2_std), 0.08)
-    s_tgt = max(float(tgt_log2_std), 0.08)
-    scale = max(0.25, min(2.0, float(pitch_scale) * (s_tgt / s_src)))
+    scale = max(0.30, min(1.50, float(pitch_scale)))
     offset_oct = float(pitch_offset_semitones) / 12.0
     tgt_center = float(tgt_log2_mean) + offset_oct
 
     log2_in = torch.log2(torch.clamp(f0_f32, min=1e-3))
     mapped = tgt_center + scale * (log2_in - float(src_log2_mean))
 
+    lo_min_comfort = tgt_center - 6.0 / 12.0
+    hi_min_comfort = tgt_center + 7.0 / 12.0
     if tgt_f0_p10 > 0.0 and tgt_f0_p90 > tgt_f0_p10:
-        lo = math.log2(float(tgt_f0_p10)) + offset_oct
-        hi = math.log2(float(tgt_f0_p90)) + offset_oct
+        lo = min(math.log2(float(tgt_f0_p10)) + offset_oct - 2.0 / 12.0, lo_min_comfort)
+        hi = max(math.log2(float(tgt_f0_p90)) + offset_oct + 2.0 / 12.0, hi_min_comfort)
     else:
-        lo = tgt_center - 1.28 * s_tgt
-        hi = tgt_center + 1.28 * s_tgt
+        lo = lo_min_comfort
+        hi = hi_min_comfort
 
-    min_span = 3.0 / 12.0
-    if hi - lo < min_span:
-        lo = tgt_center - 0.5 * min_span
-        hi = tgt_center + 0.5 * min_span
-
-    margin = max(0.05, float(soft_margin_semitones) / 12.0)
+    margin = max(0.10, float(soft_margin_semitones) / 12.0)
     soft_mapped = torch.where(
         mapped > hi,
         hi + margin * torch.tanh((mapped - hi) / margin),

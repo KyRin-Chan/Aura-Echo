@@ -635,7 +635,7 @@ const VoiceAnalyzerModal = ({
       saveFormantProfile(baselineProfile);
 
       const defaultStrength = 0.5;
-      const defaultPitchScale = 0.85;
+      const defaultPitchScale = 1.0;
       const defaultPitchOffset = 0.0;
       const serializedPitchStats = serializePitchStats(baselineProfile, targetProfile);
       if (activeSlotIndex !== undefined && activeSlotIndex !== -1) {

@@ -2545,13 +2545,17 @@ class TestAudioPipelineQuality(unittest.TestCase):
 
     def test_map_f0_distribution_mapping_and_soft_clip(self):
         src_mean = math.log2(120.0)
-        src_std = 0.25
+        # Deliberately pass src_std much wider than tgt_std to ensure slope is NOT crushed
+        src_std = 0.45
         tgt_mean = math.log2(220.0)
-        tgt_std = 0.20
-        tgt_p10 = 180.0
-        tgt_p90 = 270.0
+        tgt_std = 0.12
+        tgt_p10 = 195.0
+        tgt_p90 = 245.0
 
-        f0 = torch.tensor([0.0, 60.0, 120.0, 160.0, 260.0], dtype=torch.float32)
+        inflection_up = 120.0 * (2.0 ** (4.0 / 12.0))
+        extreme_low = 120.0 * (2.0 ** (-12.0 / 12.0))
+        extreme_high = 120.0 * (2.0 ** (14.0 / 12.0))
+        f0 = torch.tensor([0.0, extreme_low, 120.0, inflection_up, extreme_high], dtype=torch.float32)
         mapped = map_f0_distribution(
             f0,
             src_log2_mean=src_mean,
@@ -2560,21 +2564,27 @@ class TestAudioPipelineQuality(unittest.TestCase):
             tgt_log2_std=tgt_std,
             tgt_f0_p10=tgt_p10,
             tgt_f0_p90=tgt_p90,
-            pitch_scale=0.85,
+            pitch_scale=1.0,
             pitch_offset_semitones=0.0,
-            soft_margin_semitones=2.0,
+            soft_margin_semitones=4.0,
         )
 
         # Unvoiced 0 remains 0
         self.assertEqual(float(mapped[0].item()), 0.0)
         # Source median maps directly to target median
         self.assertAlmostEqual(float(mapped[2].item()), 220.0, delta=0.5)
-        # Soft-clipped bounds: strictly inside [lo - margin, hi + margin] and monotonic
-        margin_oct = 2.0 / 12.0
-        lo_bound = tgt_p10 * (2.0 ** (-margin_oct))
-        hi_bound = tgt_p90 * (2.0 ** margin_oct)
-        self.assertGreater(float(mapped[1].item()), lo_bound)
-        self.assertLess(float(mapped[4].item()), hi_bound)
+        # Normal expressive inflection (+4 semitones) is preserved 1:1 without variance compression
+        expected_inflection = 220.0 * (2.0 ** (4.0 / 12.0))
+        self.assertAlmostEqual(float(mapped[3].item()), expected_inflection, delta=0.5)
+
+        # Soft-clipped bounds: extreme outliers stay strictly monotonic and inside [lo - margin, hi + margin]
+        lo_comfort = math.log2(220.0) - 6.0 / 12.0
+        hi_comfort = math.log2(220.0) + 7.0 / 12.0
+        lo = min(math.log2(tgt_p10) - 2.0 / 12.0, lo_comfort)
+        hi = max(math.log2(tgt_p90) + 2.0 / 12.0, hi_comfort)
+        margin_oct = 4.0 / 12.0
+        self.assertGreater(float(mapped[1].item()), 2.0 ** (lo - margin_oct))
+        self.assertLess(float(mapped[4].item()), 2.0 ** (hi + margin_oct))
         self.assertLess(float(mapped[1].item()), float(mapped[2].item()))
         self.assertLess(float(mapped[2].item()), float(mapped[3].item()))
         self.assertLess(float(mapped[3].item()), float(mapped[4].item()))
@@ -2588,7 +2598,7 @@ class TestAudioPipelineQuality(unittest.TestCase):
             tgt_log2_std=tgt_std,
             tgt_f0_p10=tgt_p10,
             tgt_f0_p90=tgt_p90,
-            pitch_scale=0.85,
+            pitch_scale=1.0,
             pitch_offset_semitones=2.0,
         )
         self.assertAlmostEqual(float(mapped_up[2].item()), 220.0 * (2.0 ** (2.0 / 12.0)), delta=0.5)
@@ -2643,7 +2653,7 @@ class TestAudioPipelineQuality(unittest.TestCase):
                 "tgt_p10": 180.0,
                 "tgt_p90": 270.0,
             })
-            settings.formantProfilePitchScale = 0.85
+            settings.formantProfilePitchScale = 1.0
             settings.formantProfilePitchOffset = 0.0
 
             slot = RVCModelSlot(slotIndex=0, samplingRate=40000, f0=True, embChannels=768)

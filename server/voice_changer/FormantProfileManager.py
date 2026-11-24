@@ -108,7 +108,7 @@ class FormantProfileManager:
                 target_id = getattr(slot_info, "formantTargetProfileId", "")
                 active = getattr(slot_info, "formantProfileActive", False)
                 strength = getattr(slot_info, "formantProfileStrength", 0.35)
-                pitch_scale = getattr(slot_info, "formantProfilePitchScale", 0.85)
+                pitch_scale = getattr(slot_info, "formantProfilePitchScale", 1.0)
                 pitch_offset = getattr(slot_info, "formantProfilePitchOffset", 0.0)
 
                 if input_id or target_id or active:
@@ -138,7 +138,7 @@ class FormantProfileManager:
                     "targetProfileId": getattr(slot_info, "formantTargetProfileId", ""),
                     "active": getattr(slot_info, "formantProfileActive", False),
                     "strength": getattr(slot_info, "formantProfileStrength", 0.35),
-                    "pitchScale": getattr(slot_info, "formantProfilePitchScale", 0.85),
+                    "pitchScale": getattr(slot_info, "formantProfilePitchScale", 1.0),
                     "pitchOffset": getattr(slot_info, "formantProfilePitchOffset", 0.0),
                 }
         except Exception as e:
@@ -163,7 +163,7 @@ class FormantProfileManager:
                 if "strength" in binding_data:
                     slot_info.formantProfileStrength = float(binding_data["strength"])
                 if "pitchScale" in binding_data:
-                    slot_info.formantProfilePitchScale = max(0.30, min(1.30, float(binding_data["pitchScale"])))
+                    slot_info.formantProfilePitchScale = max(0.30, min(1.50, float(binding_data["pitchScale"])))
                 if "pitchOffset" in binding_data:
                     slot_info.formantProfilePitchOffset = max(-6.0, min(6.0, float(binding_data["pitchOffset"])))
 
@@ -184,7 +184,7 @@ class FormantProfileManager:
                 slot_info.formantInputProfileId = ""
                 slot_info.formantTargetProfileId = ""
                 slot_info.formantProfileActive = False
-                slot_info.formantProfilePitchScale = 0.85
+                slot_info.formantProfilePitchScale = 1.0
                 slot_info.formantProfilePitchOffset = 0.0
                 slot_mgr.save_model_slot(idx, slot_info)
                 logger.info(f"Reset formant binding in params.json for slot {idx}")

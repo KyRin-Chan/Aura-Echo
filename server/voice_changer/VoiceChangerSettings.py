@@ -467,7 +467,7 @@ class VoiceChangerSettings:
     _formantProfileInputSr: int = 0
     _formantProfileStrength: float = 0.35
     _formantProfilePitchStats: str = "{}"
-    _formantProfilePitchScale: float = 0.85
+    _formantProfilePitchScale: float = 1.0
     _formantProfilePitchOffset: float = 0.0
 
     @property
@@ -541,7 +541,7 @@ class VoiceChangerSettings:
     @formantProfilePitchScale.setter
     def formantProfilePitchScale(self, val: Any):
         try:
-            self._formantProfilePitchScale = max(0.30, min(1.30, float(val)))
+            self._formantProfilePitchScale = max(0.30, min(1.50, float(val)))
         except (ValueError, TypeError):
             pass
 

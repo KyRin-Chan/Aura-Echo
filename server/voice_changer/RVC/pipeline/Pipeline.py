@@ -297,7 +297,7 @@ class Pipeline:
                 tgt_log2_std=float(pitch_dist_cfg.get("tgt_std", 0.0)),
                 tgt_f0_p10=float(pitch_dist_cfg.get("tgt_p10", 0.0)),
                 tgt_f0_p90=float(pitch_dist_cfg.get("tgt_p90", 0.0)),
-                pitch_scale=float(pitch_dist_cfg.get("pitch_scale", 0.85)),
+                pitch_scale=float(pitch_dist_cfg.get("pitch_scale", 1.0)),
                 pitch_offset_semitones=float(pitch_dist_cfg.get("pitch_offset", 0.0)),
             )
         else:
