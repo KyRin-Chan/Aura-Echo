@@ -249,6 +249,26 @@ class VoiceChangerV2:
         self.fade_in_window: torch.Tensor = torch.sin(0.5 * np.pi * linspace) ** 2
         self.fade_out_window: torch.Tensor = torch.cos(0.5 * np.pi * linspace) ** 2
 
+        cold_len = min(
+            self.crossfade_frame,
+            max(1, int(round(0.0015 * self.settings.outputSampleRate))),
+        )
+        if cold_len > 1:
+            cold_lin = torch.linspace(
+                0.0,
+                1.0,
+                steps=cold_len,
+                device=self.device_manager.device,
+                dtype=torch.float32,
+            )
+            self.cold_fade_in_window: torch.Tensor = torch.sin(0.5 * np.pi * cold_lin) ** 2
+        else:
+            self.cold_fade_in_window = torch.ones(
+                cold_len,
+                device=self.device_manager.device,
+                dtype=torch.float32,
+            )
+
         self.sola_buffer = torch.zeros(self.crossfade_frame, device=self.device_manager.device, dtype=torch.float32)
         self.sola_ones = torch.ones(1, 1, self.crossfade_frame, device=self.device_manager.device, dtype=torch.float32)
         self._zero_offset = torch.tensor(0, device=self.device_manager.device, dtype=torch.int64)
@@ -419,20 +439,41 @@ class VoiceChangerV2:
             return mixed_np, vol
 
         # Single-sync SOLA alignment
-        sola_energy = torch.mean(self.sola_buffer ** 2)
-        conv_input = audio[None, None, : self.crossfade_frame + self.sola_search_frame]
-        cor_nom = F.conv1d(conv_input, self.sola_buffer[None, None, :])
-        cor_den = torch.sqrt(F.conv1d(conv_input ** 2, self.sola_ones) + 1e-8)
-        best_offset = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
-        sola_offset = int(torch.where(sola_energy < 1e-6, self._zero_offset, best_offset).item())
+        if not self._was_voiced:
+            is_cold_start = True
+            sola_offset = 0
+        else:
+            sola_energy = torch.mean(self.sola_buffer ** 2)
+            conv_input = audio[None, None, : self.crossfade_frame + self.sola_search_frame]
+            cor_nom = F.conv1d(conv_input, self.sola_buffer[None, None, :])
+            cor_den = torch.sqrt(F.conv1d(conv_input ** 2, self.sola_ones) + 1e-8)
+            best_offset = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
+            is_silent_buf_int, best_offset_val = torch.stack(
+                [(sola_energy < 1e-6).to(torch.int64), best_offset]
+            ).tolist()
+            is_cold_start = bool(is_silent_buf_int)
+            sola_offset = 0 if is_cold_start else int(best_offset_val)
 
         audio = audio[sola_offset:]
         needed = block_size + self.crossfade_frame
         if audio.shape[0] < needed:
             audio = F.pad(audio, (0, needed - audio.shape[0]))
 
-        audio[: self.crossfade_frame] *= self.fade_in_window
-        audio[: self.crossfade_frame] += self.sola_buffer * self.fade_out_window
+        if is_cold_start:
+            cold_len = min(
+                int(self.cold_fade_in_window.shape[0]),
+                audio.shape[0],
+                self.crossfade_frame,
+            )
+            if cold_len > 0:
+                cold_w = self.cold_fade_in_window[:cold_len]
+                audio[:cold_len] = (
+                    audio[:cold_len] * cold_w
+                    + self.sola_buffer[:cold_len] * (1.0 - cold_w)
+                )
+        else:
+            audio[: self.crossfade_frame] *= self.fade_in_window
+            audio[: self.crossfade_frame] += self.sola_buffer * self.fade_out_window
 
         self.sola_buffer[:] = audio[block_size : block_size + self.crossfade_frame]
         self._was_voiced = True

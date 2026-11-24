@@ -580,10 +580,19 @@ class RVCr2(VoiceChangerModel):
                 f0_voiced_fn=self._has_sustained_f0,
             )
             if not gate_active:
-                # Feed attenuated (-12 dB) audio into context buffers to prevent raw noise/hum
-                # from polluting F0/HuBERT context and buf_rms on next speech onset.
-                attenuated_in = np.asarray(audio_in, dtype=np.float32) * np.float32(0.25)
-                self.feed_context(attenuated_in)
+                # When a neural/DSP denoiser (DFN3 / NS) is active, stationary mic noise/hum is
+                # already suppressed upstream, so feed raw audio into context buffers to preserve
+                # soft speech onsets. Without a denoiser, attenuate by -12 dB to avoid noise pollution.
+                denoiser_active = bool(
+                    getattr(self.settings, "noiseSuppression", False)
+                    or getattr(self.settings, "noiseSuppression2", False)
+                )
+                context_in = (
+                    np.asarray(audio_in, dtype=np.float32)
+                    if denoiser_active
+                    else np.asarray(audio_in, dtype=np.float32) * np.float32(0.25)
+                )
+                self.feed_context(context_in)
                 if hasattr(self.pipeline.pitchExtractor, "reset"):
                     self.pipeline.pitchExtractor.reset()
                 if self._rms_gain_ema_t is not None:

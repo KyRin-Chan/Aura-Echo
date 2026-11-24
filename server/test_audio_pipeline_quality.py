@@ -311,6 +311,66 @@ class TestAudioPipelineQuality(unittest.TestCase):
         self.assertFalse(rvc._gate_open)
         self.assertEqual(mock_pipeline.exec.call_count, 2)
 
+    def test_cold_start_sola_and_denoised_silence_context(self):
+        # 1. Cold-start SOLA uses ~1.5 ms anti-click ramp instead of attenuating 40 ms onset
+        settings = VoiceChangerSettings()
+        settings.inputSampleRate = 48000
+        settings.outputSampleRate = 48000
+        settings.crossFadeOverlapSize = 0.04  # 1920 samples (40 ms)
+        settings.serverReadChunkSize = 24  # 3072 samples
+        settings.extraConvertSize = 0.1
+
+        vc = VoiceChangerV2(settings)
+        block = vc.block_frame
+        needed = block + vc.crossfade_frame + vc.sola_search_frame
+
+        stub_model = MagicMock()
+        stub_model.voiceChangerType = "RVC"
+        stub_model.formant_filter = None
+        stub_model.inference.side_effect = lambda _x: (
+            torch.ones(needed, dtype=torch.float32) * 0.5,
+            0.35,
+        )
+        vc.initialize(stub_model)
+        self.assertFalse(vc._was_voiced)
+
+        out_np, _ = vc.process_audio(np.zeros(block, dtype=np.float32))
+        cold_len = int(vc.cold_fade_in_window.shape[0])
+        self.assertLess(abs(float(out_np[0])), 1e-5)
+        self.assertGreater(float(np.min(out_np[cold_len : vc.crossfade_frame])), 0.49)
+
+        # 2. Closed gate preserves full-amplitude context when denoiser (DFN3/NS) is active
+        rvc_settings = VoiceChangerSettings()
+        rvc_settings.inputSampleRate = 48000
+        rvc_settings.outputSampleRate = 48000
+        rvc_settings.silentThreshold = -40  # inputSensitivity = 0.01
+        rvc_settings.crossFadeOverlapSize = 0.04
+        rvc_settings.extraConvertSize = 0.1
+        rvc_settings.serverReadChunkSize = 24
+        rvc_settings.noiseSuppression = False
+        rvc_settings.noiseSuppression2 = False
+
+        slot = RVCModelSlot(samplingRate=48000, f0=True)
+        rvc = RVCr2(slot, rvc_settings)
+        rvc.pipeline = MagicMock()
+        rvc.resampler_in = CausalPolyphaseResampler(48000, 16000)
+        rvc.resampler_out = BypassResampler()
+        rvc.realloc(3072, int(0.1 * 48000), int(0.04 * 48000), int(0.012 * 48000))
+
+        low_level = 0.002 * np.sin(2.0 * math.pi * 200.0 * np.arange(3072, dtype=np.float32) / 48000.0)
+
+        out_no_ns, _ = rvc.inference(low_level)
+        self.assertIsNone(out_no_ns)
+        peak_no_ns = float(rvc.convert_buffer[-1024:].abs().max().item())
+
+        rvc.reset_state()
+        rvc_settings.noiseSuppression2 = True
+        out_with_dfn3, _ = rvc.inference(low_level)
+        self.assertIsNone(out_with_dfn3)
+        peak_with_dfn3 = float(rvc.convert_buffer[-1024:].abs().max().item())
+
+        self.assertGreater(peak_with_dfn3 / max(peak_no_ns, 1e-9), 3.5)
+
     def test_stateful_peak_limiter_and_thd(self):
         sr = 48000
         limiter = StatefulPeakLimiter(threshold=0.85, ceiling=0.98, attack_ms=1.0, release_ms=80.0)
