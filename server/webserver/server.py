@@ -17,7 +17,6 @@ import uvicorn
 
 # Now we can use absolute imports
 from settings import get_settings
-from webserver.restapi.mods.Certificate import create_self_signed_cert
 from utils.strtobool import strtobool
 
 logger = logging.getLogger(__name__)
@@ -89,8 +88,14 @@ class WebServer:
                 key_path = ssl_dir / f"{self.host.replace('.', '_')}.key"
                 cert_path = ssl_dir / f"{self.host.replace('.', '_')}.crt"
                 
-                if not key_path.exists() or not cert_path.exists():
+                if (
+                    not key_path.exists()
+                    or not cert_path.exists()
+                    or key_path.stat().st_size == 0
+                    or cert_path.stat().st_size == 0
+                ):
                     logger.info(f"Generating new self-signed certificate for {self.host}")
+                    from webserver.restapi.mods.Certificate import create_self_signed_cert
                     certargs = {
                         'Country': "US",
                         'State': "California",

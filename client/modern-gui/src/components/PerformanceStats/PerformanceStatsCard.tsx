@@ -67,9 +67,13 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
 
   //Calculate the next DataPoint using performance values
   const calculatedMetrics = useMemo((): CalculatedMetricValues => {
+    const serverSetting = appState.serverSetting.serverSetting;
     const volumeDb = Math.max(Math.round(20 * Math.log10(performance.vol || 0.00001)), -90);
-    const chunkTime = ((appState.serverSetting.serverSetting.serverReadChunkSize * 128 * 1000) / 48000); // Assuming 48kHz sample rate, 128 samples per frame for chunk size unit
-    const totalLatencyTime = Math.ceil(chunkTime + performance.responseTime + appState.serverSetting.serverSetting.crossFadeOverlapSize * 1000);
+    const chunkTime = (serverSetting.serverReadChunkSize * 128 * 1000) / 48000; // Assuming 48kHz sample rate, 128 samples per frame for chunk size unit
+    const ping = Math.max(0, performance.responseTime || 0);
+    const crossfadeTime = Math.max(0, (serverSetting.crossFadeOverlapSize ?? 0) * 1000);
+    const lookaheadTime = Math.max(0, (serverSetting.lookaheadSize ?? 0) * 1000);
+    const totalLatencyTime = Math.ceil(chunkTime + ping + crossfadeTime + lookaheadTime);
 
     let perfStatus: PerfStatus = 'good';
     const eightyPercentChunkTime = 0.8 * chunkTime;
@@ -81,13 +85,18 @@ function PerformanceStatsCard({ dndAttributes, dndListeners }: PerformanceStatsC
 
     return {
       volumeDb,
-      ping: performance.responseTime,
+      ping,
       totalLatencyTime,
       perfTime: performance.mainprocessTime,
       chunkTime,
       perfStatus,
     };
-  }, [performance, appState.serverSetting.serverSetting.serverReadChunkSize, appState.serverSetting.serverSetting.crossFadeOverlapSize]);
+  }, [
+    performance,
+    appState.serverSetting.serverSetting.serverReadChunkSize,
+    appState.serverSetting.serverSetting.crossFadeOverlapSize,
+    appState.serverSetting.serverSetting.lookaheadSize,
+  ]);
 
   const lastChartUpdateTimeRef = useRef<number>(0);
   const CHART_UPDATE_INTERVAL_MS = 1000; // Throttle updates to once per second
