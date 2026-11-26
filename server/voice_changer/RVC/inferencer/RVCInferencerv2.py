@@ -1,11 +1,11 @@
 import hashlib
 import os
-from time import perf_counter
+from time import perf_counter, time
 import torch
 import json
 import logging
 from safetensors import safe_open
-from const import EnumInferenceTypes, TMP_DIR
+from const import EnumInferenceTypes, ROOT_PATH
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.RVC.inferencer.Inferencer import Inferencer
 from .rvc_models.infer_pack.models import SynthesizerTrnMs768NSFsid
@@ -13,6 +13,10 @@ from voice_changer.common.SafetensorsUtils import load_model
 from voice_changer.vocoder.VocoderManager import VocoderManager
 
 logger = logging.getLogger(__name__)
+
+_JIT_CACHE_MAX_FILES = 8
+_JIT_CACHE_MAX_BYTES = 1024 * 1024 * 1024  # 1 GiB
+_JIT_CACHE_TMP_MAX_AGE_SEC = 600
 
 
 def _load_state_dict_compat(model: torch.nn.Module, raw: dict, strict: bool = False):
@@ -71,9 +75,79 @@ def _get_jit_cache_path(file: str, dev: torch.device, target_dtype: torch.dtype)
             torch.__version__,
         ])
         digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
-        return os.path.join(TMP_DIR, "jit_cache", f"{digest}.ts")
+        return os.path.join(ROOT_PATH, "tmp_dir", "jit_cache", f"{digest}.ts")
     except Exception:
         return None
+
+
+def _prune_jit_cache(
+    cache_dir: str,
+    keep_path: str | None = None,
+    max_files: int = _JIT_CACHE_MAX_FILES,
+    max_bytes: int = _JIT_CACHE_MAX_BYTES,
+) -> int:
+    """Enforce LRU limits on `.ts` cache entries and clean up stale `.tmp` files."""
+    if not os.path.isdir(cache_dir):
+        return 0
+
+    now = time()
+    keep_norm = os.path.normcase(os.path.abspath(keep_path)) if keep_path else None
+    entries: list[tuple[bool, int, int, str]] = []
+
+    try:
+        with os.scandir(cache_dir) as it:
+            for entry in it:
+                try:
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                    st = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+
+                if entry.name.endswith(".tmp"):
+                    if now - st.st_mtime > _JIT_CACHE_TMP_MAX_AGE_SEC:
+                        try:
+                            os.remove(entry.path)
+                        except OSError:
+                            pass
+                    continue
+
+                if entry.name.endswith(".ts"):
+                    is_keep = (
+                        keep_norm is not None
+                        and os.path.normcase(os.path.abspath(entry.path)) == keep_norm
+                    )
+                    entries.append((is_keep, st.st_mtime_ns, st.st_size, entry.path))
+    except OSError:
+        return 0
+
+    # Keep the newly written entry first, then sort remaining entries newest-first (LRU).
+    entries.sort(key=lambda item: (item[0], item[1]), reverse=True)
+
+    kept_count = 0
+    kept_bytes = 0
+    removed_count = 0
+    removed_bytes = 0
+
+    for is_keep, _, size, path in entries:
+        over_limit = kept_count >= max_files or (kept_bytes + size > max_bytes)
+        if not is_keep and over_limit:
+            try:
+                os.remove(path)
+                removed_count += 1
+                removed_bytes += size
+            except OSError:
+                pass
+        else:
+            kept_count += 1
+            kept_bytes += size
+
+    if removed_count > 0:
+        logger.info(
+            f"Pruned {removed_count} old JIT cache file(s) "
+            f"({removed_bytes / (1024 * 1024):.1f} MB) from {cache_dir}"
+        )
+    return removed_count
 
 
 class RVCInferencerv2(Inferencer):
@@ -105,6 +179,10 @@ class RVCInferencerv2(Inferencer):
                 self.model_dtype = target_dtype
                 self.use_jit = True
                 self.model = model
+                try:
+                    os.utime(cache_path, None)
+                except OSError:
+                    pass
                 elapsed_ms = (perf_counter() - t0) * 1000.0
                 logger.info(f"Loaded cached JIT model from {cache_path} in {elapsed_ms:.1f} ms.")
                 return self
@@ -160,6 +238,7 @@ class RVCInferencerv2(Inferencer):
                         torch.jit.save(model, tmp_path, _extra_files=extra_files)
                         os.replace(tmp_path, cache_path)
                         logger.info(f"Saved compiled JIT model cache to {cache_path}")
+                        _prune_jit_cache(os.path.dirname(cache_path), keep_path=cache_path)
                     except Exception as cache_err:
                         logger.warning(f"Failed to save JIT model cache: {cache_err}")
                         try:
