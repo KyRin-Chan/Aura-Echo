@@ -1,5 +1,6 @@
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import faiss
 import faiss.contrib.torch_utils
 import torch
@@ -37,27 +38,48 @@ def createPipeline(
 
     model_dir = get_settings().model_dir
 
-    # Step 1: Inferencer 生成
-    _report(1, "Loading voice model...")
     if useONNX:
-        modelPath = os.path.join(model_dir, str(modelSlot.slotIndex), os.path.basename(modelSlot.modelFileOnnx))
-        inferencer = InferencerManager.getInferencer(modelSlot.modelTypeOnnx, modelPath)
+        inferencer_type = modelSlot.modelTypeOnnx
+        model_path = os.path.join(model_dir, str(modelSlot.slotIndex), os.path.basename(modelSlot.modelFileOnnx))
     else:
-        modelPath = os.path.join(model_dir, str(modelSlot.slotIndex), os.path.basename(modelSlot.modelFile))
-        inferencer = InferencerManager.getInferencer(modelSlot.modelType, modelPath)
+        inferencer_type = modelSlot.modelType
+        model_path = os.path.join(model_dir, str(modelSlot.slotIndex), os.path.basename(modelSlot.modelFile))
+    index_path = os.path.join(model_dir, str(modelSlot.slotIndex), os.path.basename(modelSlot.indexFile))
 
-    # Step 2: Embedder 生成
-    _report(2, "Loading embedder...")
-    embedder = EmbedderManager.get_embedder(modelSlot.embedder, force_reload)
+    _report(1, "Loading voice model, embedder, pitch extractor & index...")
 
-    # Step 3: pitchExtractor
-    _report(3, "Loading pitch extractor...")
-    pitchExtractor = PitchExtractorManager.getPitchExtractor(f0Detector, force_reload)
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="PipelineLoader") as executor:
+        futures = {
+            executor.submit(InferencerManager.getInferencer, inferencer_type, model_path): (
+                "inferencer",
+                "Voice model loaded",
+            ),
+            executor.submit(EmbedderManager.get_embedder, modelSlot.embedder, force_reload): (
+                "embedder",
+                "Embedder loaded",
+            ),
+            executor.submit(PitchExtractorManager.getPitchExtractor, f0Detector, force_reload): (
+                "pitchExtractor",
+                "Pitch extractor loaded",
+            ),
+            executor.submit(_loadIndex, index_path): (
+                "index",
+                "FAISS index loaded",
+            ),
+        }
 
-    # Step 4: index, feature
-    _report(4, "Loading FAISS index...")
-    indexPath = os.path.join(model_dir, str(modelSlot.slotIndex), os.path.basename(modelSlot.indexFile))
-    index, index_reconstruct = _loadIndex(indexPath)
+        results = {}
+        completed = 0
+        for fut in as_completed(futures):
+            key, label = futures[fut]
+            results[key] = fut.result()
+            completed += 1
+            _report(completed, label)
+
+    inferencer = results["inferencer"]
+    embedder = results["embedder"]
+    pitchExtractor = results["pitchExtractor"]
+    index, index_reconstruct = results["index"]
 
     pipeline = Pipeline(
         embedder,

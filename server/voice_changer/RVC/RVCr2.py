@@ -30,7 +30,6 @@ from voice_changer.common.TorchUtils import circular_write
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.embedder.EmbedderManager import EmbedderManager
 from voice_changer.pitch_extractor.PitchExtractorManager import PitchExtractorManager
-from voice_changer.RVC.onnx_exporter.export2onnx import export2onnx
 from voice_changer.RVC.pipeline.Pipeline import Pipeline
 from voice_changer.RVC.pipeline.PipelineGenerator import createPipeline
 from voice_changer.utils.VoiceChangerModel import AudioInOutFloat, VoiceChangerModel
@@ -867,6 +866,7 @@ class RVCr2(VoiceChangerModel):
         del self.pipeline
 
     def export2onnx(self):
+        from voice_changer.RVC.onnx_exporter.export2onnx import export2onnx
         modelSlot = self.slotInfo
 
         if modelSlot.isONNX:

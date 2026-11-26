@@ -12,7 +12,7 @@ import asyncio
 import logging
 import argparse
 import signal
-import asyncio
+import threading
 from datetime import datetime
 from Exceptions import setup_event_loop
 
@@ -61,7 +61,21 @@ def setup_arg_parser():
         action="store_true",
         help="Open the web interface in the default browser on startup"
     )
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="Skip the pre-boot menu and immediately start with HTTP on 127.0.0.1"
+    )
     return parser
+
+
+def _preload_heavy_imports() -> None:
+    """Warm up heavy Python imports in the background during the pre-boot countdown."""
+    for mod in ("numpy", "scipy", "torch", "torchaudio", "onnxruntime", "faiss"):
+        try:
+            __import__(mod)
+        except Exception:
+            pass
 
 def _get_lan_ip() -> str | None:
     """Return the machine's primary LAN IPv4 address, or None if not found."""
@@ -192,11 +206,16 @@ def show_pre_boot_menu(timeout: int = 8) -> tuple[str, str]:
 
 async def main():
     """Main entry point for the application."""
-    # Show BIOS selection menu before starting the server
-    boot_mode, boot_host = show_pre_boot_menu(timeout=8)
-
     parser = setup_arg_parser()
     args = parser.parse_args()
+
+    quick_env = os.environ.get("AURAECHO_QUICK_BOOT", "").strip().lower() in ("1", "true", "yes")
+    if args.quick or quick_env:
+        boot_mode, boot_host = "http", "127.0.0.1"
+    else:
+        # Overlap heavy Python module imports with the interactive menu countdown
+        threading.Thread(target=_preload_heavy_imports, name="ImportPreloader", daemon=True).start()
+        boot_mode, boot_host = show_pre_boot_menu(timeout=8)
     
     # Setup logging
     global logger

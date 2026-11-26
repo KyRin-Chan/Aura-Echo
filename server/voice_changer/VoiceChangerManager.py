@@ -2,11 +2,11 @@ import json
 import os
 import sys
 import shutil
+import threading
 import numpy as np
 import logging
 from voice_changer.Local.ServerAudio import ServerAudio, ServerAudioCallbacks
 from voice_changer.ModelSlotManager import ModelSlotManager
-from voice_changer.RVC.RVCModelMerger import RVCModelMerger
 from const import STORED_SETTING_FILE, UPLOAD_DIR
 from voice_changer.VoiceChangerSettings import VoiceChangerSettings
 from voice_changer.VoiceChangerV2 import VoiceChangerV2
@@ -28,11 +28,8 @@ from typing import Callable, Any
 from dataclasses import asdict
 
 from voice_changer.RVC.RVCr2 import RVCr2
-from voice_changer.RVC.RVCModelSlotGenerator import RVCModelSlotGenerator  # 起動時にインポートするとパラメータが取れない。
 from webserver.restapi.mods.FileUploader import upload_file
 from fastapi import UploadFile
-from const import UPLOAD_DIR
-import os, shutil, json
 from data.SoundSlotManager import SoundSlotManager
 
 logger = logging.getLogger(__name__)
@@ -58,6 +55,7 @@ class VoiceChangerManager(ServerAudioCallbacks):
                 logger.exception(f"Error in emitTo callback: {e}")
 
     def emit_progress(self, step: int, total: int, label: str):
+        self._last_progress = (step, total, label)
         for func in self.progressEmitFuncs:
             try:
                 func(step, total, label)
@@ -67,11 +65,14 @@ class VoiceChangerManager(ServerAudioCallbacks):
     ############################
     # VoiceChangerManager
     ############################
-    def __init__(self):
+    def __init__(self, defer_model_init: bool = False):
         logger.info("Initializing...")
         VoiceChangerManager._instance = self
         self.emitToFuncs = []
         self.progressEmitFuncs = []
+        self._last_progress: tuple[int, int, str] | None = None
+        self._init_thread: threading.Thread | None = None
+        self._init_lock = threading.Lock()
         self.params = get_settings()
 
         self.modelSlotManager = ModelSlotManager.get_instance(self.params.model_dir)
@@ -149,22 +150,46 @@ class VoiceChangerManager(ServerAudioCallbacks):
 
         logger.info("Initialized.")
 
-        # Initialize the voice changer
-        self.initialize(self.settings.modelSlotIndex)
-        # Initialize mixer tracks from existing sound slots
-        try:
-            self._refresh_audio_mixer()
-        except Exception as e:
-            logger.warning(f"Failed to initialize audio mixer tracks: {e}")
+        if not defer_model_init:
+            # Initialize the voice changer
+            self.initialize(self.settings.modelSlotIndex)
+            # Initialize mixer tracks from existing sound slots
+            try:
+                self._refresh_audio_mixer()
+            except Exception as e:
+                logger.warning(f"Failed to initialize audio mixer tracks: {e}")
+
+    def start_deferred_init(self) -> None:
+        """Start initial model loading and warmup in a background daemon thread."""
+        with self._init_lock:
+            if self._init_thread is not None:
+                return
+
+            def _run_init():
+                try:
+                    self.initialize(self.settings.modelSlotIndex)
+                except Exception as e:
+                    logger.exception(f"Deferred model initialization failed: {e}")
+                try:
+                    self._refresh_audio_mixer()
+                except Exception as e:
+                    logger.warning(f"Failed to initialize audio mixer tracks: {e}")
+
+            self._init_thread = threading.Thread(
+                target=_run_init,
+                name="InitialModelLoader",
+                daemon=True,
+            )
+            self._init_thread.start()
 
     def store_setting(self):
         with open(STORED_SETTING_FILE, "w", encoding="utf-8") as f:
             json.dump(self.settings.to_dict_stateless(), f, indent=4, ensure_ascii=False)
 
     @classmethod
-    def get_instance(cls):
+    def get_instance(cls, defer_model_init: bool = False):
         if cls._instance is None:
-            cls._instance = cls()
+            cls._instance = cls(defer_model_init=defer_model_init)
         return cls._instance
 
     async def load_model(self, params: LoadModelParams):
@@ -192,6 +217,7 @@ class VoiceChangerManager(ServerAudioCallbacks):
 
         # メタデータ作成(各VCで定義)
         if params.voiceChangerType == "RVC":
+            from voice_changer.RVC.RVCModelSlotGenerator import RVCModelSlotGenerator
             slotInfo = RVCModelSlotGenerator.load_model(params)
             if slotInfo is None:
                 logger.info("Failed to load model, skipping save")
@@ -242,45 +268,48 @@ class VoiceChangerManager(ServerAudioCallbacks):
         return data
 
     def initialize(self, val: int):
-        with self.device_manager.lock:
-            slotInfo = self.modelSlotManager.get_slot_info(val)
-            if slotInfo is None or slotInfo.voiceChangerType is None:
-                logger.warning(f"Model slot is not found {val}")
-                return
-
-            self.settings.set_properties({
-                'tran': slotInfo.defaultTune,
-                'formantShift': slotInfo.defaultFormantShift,
-                'indexRatio': slotInfo.defaultIndexRatio,
-            })
-
-            # Build a progress callback that fans out to all registered emitters
-            def _progress_callback(step: int, total: int, label: str):
-                self.emit_progress(step, total, label)
-
-            if slotInfo.voiceChangerType == self.vc.get_type():
-                if self.vc.vcmodel is not None and hasattr(self.vc.vcmodel, "set_progress_callback"):
-                    self.vc.vcmodel.set_progress_callback(_progress_callback)
-                self.vc.set_slot_info(slotInfo)
-            elif slotInfo.voiceChangerType == "RVC":
-                logger.info("Loading RVC...")
-                rvc = RVCr2(slotInfo, self.settings)
-                if self.audio_effects_manager is not None:
-                    rvc.set_audio_effects_manager(self.audio_effects_manager)
-                rvc.set_progress_callback(_progress_callback)
-                self.vc.initialize(rvc)
-            else:
-                logger.error(f"Unknown voice changer model: {slotInfo.voiceChangerType}")
-
-        # Attach audio mixer to the voice processor
         try:
-            if self.audio_mixer is not None and hasattr(self.vc, 'set_audio_mixer'):
-                self.vc.set_audio_mixer(self.audio_mixer)
-                # Apply initial configuration if present
-                if hasattr(self.settings, 'audioBackgrounds') and self.settings.audioBackgrounds is not None:
-                    self.audio_mixer.set_tracks(self.settings.audioBackgrounds, output_sr=self.settings.outputSampleRate)
-        except Exception as e:
-            logger.warning(f"Failed to attach audio mixer: {e}")
+            with self.device_manager.lock:
+                slotInfo = self.modelSlotManager.get_slot_info(val)
+                if slotInfo is None or slotInfo.voiceChangerType is None:
+                    logger.warning(f"Model slot is not found {val}")
+                    return
+
+                self.settings.set_properties({
+                    'tran': slotInfo.defaultTune,
+                    'formantShift': slotInfo.defaultFormantShift,
+                    'indexRatio': slotInfo.defaultIndexRatio,
+                })
+
+                # Build a progress callback that fans out to all registered emitters
+                def _progress_callback(step: int, total: int, label: str):
+                    self.emit_progress(step, total, label)
+
+                if slotInfo.voiceChangerType == self.vc.get_type():
+                    if self.vc.vcmodel is not None and hasattr(self.vc.vcmodel, "set_progress_callback"):
+                        self.vc.vcmodel.set_progress_callback(_progress_callback)
+                    self.vc.set_slot_info(slotInfo)
+                elif slotInfo.voiceChangerType == "RVC":
+                    logger.info("Loading RVC...")
+                    rvc = RVCr2(slotInfo, self.settings)
+                    if self.audio_effects_manager is not None:
+                        rvc.set_audio_effects_manager(self.audio_effects_manager)
+                    rvc.set_progress_callback(_progress_callback)
+                    self.vc.initialize(rvc)
+                else:
+                    logger.error(f"Unknown voice changer model: {slotInfo.voiceChangerType}")
+
+            # Attach audio mixer to the voice processor
+            try:
+                if self.audio_mixer is not None and hasattr(self.vc, 'set_audio_mixer'):
+                    self.vc.set_audio_mixer(self.audio_mixer)
+                    # Apply initial configuration if present
+                    if hasattr(self.settings, 'audioBackgrounds') and self.settings.audioBackgrounds is not None:
+                        self.audio_mixer.set_tracks(self.settings.audioBackgrounds, output_sr=self.settings.outputSampleRate)
+            except Exception as e:
+                logger.warning(f"Failed to attach audio mixer: {e}")
+        finally:
+            self._last_progress = None
 
     def update_settings(self, key: str, val: Any):
         # Only log audio effects changes and large envelopes at debug level to reduce noise
@@ -466,6 +495,7 @@ class VoiceChangerManager(ServerAudioCallbacks):
         # Slots range is 0-499
         slot = len(self.modelSlotManager.getAllSlotInfo()) - 1
         if req.voiceChangerType == "RVC":
+            from voice_changer.RVC.RVCModelMerger import RVCModelMerger
             RVCModelMerger.merge_models(self.params, req, slot)
         return self.get_info()
 

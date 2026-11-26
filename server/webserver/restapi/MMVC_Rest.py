@@ -302,6 +302,14 @@ class MMVC_Rest:
                         pass
                 await websocket.accept()
                 active_progress_websockets.add(websocket)
+                last_progress = getattr(voiceChangerManager, "_last_progress", None)
+                if last_progress is not None:
+                    try:
+                        import json as _json
+                        step, total, label = last_progress
+                        await websocket.send_text(_json.dumps({"step": step, "total": total, "label": label}))
+                    except Exception:
+                        pass
                 logger.debug("WebSocket client connected to /ws/progress")
                 try:
                     # Keep the connection alive; this endpoint is receive-only from server side

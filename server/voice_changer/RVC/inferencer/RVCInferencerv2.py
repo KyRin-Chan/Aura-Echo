@@ -1,8 +1,11 @@
+import hashlib
+import os
+from time import perf_counter
 import torch
 import json
 import logging
 from safetensors import safe_open
-from const import EnumInferenceTypes
+from const import EnumInferenceTypes, TMP_DIR
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.RVC.inferencer.Inferencer import Inferencer
 from .rvc_models.infer_pack.models import SynthesizerTrnMs768NSFsid
@@ -48,6 +51,31 @@ def _load_state_dict_compat(model: torch.nn.Module, raw: dict, strict: bool = Fa
         logger.debug(f"load_state_dict unexpected keys ({len(unexpected)}): {unexpected[:3]}")
     return missing, unexpected
 
+def _get_jit_cache_path(file: str, dev: torch.device, target_dtype: torch.dtype) -> str | None:
+    """Compute a deterministic TorchScript disk cache path for a checkpoint + device + dtype."""
+    try:
+        abs_path = os.path.abspath(file)
+        st = os.stat(abs_path)
+        cuda_cap = ""
+        if dev.type == "cuda":
+            major, minor = torch.cuda.get_device_capability(dev)
+            cuda_cap = f"sm_{major}{minor}"
+        key = "|".join([
+            "rvc_v2_jit_v1",
+            abs_path,
+            str(st.st_size),
+            str(st.st_mtime_ns),
+            dev.type,
+            cuda_cap,
+            str(target_dtype),
+            torch.__version__,
+        ])
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+        return os.path.join(TMP_DIR, "jit_cache", f"{digest}.ts")
+    except Exception:
+        return None
+
+
 class RVCInferencerv2(Inferencer):
     def __init__(self):
         self._last_used_standalone_vocoder: bool = False
@@ -60,6 +88,32 @@ class RVCInferencerv2(Inferencer):
         is_half = target_dtype != torch.float32
         use_jit_compile = device_manager.use_jit_compile()
         self.set_props(EnumInferenceTypes.pyTorchRVCv2, file)
+
+        cache_path = _get_jit_cache_path(file, dev, target_dtype) if use_jit_compile else None
+        if cache_path and os.path.isfile(cache_path):
+            t0 = perf_counter()
+            try:
+                extra_files = {"meta.json": ""}
+                model = torch.jit.load(cache_path, map_location=dev, _extra_files=extra_files)
+                if not hasattr(model, "infer"):
+                    raise RuntimeError("Cached TorchScript module is missing 'infer' method")
+                meta_raw = extra_files.get("meta.json", b"")
+                if isinstance(meta_raw, bytes):
+                    meta_raw = meta_raw.decode("utf-8", errors="ignore")
+                meta = json.loads(meta_raw) if meta_raw else {}
+                self.is_refinegan = bool(meta.get("is_refinegan", False))
+                self.model_dtype = target_dtype
+                self.use_jit = True
+                self.model = model
+                elapsed_ms = (perf_counter() - t0) * 1000.0
+                logger.info(f"Loaded cached JIT model from {cache_path} in {elapsed_ms:.1f} ms.")
+                return self
+            except Exception as e:
+                logger.warning(f"Failed to load cached JIT model ({e}); recompiling.")
+                try:
+                    os.remove(cache_path)
+                except OSError:
+                    pass
 
         # Keep torch.load for backward compatibility, but discourage the use of this loading method
         if file.endswith('.safetensors'):
@@ -98,6 +152,21 @@ class RVCInferencerv2(Inferencer):
                     torch.jit.script(model),
                     other_methods=['infer', 'infer_latent'],
                 )
+                if cache_path:
+                    tmp_path = f"{cache_path}.{os.getpid()}.tmp"
+                    try:
+                        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                        extra_files = {"meta.json": json.dumps({"is_refinegan": self.is_refinegan})}
+                        torch.jit.save(model, tmp_path, _extra_files=extra_files)
+                        os.replace(tmp_path, cache_path)
+                        logger.info(f"Saved compiled JIT model cache to {cache_path}")
+                    except Exception as cache_err:
+                        logger.warning(f"Failed to save JIT model cache: {cache_err}")
+                        try:
+                            if os.path.exists(tmp_path):
+                                os.remove(tmp_path)
+                        except OSError:
+                            pass
             except Exception as e:
                 logger.warning(f"JIT compilation failed: {e}. Falling back to eager mode.")
                 self.use_jit = False

@@ -42,10 +42,14 @@ class WebServer:
         # When binding to 0.0.0.0 we probe on the loopback address
         probe_host = '127.0.0.1' if self.host == '0.0.0.0' else self.host
         while True:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                result = sock.connect_ex((probe_host, self.port))
-                if result == 0:
-                    break
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    result = sock.connect_ex((probe_host, self.port))
+                    if result == 0:
+                        break
+            except OSError:
+                pass
+            await asyncio.sleep(0.05)
         
         logger.info('-' * 8)
         proto = 'https' if settings.ssl_enabled else 'http'
