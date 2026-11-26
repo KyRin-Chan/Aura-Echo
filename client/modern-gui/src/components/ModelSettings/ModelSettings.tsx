@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import { RVCModelSlot, ClientState } from "@dannadori/voice-changer-client-js";
 import { CSS_CLASSES } from "../../styles/constants";
 import MD3Slider from "../Helpers/MD3Slider";
@@ -64,6 +66,7 @@ function ModelSettings({
 
   const [profiles, setProfiles] = useState<FormantProfile[]>([]);
   const [bindings, setBindings] = useState<Record<string | number, ModelFormantBinding>>({});
+  const [isCalibrationSlidersCollapsed, setIsCalibrationSlidersCollapsed] = useState<boolean>(true);
 
   useEffect(() => {
     const loadProfilesAndBindings = async () => {
@@ -467,80 +470,101 @@ function ModelSettings({
             )}
           </div>
 
-          {/* Pitch Dynamic Range Scale Slider */}
-          <div className={immediatePitchMode === 'singing' ? 'opacity-50' : ''}>
-            <label htmlFor="formantProfilePitchScale" className={CSS_CLASSES.label}>
-              {t('pitchDynamicScaleLabel')}
-            </label>
-            <MD3Slider
-              id="formantProfilePitchScale"
-              min={0.5}
-              max={1.5}
-              step={0.05}
-              value={immediatePitchMode === 'singing' ? 1.0 : immediatePitchScale}
-              onChange={handlePitchScaleChange}
-              onImmediateChange={setImmediatePitchScale}
-              disabled={!model || immediatePitchMode === 'singing'}
-              showValue={true}
-              valueFormatter={(val) => `${Math.round(val * 100)}%`}
-            />
-          </div>
+          {/* Collapsible Calibration Fine-Tune Sliders */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => setIsCalibrationSlidersCollapsed((prev) => !prev)}
+              aria-expanded={!isCalibrationSlidersCollapsed}
+              title={isCalibrationSlidersCollapsed ? t('expandLabel') : t('collapseLabel')}
+              className="flex w-full items-center justify-between rounded-lg bg-surface-container-high/50 hover:bg-surface-container-high/80 border border-outline-variant/40 px-3 py-2 text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-colors duration-150"
+            >
+              <span>{t('calibrationFineTuneLabel')}</span>
+              <FontAwesomeIcon
+                icon={isCalibrationSlidersCollapsed ? faChevronDown : faChevronUp}
+                className="h-3.5 w-3.5"
+              />
+            </button>
 
-          {/* Pitch Fine-Tune Offset Slider */}
-          <div>
-            <label htmlFor="formantProfilePitchOffset" className={CSS_CLASSES.label}>
-              {t('pitchFineTuneLabel')}
-            </label>
-            <MD3Slider
-              id="formantProfilePitchOffset"
-              min={-6}
-              max={6}
-              step={0.5}
-              value={immediatePitchOffset}
-              onChange={handlePitchOffsetChange}
-              onImmediateChange={setImmediatePitchOffset}
-              disabled={!model}
-              showValue={true}
-              valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(1)}`}
-            />
-          </div>
+            {!isCalibrationSlidersCollapsed && (
+              <div className="mt-3 space-y-3 animate-fadeIn">
+                {/* Pitch Dynamic Range Scale Slider */}
+                <div className={immediatePitchMode === 'singing' ? 'opacity-50' : ''}>
+                  <label htmlFor="formantProfilePitchScale" className={CSS_CLASSES.label}>
+                    {t('pitchDynamicScaleLabel')}
+                  </label>
+                  <MD3Slider
+                    id="formantProfilePitchScale"
+                    min={0.5}
+                    max={1.5}
+                    step={0.05}
+                    value={immediatePitchMode === 'singing' ? 1.0 : immediatePitchScale}
+                    onChange={handlePitchScaleChange}
+                    onImmediateChange={setImmediatePitchScale}
+                    disabled={!model || immediatePitchMode === 'singing'}
+                    showValue={true}
+                    valueFormatter={(val) => `${Math.round(val * 100)}%`}
+                  />
+                </div>
 
-          {/* Formant Shift (tract length) in Calibration Mode */}
-          <div>
-            <label htmlFor="formantProfileFormantShift" className={CSS_CLASSES.label}>
-              {t('formantShiftLabel')}
-            </label>
-            <MD3Slider
-              id="formantProfileFormantShift"
-              min={-3}
-              max={3}
-              step={0.05}
-              value={immediateCalFormantShift}
-              onChange={handleCalFormantShiftChange}
-              onImmediateChange={setImmediateCalFormantShift}
-              disabled={!model}
-              showValue={true}
-              valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(2)}`}
-            />
-          </div>
+                {/* Pitch Fine-Tune Offset Slider */}
+                <div>
+                  <label htmlFor="formantProfilePitchOffset" className={CSS_CLASSES.label}>
+                    {t('pitchFineTuneLabel')}
+                  </label>
+                  <MD3Slider
+                    id="formantProfilePitchOffset"
+                    min={-6}
+                    max={6}
+                    step={0.5}
+                    value={immediatePitchOffset}
+                    onChange={handlePitchOffsetChange}
+                    onImmediateChange={setImmediatePitchOffset}
+                    disabled={!model}
+                    showValue={true}
+                    valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(1)}`}
+                  />
+                </div>
 
-          {/* Correction Strength Slider */}
-          <div>
-            <label htmlFor="formantProfileStrength" className={CSS_CLASSES.label}>
-              {t('timbreWarpStrengthLabel')}
-            </label>
-            <MD3Slider
-              id="formantProfileStrength"
-              min={0.0}
-              max={1.0}
-              step={0.05}
-              value={immediateStrength}
-              onChange={handleWarpFilterStrengthChange}
-              onImmediateChange={setImmediateStrength}
-              disabled={!model}
-              showValue={true}
-              valueFormatter={(val) => val.toFixed(2)}
-            />
+                {/* Formant Shift (tract length) in Calibration Mode */}
+                <div>
+                  <label htmlFor="formantProfileFormantShift" className={CSS_CLASSES.label}>
+                    {t('formantShiftLabel')}
+                  </label>
+                  <MD3Slider
+                    id="formantProfileFormantShift"
+                    min={-3}
+                    max={3}
+                    step={0.05}
+                    value={immediateCalFormantShift}
+                    onChange={handleCalFormantShiftChange}
+                    onImmediateChange={setImmediateCalFormantShift}
+                    disabled={!model}
+                    showValue={true}
+                    valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(2)}`}
+                  />
+                </div>
+
+                {/* Correction Strength Slider */}
+                <div>
+                  <label htmlFor="formantProfileStrength" className={CSS_CLASSES.label}>
+                    {t('timbreWarpStrengthLabel')}
+                  </label>
+                  <MD3Slider
+                    id="formantProfileStrength"
+                    min={0.0}
+                    max={1.0}
+                    step={0.05}
+                    value={immediateStrength}
+                    onChange={handleWarpFilterStrengthChange}
+                    onImmediateChange={setImmediateStrength}
+                    disabled={!model}
+                    showValue={true}
+                    valueFormatter={(val) => val.toFixed(2)}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
