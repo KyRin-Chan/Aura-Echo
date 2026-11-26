@@ -21,6 +21,12 @@ function SettingsView(): JSX.Element {
   const [localCrossFadeOverlapSize, setLocalCrossFadeOverlapSize] = useState<number>(
     appState.serverSetting?.serverSetting?.crossFadeOverlapSize ?? 0.02
   );
+  const [localLookaheadSize, setLocalLookaheadSize] = useState<number>(
+    appState.serverSetting?.serverSetting?.lookaheadSize ?? 0.0
+  );
+  const [localRmsMixRate, setLocalRmsMixRate] = useState<number>(
+    appState.serverSetting?.serverSetting?.rmsMixRate ?? 0.4
+  );
   const [localProtect, setLocalProtect] = useState<number>(
     appState.serverSetting?.serverSetting?.protect ?? 0.33
   );
@@ -38,6 +44,16 @@ function SettingsView(): JSX.Element {
     const crossFade = appState.serverSetting?.serverSetting?.crossFadeOverlapSize;
     if (crossFade != null) setLocalCrossFadeOverlapSize(crossFade);
   }, [appState.serverSetting?.serverSetting?.crossFadeOverlapSize]);
+
+  useEffect(() => {
+    const lookahead = appState.serverSetting?.serverSetting?.lookaheadSize;
+    if (lookahead != null) setLocalLookaheadSize(lookahead);
+  }, [appState.serverSetting?.serverSetting?.lookaheadSize]);
+
+  useEffect(() => {
+    const rmsMix = appState.serverSetting?.serverSetting?.rmsMixRate;
+    if (rmsMix != null) setLocalRmsMixRate(rmsMix);
+  }, [appState.serverSetting?.serverSetting?.rmsMixRate]);
 
   useEffect(() => {
     const protect = appState.serverSetting?.serverSetting?.protect;
@@ -59,6 +75,30 @@ function SettingsView(): JSX.Element {
     } finally {
       if (hasModel) uiState.stopLoading();
     }
+  };
+
+  // Handle lookahead buffer size change
+  const handleLookaheadSizeChange = async (val: number) => {
+    const hasModel = (appState.serverSetting?.serverSetting?.modelSlotIndex ?? -1) !== -1;
+    if (hasModel) uiState.startLoading(t('warmingUpPipeline'));
+    try {
+      await appState.serverSetting.updateServerSettings({
+        ...appState.serverSetting.serverSetting,
+        lookaheadSize: val
+      });
+      setLocalLookaheadSize(val);
+    } finally {
+      if (hasModel) uiState.stopLoading();
+    }
+  };
+
+  // Handle RMS mix rate change
+  const handleRmsMixRateChange = async (val: number) => {
+    await appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      rmsMixRate: val
+    });
+    setLocalRmsMixRate(val);
   };
 
   // Handle silence front change
@@ -240,6 +280,47 @@ function SettingsView(): JSX.Element {
           flushOnUnmount={true}
           showValue={true}
           valueFormatter={(val) => `${val.toFixed(2)} s`}
+        />
+      </div>
+
+      <div>
+        <label htmlFor="lookaheadSize" className={CSS_CLASSES.label}>
+          {t('lookaheadBufferLabel')}
+        </label>
+        <MD3Slider
+          id="lookaheadSize"
+          min={0}
+          max={0.04}
+          step={0.01}
+          value={localLookaheadSize}
+          onImmediateChange={setLocalLookaheadSize}
+          onChange={async (val) => {
+            await handleLookaheadSizeChange(val);
+          }}
+          disabled={uiState.isConverting}
+          flushOnUnmount={true}
+          showValue={true}
+          valueFormatter={(val) => `${Math.round(val * 1000)} ms`}
+        />
+      </div>
+
+      <div>
+        <label htmlFor="rmsMixRate" className={CSS_CLASSES.label}>
+          {t('rmsMixRateLabel')}
+        </label>
+        <MD3Slider
+          id="rmsMixRate"
+          min={0}
+          max={1}
+          step={0.05}
+          value={localRmsMixRate}
+          onImmediateChange={setLocalRmsMixRate}
+          onChange={async (val) => {
+            await handleRmsMixRateChange(val);
+          }}
+          flushOnUnmount={true}
+          showValue={true}
+          valueFormatter={(val) => `${Math.round(val * 100)}%`}
         />
       </div>
 

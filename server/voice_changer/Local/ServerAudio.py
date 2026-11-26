@@ -249,15 +249,25 @@ class ServerAudio:
             cur_ns = self._ns_processor
             cur_dfn3 = self._dfn3
 
+        if want_ns2:
+            if cur_dfn3 is None or cur_dfn3.sample_rate != self._out_sr:
+                new_dfn3 = ServerDFN3(sample_rate=self._out_sr, strength=ns2_strength)
+            else:
+                cur_dfn3.set_strength(ns2_strength)
+                new_dfn3 = cur_dfn3
+        else:
+            new_dfn3 = None
+
+        dfn3_active = new_dfn3 is not None and new_dfn3.available
         if comm_cap is not None and comm_cap.is_running:
-            comm_cap.set_deep_noise_suppression(want_ns1)
+            comm_cap.set_deep_noise_suppression(want_ns1 and not dfn3_active)
 
         win_apo_handles_ns1 = (
             comm_cap is not None
             and comm_cap.is_running
             and (comm_cap.os_aec_active or comm_cap.os_ns_active)
         )
-        need_webrtc_ns1 = want_ns1 and not win_apo_handles_ns1
+        need_webrtc_ns1 = want_ns1 and not win_apo_handles_ns1 and not dfn3_active
 
         if need_webrtc_ns1:
             if (
@@ -276,24 +286,18 @@ class ServerAudio:
         else:
             new_ns = None
 
-        if want_ns2:
-            if cur_dfn3 is None or cur_dfn3.sample_rate != self._out_sr:
-                new_dfn3 = ServerDFN3(sample_rate=self._out_sr, strength=ns2_strength)
-            else:
-                cur_dfn3.set_strength(ns2_strength)
-                new_dfn3 = cur_dfn3
-        else:
-            new_dfn3 = None
-
         with self._aec_lock:
             self._ns_processor = new_ns
             self._dfn3 = new_dfn3
 
+        if want_ns1 and dfn3_active:
+            logger.info("[ServerAudio] DFN3 is active; bypassing redundant WebRTC NS to preserve vocal harmonics.")
+
         logger.info(
             f"[ServerAudio] Input processing state: win_comm_aec={comm_cap is not None and comm_cap.is_running}, "
             f"os_aec={comm_cap.os_aec_active if comm_cap is not None else False}, "
-            f"ns1={'os_apo' if (want_ns1 and win_apo_handles_ns1) else ('webrtc' if new_ns is not None else 'off')}, "
-            f"ns2={f'dfn3({new_dfn3.strength})' if (new_dfn3 is not None and new_dfn3.available) else ('unavailable' if want_ns2 else 'off')}, "
+            f"ns1={'bypassed_by_dfn3' if (want_ns1 and dfn3_active) else ('os_apo' if (want_ns1 and win_apo_handles_ns1) else ('webrtc' if new_ns is not None else 'off'))}, "
+            f"ns2={f'dfn3({new_dfn3.strength})' if dfn3_active else ('unavailable' if want_ns2 else 'off')}, "
             f"sr={self._out_sr}"
         )
 

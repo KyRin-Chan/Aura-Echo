@@ -272,8 +272,9 @@ class MelSpectrogram(torch.nn.Module):
         mel_fmin=0,
         mel_fmax=None,
         clamp=1e-5,
+        dtype: torch.dtype | None = None,
     ):
-        super().__init__()
+        super(MelSpectrogram, self).__init__()
         n_fft = win_length if n_fft is None else n_fft
         self.hann_window = {}
         mel_basis = mel(
@@ -293,6 +294,7 @@ class MelSpectrogram(torch.nn.Module):
         self.n_mel_channels = n_mel_channels
         self.clamp = clamp
         self.is_half = is_half
+        self.target_dtype = dtype if dtype is not None else (torch.float16 if is_half else torch.float32)
 
     def forward(self, audio, keyshift=0, speed=1, center=True):
         factor = 2 ** (keyshift / 12)
@@ -321,14 +323,14 @@ class MelSpectrogram(torch.nn.Module):
                 magnitude = F.pad(magnitude, (0, 0, 0, size - resize))
             magnitude = magnitude[:, :size, :] * self.win_length / win_length_new
         mel_output = torch.matmul(self.mel_basis, magnitude)
-        if self.is_half:
-            mel_output = mel_output.half()
+        if self.target_dtype != torch.float32:
+            mel_output = mel_output.to(dtype=self.target_dtype)
         log_mel_spec = torch.log(torch.clamp(mel_output, min=self.clamp))
         return log_mel_spec
 
 
 class RMVPE:
-    def __init__(self, model_path: str, is_half: bool, use_jit_compile: bool, device: torch.device):
+    def __init__(self, model_path: str, is_half: bool, use_jit_compile: bool, device: torch.device, dtype: torch.dtype | None = None):
         model = E2E(4, 1, (2, 2))
         if model_path.endswith('.safetensors'):
             with safe_open(model_path, 'pt', device=str(device) if device.type == 'cuda' else 'cpu') as cpt:
@@ -338,8 +340,9 @@ class RMVPE:
             model.load_state_dict(cpt, strict=False)
         model = model.eval().to(device)
 
-        if is_half:
-            model = model.half()
+        target_dtype = dtype if dtype is not None else (torch.float16 if is_half else torch.float32)
+        if target_dtype != torch.float32:
+            model = model.to(dtype=target_dtype)
 
         self.use_jit = use_jit_compile
         if use_jit_compile:
@@ -353,7 +356,7 @@ class RMVPE:
         self.model = model
 
         self.mel_extractor = MelSpectrogram(
-            is_half, 128, 16000, 1024, 160, None, 30, 8000
+            is_half, 128, 16000, 1024, 160, None, 30, 8000, dtype=target_dtype
         ).to(device)
         self.idx = torch.arange(360, device=device)[None, None, :]
         self.idx_cents = self.idx * 20 + 1997.3794084376191

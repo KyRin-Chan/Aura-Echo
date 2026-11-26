@@ -195,6 +195,9 @@ const VoiceAnalyzerModal = ({
   const [calInputFile, setCalInputFile] = useState<File | null>(null);
   const [calInputPreviewUrl, setCalInputPreviewUrl] = useState<string>('');
   const [runRvcConversion, setRunRvcConversion] = useState<boolean>(true);
+  const [calFormantShift, setCalFormantShift] = useState<number>(
+    appState.serverSetting?.serverSetting?.formantProfileFormantShift ?? 0.0
+  );
   const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
   const [calResult, setCalResult] = useState<CalibrationResult | null>(null);
 
@@ -758,6 +761,7 @@ const VoiceAnalyzerModal = ({
     formData.append('target_file', calTargetFile);
     formData.append('input_file', calInputFile);
     formData.append('run_rvc', String(runRvcConversion));
+    formData.append('formant_shift', String(calFormantShift));
 
     try {
       const response = await fetch('/calibrate_match_eq', {
@@ -817,6 +821,7 @@ const VoiceAnalyzerModal = ({
       const defaultPitchScale = 1.0;
       const defaultPitchOffset = 0.0;
       const defaultPitchMode: 'speech' | 'singing' = 'speech';
+      const appliedFormantShift = Number(calData.calibrated_formant_shift ?? calFormantShift ?? 0.0);
       const serializedPitchStats = serializePitchStats(baselineProfile, targetProfile);
       if (activeSlotIndex !== undefined && activeSlotIndex !== -1) {
         saveFormantBinding(activeSlotIndex, {
@@ -826,7 +831,8 @@ const VoiceAnalyzerModal = ({
           strength: defaultStrength,
           pitchScale: defaultPitchScale,
           pitchOffset: defaultPitchOffset,
-          pitchMode: defaultPitchMode
+          pitchMode: defaultPitchMode,
+          formantShift: appliedFormantShift
         });
 
         appState.serverSetting.updateServerSettings({
@@ -840,7 +846,8 @@ const VoiceAnalyzerModal = ({
           formantProfilePitchStats: serializedPitchStats,
           formantProfilePitchScale: defaultPitchScale,
           formantProfilePitchOffset: defaultPitchOffset,
-          formantProfilePitchMode: defaultPitchMode
+          formantProfilePitchMode: defaultPitchMode,
+          formantProfileFormantShift: appliedFormantShift
         });
       }
 
@@ -1344,16 +1351,40 @@ const VoiceAnalyzerModal = ({
                 </div>
               </div>
 
-              {/* Run RVC Toggle */}
-              <label className="flex items-center space-x-2.5 text-xs text-on-surface cursor-pointer select-none pt-1">
-                <input
-                  type="checkbox"
-                  checked={runRvcConversion}
-                  onChange={(e) => setRunRvcConversion(e.target.checked)}
-                  className="rounded border-outline text-primary focus:ring-primary"
-                />
-                <span className="font-medium">{t('matchEqRunRvcLabel')}</span>
-              </label>
+              {/* Run RVC Toggle & Calibration Formant Shift */}
+              <div className="space-y-2.5 pt-1">
+                <label className="flex items-center space-x-2.5 text-xs text-on-surface cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={runRvcConversion}
+                    onChange={(e) => setRunRvcConversion(e.target.checked)}
+                    className="rounded border-outline text-primary focus:ring-primary"
+                  />
+                  <span className="font-medium">{t('matchEqRunRvcLabel')}</span>
+                </label>
+
+                {runRvcConversion && (
+                  <div className="flex items-center justify-between gap-3 bg-surface-container/60 px-3 py-2 rounded-lg border border-outline-variant/40">
+                    <span className="text-xs font-medium text-on-surface shrink-0">
+                      {t('formantShiftLabel')}
+                    </span>
+                    <div className="flex items-center gap-2 flex-1 max-w-[240px]">
+                      <input
+                        type="range"
+                        min={-3}
+                        max={3}
+                        step={0.05}
+                        value={calFormantShift}
+                        onChange={(e) => setCalFormantShift(parseFloat(e.target.value))}
+                        className="w-full accent-primary cursor-pointer"
+                      />
+                      <span className="text-xs font-mono font-semibold text-on-surface-variant w-12 text-right tabular-nums">
+                        {calFormantShift > 0 ? '+' : ''}{calFormantShift.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Calibrate Button */}
               <div className="flex justify-center pt-2 border-t border-outline-variant/20">

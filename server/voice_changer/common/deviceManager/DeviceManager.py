@@ -50,6 +50,7 @@ class DeviceManager(object):
         )
         self.dml_enabled: bool = torch_directml.is_available()
         self.fp16_available = False
+        self.bf16_available = False
         self.force_fp32 = False
         self.disable_jit = False
         self.use_tensorrt = False
@@ -84,7 +85,10 @@ class DeviceManager(object):
         self.device = device
         self.device_metadata = metadata
         self.fp16_available = self.is_fp16_available()
-        logger.info(f'Switched to {metadata["name"]} ({device}). FP16 support: {self.fp16_available}')
+        self.bf16_available = self.is_bf16_available()
+        logger.info(
+            f'Switched to {metadata["name"]} ({device}). FP16 support: {self.fp16_available}, BF16 support: {self.bf16_available}'
+        )
 
         # Enable TF32 and create high-priority persistent CUDA streams on CUDA devices
         self.pitch_stream = None
@@ -120,6 +124,16 @@ class DeviceManager(object):
 
     def use_fp16(self):
         return self.fp16_available and not self.force_fp32
+
+    def use_bf16(self) -> bool:
+        return self.bf16_available and not self.force_fp32
+
+    def get_torch_dtype(self) -> torch.dtype:
+        if self.use_bf16():
+            return torch.bfloat16
+        if self.use_fp16():
+            return torch.float16
+        return torch.float32
 
     def use_jit_compile(self):
         # FIXME: DirectML backend seems to have issues with JIT. Disable it for now.
@@ -347,6 +361,15 @@ class DeviceManager(object):
             return True
         # TODO: Need information on INT8 support on GPUs.
         return False
+
+    def is_bf16_available(self) -> bool:
+        if self.device.type != 'cuda':
+            return False
+        try:
+            major, _ = torch.cuda.get_device_capability(self.device)
+            return major >= 8 and bool(torch.cuda.is_bf16_supported())
+        except Exception:
+            return False
 
     def is_fp16_available(self):
         # TODO: Maybe need to add bfloat16 support?

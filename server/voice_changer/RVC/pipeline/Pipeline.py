@@ -64,7 +64,7 @@ class Pipeline:
         self.device_manager = DeviceManager.get_instance()
         self.device = self.device_manager.device
         self.is_half = self.device_manager.use_fp16()
-        self.dtype = torch.float16 if self.is_half else torch.float32
+        self.dtype = self.device_manager.get_torch_dtype()
 
         self.index = index
         self.index_reconstruct = index_reconstruct
@@ -212,27 +212,34 @@ class Pipeline:
 
     @staticmethod
     def _stabilize_f0(
-        f0: torch.Tensor, max_gap_frames: int = 3, max_gap_semitones: float = 4.0
+        f0: torch.Tensor,
+        max_gap_frames: int = 3,
+        max_gap_semitones: float = 4.0,
+        pitch_mode: str = "speech",
     ) -> torch.Tensor:
-        """Bridge short interior V-UV-V dropouts via log-linear interpolation and apply 3-frame voiced median filtering."""
+        """Bridge short interior V-UV-V dropouts via log-linear interpolation and apply spike-safe voiced filtering."""
         T = f0.shape[0]
         if T < 3:
             return f0
 
+        is_singing = str(pitch_mode).strip().lower() == "singing"
+        eff_gaps = min(2, max_gap_frames) if is_singing else max_gap_frames
+        eff_semi = min(3.0, max_gap_semitones) if is_singing else max_gap_semitones
+
         x = f0.float().clone()
         orig = x.clone()
-        max_ratio = 2.0 ** (max_gap_semitones / 12.0)
+        max_ratio = 2.0 ** (eff_semi / 12.0)
         inv_max_ratio = 1.0 / max_ratio
 
         # Step A: Bridge short V-UV-V gaps (1..3 frames) using immutable `orig` masks
-        if max_gap_frames >= 1 and T >= 3:
+        if eff_gaps >= 1 and T >= 3:
             l1, m1, r1 = orig[:-2], orig[1:-1], orig[2:]
             ratio1 = r1 / torch.clamp(l1, min=1e-6)
             mask1 = (l1 > 0) & (m1 == 0) & (r1 > 0) & (ratio1 >= inv_max_ratio) & (ratio1 <= max_ratio)
             interp1 = torch.sqrt(torch.clamp(l1 * r1, min=1e-12))
             x[1:-1] = torch.where(mask1, interp1, x[1:-1])
 
-        if max_gap_frames >= 2 and T >= 4:
+        if eff_gaps >= 2 and T >= 4:
             l2, m2a, m2b, r2 = orig[:-3], orig[1:-2], orig[2:-1], orig[3:]
             ratio2 = r2 / torch.clamp(l2, min=1e-6)
             mask2 = (l2 > 0) & (m2a == 0) & (m2b == 0) & (r2 > 0) & (ratio2 >= inv_max_ratio) & (ratio2 <= max_ratio)
@@ -241,7 +248,7 @@ class Pipeline:
             x[1:-2] = torch.where(mask2, torch.exp((2.0 / 3.0) * log_l2 + (1.0 / 3.0) * log_r2), x[1:-2])
             x[2:-1] = torch.where(mask2, torch.exp((1.0 / 3.0) * log_l2 + (2.0 / 3.0) * log_r2), x[2:-1])
 
-        if max_gap_frames >= 3 and T >= 5:
+        if eff_gaps >= 3 and T >= 5:
             l3, m3a, m3b, m3c, r3 = orig[:-4], orig[1:-3], orig[2:-2], orig[3:-1], orig[4:]
             ratio3 = r3 / torch.clamp(l3, min=1e-6)
             mask3 = (
@@ -259,12 +266,29 @@ class Pipeline:
             x[2:-2] = torch.where(mask3, torch.exp(0.50 * log_l3 + 0.50 * log_r3), x[2:-2])
             x[3:-1] = torch.where(mask3, torch.exp(0.25 * log_l3 + 0.75 * log_r3), x[3:-1])
 
-        # Step B: 3-frame median filter strictly on fully-voiced windows (preserves V/UV edges)
+        # Step B: In speech mode, apply 3-frame median filter on fully-voiced windows;
+        # in singing mode, preserve natural vibrato peaks and only suppress extreme >3 st single-frame spikes.
         left, mid, right = x[:-2], x[1:-1], x[2:]
         all_voiced = (left > 0) & (mid > 0) & (right > 0)
         med = torch.median(torch.stack([left, mid, right], dim=0), dim=0).values
+        if is_singing:
+            spike_r = 2.0 ** (3.0 / 12.0)
+            neigh_r = 2.0 ** (2.0 / 12.0)
+            l_safe = torch.clamp(left, min=1e-6)
+            m_safe = torch.clamp(mid, min=1e-6)
+            r_safe = torch.clamp(right, min=1e-6)
+            is_spike = (
+                all_voiced
+                & ((m_safe / l_safe > spike_r) | (l_safe / m_safe > spike_r))
+                & ((m_safe / r_safe > spike_r) | (r_safe / m_safe > spike_r))
+                & (r_safe / l_safe <= neigh_r)
+                & (l_safe / r_safe <= neigh_r)
+            )
+            apply_mask = is_spike
+        else:
+            apply_mask = all_voiced
         out = x.clone()
-        out[1:-1] = torch.where(all_voiced, med, mid)
+        out[1:-1] = torch.where(apply_mask, med, mid)
         return out.to(dtype=f0.dtype)
 
     def extract_pitch(
@@ -277,18 +301,42 @@ class Pipeline:
         pitch_scratch: Optional[torch.Tensor] = None,
         pitchf_scratch: Optional[torch.Tensor] = None,
         pitch_dist_cfg: Optional[dict] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        f0 = self.pitchExtractor.extract(
-            audio,
-            HUBERT_SAMPLE_RATE,
-            WINDOW_SIZE,
-        )
+        voicing_conf: Optional[torch.Tensor] = None,
+        voicing_conf_scratch: Optional[torch.Tensor] = None,
+        tail_frames: int = 0,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if getattr(self.pitchExtractor, "type", "") == "rmvpe_fcpe" and hasattr(
+            self.pitchExtractor, "extract_with_confidence"
+        ):
+            f0, raw_conf = self.pitchExtractor.extract_with_confidence(
+                audio,
+                HUBERT_SAMPLE_RATE,
+                WINDOW_SIZE,
+                hop_frames=pitch_hop_frames,
+                tail_frames=tail_frames,
+            )
+        elif hasattr(self.pitchExtractor, "extract_with_confidence"):
+            f0, raw_conf = self.pitchExtractor.extract_with_confidence(
+                audio,
+                HUBERT_SAMPLE_RATE,
+                WINDOW_SIZE,
+            )
+        else:
+            f0 = self.pitchExtractor.extract(
+                audio,
+                HUBERT_SAMPLE_RATE,
+                WINDOW_SIZE,
+            )
+            raw_conf = (f0 > 0).float()
+
+        pitch_mode = str(pitch_dist_cfg.get("pitch_mode", "speech")) if pitch_dist_cfg is not None else "speech"
+
         if (
             pitch_dist_cfg is not None
             and float(pitch_dist_cfg.get("src_mean", 0.0)) > 0.0
             and float(pitch_dist_cfg.get("tgt_mean", 0.0)) > 0.0
         ):
-            f0 = self._stabilize_f0(f0)
+            f0 = self._stabilize_f0(f0, pitch_mode=pitch_mode)
             f0 = map_f0_distribution(
                 f0,
                 src_log2_mean=float(pitch_dist_cfg["src_mean"]),
@@ -299,11 +347,21 @@ class Pipeline:
                 tgt_f0_p90=float(pitch_dist_cfg.get("tgt_p90", 0.0)),
                 pitch_scale=float(pitch_dist_cfg.get("pitch_scale", 1.0)),
                 pitch_offset_semitones=float(pitch_dist_cfg.get("pitch_offset", 0.0)),
-                pitch_mode=str(pitch_dist_cfg.get("pitch_mode", "speech")),
+                pitch_mode=pitch_mode,
             )
         else:
             f0 = f0 * (2 ** (f0_up_key / 12))
-            f0 = self._stabilize_f0(f0)
+            f0 = self._stabilize_f0(f0, pitch_mode=pitch_mode)
+
+        raw_conf = raw_conf.reshape(-1).float()
+        if raw_conf.shape[0] != f0.shape[0]:
+            raw_conf = (f0 > 0).float()
+        else:
+            raw_conf = torch.where(
+                f0 > 0,
+                torch.clamp(raw_conf, min=0.35, max=1.0),
+                torch.zeros_like(raw_conf),
+            )
 
         auto_tune_effect = self._get_active_autotune()
         hop_frames = (
@@ -341,25 +399,42 @@ class Pipeline:
                             pitchf[:keep].copy_(pitchf_scratch[:keep])
                         else:
                             pitchf[:keep] = pitchf[hop:].detach().clone()
+                        if voicing_conf is not None:
+                            if voicing_conf_scratch is not None and voicing_conf_scratch.shape == voicing_conf.shape:
+                                voicing_conf_scratch[:keep].copy_(voicing_conf[hop:])
+                                voicing_conf[:keep].copy_(voicing_conf_scratch[:keep])
+                            else:
+                                voicing_conf[:keep] = voicing_conf[hop:].detach().clone()
 
                     # When autoTune is active, only write the causally smoothed tail so prior frames stay smooth
                     write_len = hop if auto_tune_effect is not None else min(f0.shape[0], pitchf.shape[0])
                     if write_len > 0:
                         pitch[-write_len:] = f0_coarse[-write_len:].to(dtype=pitch.dtype)
                         pitchf[-write_len:] = f0[-write_len:].to(dtype=pitchf.dtype)
+                        if voicing_conf is not None:
+                            voicing_conf[-write_len:] = raw_conf[-write_len:].to(dtype=voicing_conf.dtype)
             else:
                 circular_write(f0_coarse, pitch, scratch=pitch_scratch)
                 circular_write(f0, pitchf, scratch=pitchf_scratch)
+                if voicing_conf is not None:
+                    circular_write(raw_conf, voicing_conf, scratch=voicing_conf_scratch)
         else:
             pitch = f0_coarse
             pitchf = f0
+            voicing_conf = raw_conf
 
-        return pitch.unsqueeze(0), pitchf.unsqueeze(0)
+        if voicing_conf is None:
+            voicing_conf = (pitchf > 0).float()
 
-    def _search_index(self, audio: torch.Tensor, top_k: int = 1) -> torch.Tensor:
+        return pitch.unsqueeze(0), pitchf.unsqueeze(0), voicing_conf.unsqueeze(0)
+
+    def _search_index_with_gate(
+        self, audio: torch.Tensor, top_k: int = 1
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        q_f32 = audio.float()
+        q_norms = torch.sum(q_f32 ** 2, dim=1, keepdim=True)
         if self.use_torch_gpu_index and self._gpu_index_norms is not None:
             q_match = audio.to(dtype=self.index_reconstruct.dtype)
-            q_norms = torch.sum(audio.float() ** 2, dim=1, keepdim=True)
             ntotal = self.index_reconstruct.shape[0]
             k_eff = min(top_k, ntotal)
 
@@ -385,25 +460,36 @@ class Pipeline:
                 score, pos = torch.topk(all_scores, k=k_eff, dim=1, largest=False)
                 ix = torch.gather(all_indices, 1, pos)
 
+            rel_dist = score[:, 0] / (q_norms.squeeze(1) + 1e-6)
+            gate = torch.clamp((1.2 - rel_dist) / 0.6, 0.0, 1.0).unsqueeze(-1)
             if k_eff == 1:
-                return self.index_reconstruct[ix.squeeze(1)]
+                return self.index_reconstruct[ix.squeeze(1)], gate
             weight = torch.square(1.0 / (score + 1e-6))
             weight /= weight.sum(dim=1, keepdim=True)
-            return torch.sum(self.index_reconstruct[ix].float() * weight.unsqueeze(2), dim=1)
+            return torch.sum(self.index_reconstruct[ix].float() * weight.unsqueeze(2), dim=1), gate
 
         # CPU / Linux faiss-gpu fallback
         query = audio if self.use_gpu_index else audio.detach().cpu()
         if top_k == 1:
-            _, ix = self.index.search(query, 1)
+            score, ix = self.index.search(query, 1)
+            score = score.to(self.device).float()
             ix = ix.to(self.device)
-            return self.index_reconstruct[ix.squeeze(1)]
+            rel_dist = score[:, 0] / (q_norms.squeeze(1) + 1e-6)
+            gate = torch.clamp((1.2 - rel_dist) / 0.6, 0.0, 1.0).unsqueeze(-1)
+            return self.index_reconstruct[ix.squeeze(1)], gate
 
         score, ix = self.index.search(query, k=top_k)
-        score = score.to(self.device)
+        score = score.to(self.device).float()
         ix = ix.to(self.device)
+        rel_dist = score[:, 0] / (q_norms.squeeze(1) + 1e-6)
+        gate = torch.clamp((1.2 - rel_dist) / 0.6, 0.0, 1.0).unsqueeze(-1)
         weight = torch.square(1.0 / (score + 1e-6))
         weight /= weight.sum(dim=1, keepdim=True)
-        return torch.sum(self.index_reconstruct[ix] * weight.unsqueeze(2), dim=1)
+        return torch.sum(self.index_reconstruct[ix].float() * weight.unsqueeze(2), dim=1), gate
+
+    def _search_index(self, audio: torch.Tensor, top_k: int = 1) -> torch.Tensor:
+        retrieved, _ = self._search_index_with_gate(audio, top_k=top_k)
+        return retrieved
 
     def _upscale(self, feats: torch.Tensor) -> torch.Tensor:
         return torch.stack([feats, feats], dim=2).flatten(1, 2)
@@ -448,6 +534,9 @@ class Pipeline:
         pitchf_scratch: Optional[torch.Tensor] = None,
         formant_shift: float = 0.0,
         pitch_dist_cfg: Optional[dict] = None,
+        voicing_conf: Optional[torch.Tensor] = None,
+        voicing_conf_scratch: Optional[torch.Tensor] = None,
+        tail_frames: int = 0,
     ) -> torch.Tensor:
         with Timer2("Pipeline-Exec", False) as t:
             assert audio.dim() == 1, audio.dim()
@@ -500,7 +589,7 @@ class Pipeline:
                         cur = torch.cuda.current_stream(self.device)
                         self._pitch_stream.wait_stream(cur)
                         with torch.cuda.stream(self._pitch_stream):
-                            pitch, pitchf = self.extract_pitch(
+                            pitch, pitchf, voicing_conf = self.extract_pitch(
                                 audio[silence_front:],
                                 pitch,
                                 pitchf,
@@ -509,10 +598,13 @@ class Pipeline:
                                 pitch_scratch=pitch_scratch,
                                 pitchf_scratch=pitchf_scratch,
                                 pitch_dist_cfg=pitch_dist_cfg,
+                                voicing_conf=voicing_conf,
+                                voicing_conf_scratch=voicing_conf_scratch,
+                                tail_frames=tail_frames,
                             )
                         cur.wait_stream(self._pitch_stream)
                     else:
-                        pitch, pitchf = self.extract_pitch(
+                        pitch, pitchf, voicing_conf = self.extract_pitch(
                             audio[silence_front:],
                             pitch,
                             pitchf,
@@ -521,6 +613,9 @@ class Pipeline:
                             pitch_scratch=pitch_scratch,
                             pitchf_scratch=pitchf_scratch,
                             pitch_dist_cfg=pitch_dist_cfg,
+                            voicing_conf=voicing_conf,
+                            voicing_conf_scratch=voicing_conf_scratch,
+                            tail_frames=tail_frames,
                         )
                     pitch_ok = True
                 finally:
@@ -539,7 +634,7 @@ class Pipeline:
                             except Exception:
                                 pass
             else:
-                pitch, pitchf = None, None
+                pitch, pitchf, voicing_conf = None, None, None
                 feats = self.embedder.extract_features(audio_emb, embOutputLayer, useFinalProj)
 
             feats = torch.cat((feats, feats[:, -1:, :]), 1)
@@ -552,29 +647,33 @@ class Pipeline:
             if is_active_index:
                 skip_offset = skip_head // 2
                 feats_orig_slice = feats[0, skip_offset:]
-                index_audio = self._search_index(feats_orig_slice.float(), 8).to(dtype=feats.dtype)
+                index_audio, index_gate = self._search_index_with_gate(feats_orig_slice.float(), 8)
+                delta_raw = (index_audio.to(dtype=feats.dtype) - feats_orig_slice) * index_gate.to(dtype=feats.dtype)
+                if delta_raw.shape[0] >= 3:
+                    d_pad = F.pad(
+                        delta_raw.transpose(0, 1).unsqueeze(0), (1, 1), mode="replicate"
+                    ).squeeze(0).transpose(0, 1)
+                    delta_raw = 0.15 * d_pad[:-2] + 0.70 * d_pad[1:-1] + 0.15 * d_pad[2:]
 
                 if self.use_f0 and use_protect:
-                    delta = (index_audio - feats_orig_slice).unsqueeze(0)
+                    delta = delta_raw.unsqueeze(0)
                     feats = self._upscale(feats)[:, :audio_feats_len, :]
                     pitch = pitch[:, -audio_feats_len:]
                     pitchf = pitchf[:, -audio_feats_len:]
+                    voicing_conf = voicing_conf[:, -audio_feats_len:]
 
                     up_start = skip_offset * 2
                     rem = audio_feats_len - up_start
                     if rem > 0:
                         delta_up = self._upscale(delta)[:, :rem, :]
-                        pitchff = torch.where(
-                            pitchf[:, up_start:audio_feats_len] > 0, 1.0, protect
-                        ).to(dtype=feats.dtype).unsqueeze(-1)
+                        conf_slice = voicing_conf[:, up_start:audio_feats_len].clamp(0.0, 1.0)
+                        pitchff = (protect + (1.0 - protect) * conf_slice).to(dtype=feats.dtype).unsqueeze(-1)
                         feats[:, up_start:audio_feats_len, :] = (
                             feats[:, up_start:audio_feats_len, :]
                             + delta_up * (index_rate * pitchff)
                         )
                 else:
-                    feats[0, skip_offset:] = (
-                        index_audio * index_rate + feats_orig_slice * (1.0 - index_rate)
-                    )
+                    feats[0, skip_offset:] = feats_orig_slice + delta_raw * index_rate
                     feats = self._upscale(feats)[:, :audio_feats_len, :]
                     if self.use_f0:
                         pitch = pitch[:, -audio_feats_len:]

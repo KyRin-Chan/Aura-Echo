@@ -228,6 +228,7 @@ class MMVC_Rest_VoiceChanger:
         target_file: UploadFile,
         input_file: UploadFile,
         run_rvc: bool = Form(True),
+        formant_shift: float = Form(0.0),
     ):
         import uuid
         import os
@@ -292,13 +293,16 @@ class MMVC_Rest_VoiceChanger:
                         "pitch_mode": "speech",
                     }
 
+                _fs_raw = getattr(formant_shift, "default", formant_shift)
+                eff_formant_shift = max(-3.0, min(3.0, float(_fs_raw if _fs_raw is not None else 0.0)))
+
                 def _run_offline():
                     with self.voiceChangerManager.device_manager.lock:
                         return vcmodel.convert_offline(
                             y_in,
                             int(sr_in),
                             pitch_dist_cfg=pitch_dist_cfg,
-                            formant_shift_override=0.0,
+                            formant_shift_override=eff_formant_shift,
                         )
 
                 y_base, sr_base = await asyncio.to_thread(_run_offline)
@@ -322,12 +326,15 @@ class MMVC_Rest_VoiceChanger:
                 post_sr=post_sr,
             )
 
+            _fs_resp_raw = getattr(formant_shift, "default", formant_shift)
+            _fs_resp = max(-3.0, min(3.0, float(_fs_resp_raw if _fs_resp_raw is not None else 0.0)))
+
             return JSONResponse({
                 "success": True,
                 "calibrated_with_rvc": bool(run_rvc),
                 "model_slot_index": int(getattr(settings, "modelSlotIndex", -1)),
                 "calibrated_tran": float(getattr(settings, "tran", 0.0)),
-                "calibrated_formant_shift": float(getattr(settings, "formantShift", 0.0)),
+                "calibrated_formant_shift": _fs_resp,
                 "target_f0": round(float(tgt_res["f0"]), 1),
                 "target_f0_log2_mean": float(tgt_res.get("f0_log2_mean", 0.0)),
                 "target_f0_log2_std": float(tgt_res.get("f0_log2_std", 0.0)),

@@ -25,7 +25,7 @@ class VoiceChangerV2:
         self.block_frame = self._compute_block_frame()
         self.crossfade_frame = int(self.settings.crossFadeOverlapSize * self.settings.inputSampleRate)
         self.extra_frame = int(self.settings.extraConvertSize * self.settings.inputSampleRate)
-        self.sola_search_frame = max(1, int(round(0.012 * self.settings.inputSampleRate)))
+        self.sola_search_frame = max(1, int(round(0.016 * self.settings.inputSampleRate)))
 
         self.vcmodel: VoiceChangerModel | None = None
         self.device_manager = DeviceManager.get_instance()
@@ -157,7 +157,7 @@ class VoiceChangerV2:
         self.block_frame = self._compute_block_frame()
         self.extra_frame = int(self.settings.extraConvertSize * self.settings.inputSampleRate)
         self.crossfade_frame = int(self.settings.crossFadeOverlapSize * self.settings.inputSampleRate)
-        self.sola_search_frame = max(1, int(round(0.012 * self.settings.inputSampleRate)))
+        self.sola_search_frame = max(1, int(round(0.016 * self.settings.inputSampleRate)))
         self._generate_strength()
         self._agc.reset()
         self._peak_limiter.reset()
@@ -219,7 +219,7 @@ class VoiceChangerV2:
             self._peak_limiter.reset()
 
         if self.vcmodel is not None:
-            if key in {'gpu', 'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'forceFp32'}:
+            if key in {'gpu', 'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'forceFp32', 'lookaheadSize'}:
                 self.vcmodel.realloc(self.block_frame, self.extra_frame, self.crossfade_frame, self.sola_search_frame)
                 self._was_voiced = False
                 self._vc_dirty = False
@@ -234,7 +234,7 @@ class VoiceChangerV2:
                 self.warmup(step=5, total=5)
             elif key == 'f0Detector':
                 self.warmup(step=2, total=2)
-            elif key in {'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'inputSampleRate', 'outputSampleRate', 'formantShift', 'indexRatio'}:
+            elif key in {'serverReadChunkSize', 'extraConvertSize', 'crossFadeOverlapSize', 'silenceFront', 'inputSampleRate', 'outputSampleRate', 'formantShift', 'indexRatio', 'lookaheadSize'}:
                 self.warmup(step=1, total=1)
 
     def _generate_strength(self):
@@ -245,9 +245,12 @@ class VoiceChangerV2:
             device=self.device_manager.device,
             dtype=torch.float32,
         )
-        # Equal-gain Hann crossfade (sin^2 + cos^2 == 1) prevents +3 dB bumps on phase-aligned SOLA signals
+        # Equal-gain Hann crossfade (sin^2 + cos^2 == 1) prevents +3 dB bumps on phase-aligned SOLA signals;
+        # Equal-power crossfade (sin / cos) prevents -3 dB dips on uncorrelated unvoiced/fricative signals.
         self.fade_in_window: torch.Tensor = torch.sin(0.5 * np.pi * linspace) ** 2
         self.fade_out_window: torch.Tensor = torch.cos(0.5 * np.pi * linspace) ** 2
+        self.fade_in_power_window: torch.Tensor = torch.sin(0.5 * np.pi * linspace)
+        self.fade_out_power_window: torch.Tensor = torch.cos(0.5 * np.pi * linspace)
 
         cold_len = min(
             self.crossfade_frame,
@@ -439,6 +442,7 @@ class VoiceChangerV2:
             return mixed_np, vol
 
         # Single-sync SOLA alignment
+        coherence = None
         if not self._was_voiced:
             is_cold_start = True
             sola_offset = 0
@@ -447,7 +451,11 @@ class VoiceChangerV2:
             conv_input = audio[None, None, : self.crossfade_frame + self.sola_search_frame]
             cor_nom = F.conv1d(conv_input, self.sola_buffer[None, None, :])
             cor_den = torch.sqrt(F.conv1d(conv_input ** 2, self.sola_ones) + 1e-8)
-            best_offset = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
+            scores = cor_nom[0, 0] / cor_den[0, 0]
+            best_offset = torch.argmax(scores)
+            sola_l2 = torch.sqrt(torch.sum(self.sola_buffer ** 2) + 1e-8)
+            corr_peak = torch.clamp(scores[best_offset] / sola_l2, 0.0, 1.0)
+            coherence = torch.clamp((corr_peak - 0.25) / 0.50, 0.0, 1.0)
             is_silent_buf_int, best_offset_val = torch.stack(
                 [(sola_energy < 1e-6).to(torch.int64), best_offset]
             ).tolist()
@@ -472,8 +480,14 @@ class VoiceChangerV2:
                     + self.sola_buffer[:cold_len] * (1.0 - cold_w)
                 )
         else:
-            audio[: self.crossfade_frame] *= self.fade_in_window
-            audio[: self.crossfade_frame] += self.sola_buffer * self.fade_out_window
+            if coherence is not None:
+                win_in = coherence * self.fade_in_window + (1.0 - coherence) * self.fade_in_power_window
+                win_out = coherence * self.fade_out_window + (1.0 - coherence) * self.fade_out_power_window
+            else:
+                win_in = self.fade_in_window
+                win_out = self.fade_out_window
+            audio[: self.crossfade_frame] *= win_in
+            audio[: self.crossfade_frame] += self.sola_buffer * win_out
 
         self.sola_buffer[:] = audio[block_size : block_size + self.crossfade_frame]
         self._was_voiced = True

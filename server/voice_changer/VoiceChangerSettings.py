@@ -92,6 +92,8 @@ class VoiceChangerSettings:
     _crossFadeOverlapSize: float = 0.04
     _serverReadChunkSize: int = 180
     _extraConvertSize: float = 0.5
+    _lookaheadSize: float = 0.0
+    _rmsMixRate: float = 0.40
     _gpu: int = -1
     _forceFp32: int = 0
     _disableJit: int = 0
@@ -171,6 +173,28 @@ class VoiceChangerSettings:
     @crossFadeOverlapSize.setter
     def crossFadeOverlapSize(self, size: str):
         self._crossFadeOverlapSize = float(size)
+
+    @property
+    def lookaheadSize(self):
+        return self._lookaheadSize
+
+    @lookaheadSize.setter
+    def lookaheadSize(self, size: Any):
+        try:
+            self._lookaheadSize = max(0.0, min(0.04, float(size)))
+        except (ValueError, TypeError):
+            pass
+
+    @property
+    def rmsMixRate(self):
+        return self._rmsMixRate
+
+    @rmsMixRate.setter
+    def rmsMixRate(self, rate: Any):
+        try:
+            self._rmsMixRate = max(0.0, min(1.0, float(rate)))
+        except (ValueError, TypeError):
+            pass
 
     @property
     def forceFp32(self):
@@ -470,6 +494,7 @@ class VoiceChangerSettings:
     _formantProfilePitchScale: float = 1.0
     _formantProfilePitchOffset: float = 0.0
     _formantProfilePitchMode: str = "speech"
+    _formantProfileFormantShift: float = 0.0
 
     @property
     def formantProfileActive(self):
@@ -564,6 +589,17 @@ class VoiceChangerSettings:
     @formantProfilePitchMode.setter
     def formantProfilePitchMode(self, val: Any):
         self._formantProfilePitchMode = "singing" if str(val).strip().lower() == "singing" else "speech"
+
+    @property
+    def formantProfileFormantShift(self):
+        return self._formantProfileFormantShift
+
+    @formantProfileFormantShift.setter
+    def formantProfileFormantShift(self, val: Any):
+        try:
+            self._formantProfileFormantShift = max(-3.0, min(3.0, float(val)))
+        except (ValueError, TypeError):
+            pass
 
     _agcEnabled: bool = False
     _passThroughEffects: bool = False

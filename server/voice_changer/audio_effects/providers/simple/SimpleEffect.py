@@ -35,8 +35,8 @@ class SimpleEffect(AudioEffect):
         elif self.effect_type == "deesser":
             self._deesser_lp_zi = None
             self._deesser_hp_zi = None
-            self._deesser_env_state = None
-            self._deesser_filt_state = None
+            self._deesser_env_state = 0.0
+            self._deesser_prev_gain = 1.0
         elif self.effect_type == "resonanceSuppressor":
             self._res_n_fft = 1024
             self._res_hop = 512
@@ -203,61 +203,84 @@ class SimpleEffect(AudioEffect):
         return processed.astype(np.float32, copy=False)
 
     def _apply_deesser_np(self, audio_np: np.ndarray, sample_rate: int) -> np.ndarray:
+        """In-phase 4th-order Linkwitz-Riley (LR4) split-band De-Esser with 1 ms sub-block smoothing."""
         cutoff = min(max(float(self.parameters.get("cutoff", 5000.0)), 20.0), sample_rate * 0.48)
         threshold_db = float(self.parameters.get("threshold", -30.0))
-        ratio = float(self.parameters.get("ratio", 4.0))
+        ratio = max(1.0, float(self.parameters.get("ratio", 4.0)))
 
-        sos_hp = self._get_butter_sos("deess_hp", cutoff, "highpass", sample_rate)
-        if self._deesser_hp_zi is None or self._deesser_hp_zi.shape[0] != sos_hp.shape[0]:
-            self._deesser_hp_zi = scipy.signal.sosfilt_zi(sos_hp) * 0.0
+        # LR4 crossover: cascaded 2nd-order Butterworth LP & HP share identical phase everywhere
+        sos_lp2 = self._get_butter_sos("deess_lp", cutoff, "lowpass", sample_rate)
+        sos_hp2 = self._get_butter_sos("deess_hp", cutoff, "highpass", sample_rate)
+        sos_lr4_lp = np.vstack([sos_lp2, sos_lp2])
+        sos_lr4_hp = np.vstack([sos_hp2, sos_hp2])
 
-        high_band, self._deesser_hp_zi = scipy.signal.sosfilt(sos_hp, audio_np, zi=self._deesser_hp_zi)
+        if self._deesser_lp_zi is None or self._deesser_lp_zi.shape[0] != sos_lr4_lp.shape[0]:
+            self._deesser_lp_zi = scipy.signal.sosfilt_zi(sos_lr4_lp) * 0.0
+        if self._deesser_hp_zi is None or self._deesser_hp_zi.shape[0] != sos_lr4_hp.shape[0]:
+            self._deesser_hp_zi = scipy.signal.sosfilt_zi(sos_lr4_hp) * 0.0
 
-        tc = 0.015
-        g = math.exp(-1.0 / (sample_rate * tc))
-        b_env = [1.0 - g]
-        a_env = [1.0, -g]
+        low_band, self._deesser_lp_zi = scipy.signal.sosfilt(sos_lr4_lp, audio_np, zi=self._deesser_lp_zi)
+        high_band, self._deesser_hp_zi = scipy.signal.sosfilt(sos_lr4_hp, audio_np, zi=self._deesser_hp_zi)
+        low_band = np.asarray(low_band, dtype=np.float32)
+        high_band = np.asarray(high_band, dtype=np.float32)
 
-        if self._deesser_env_state is None:
-            self._deesser_env_state = np.zeros(1)
+        n = len(audio_np)
+        sr = max(1, int(sample_rate))
+        sub_len = max(1, int(round(sr * 0.001)))
+        abs_hi = np.abs(high_band)
 
-        rectified = np.abs(high_band)
-        envelope, self._deesser_env_state = scipy.signal.lfilter(
-            b_env, a_env, rectified, zi=self._deesser_env_state
-        )
+        full_subs = n // sub_len
+        if full_subs > 0 and full_subs * sub_len == n:
+            peaks = abs_hi.reshape(full_subs, sub_len).max(axis=1)
+        elif full_subs > 0:
+            head_peaks = abs_hi[: full_subs * sub_len].reshape(full_subs, sub_len).max(axis=1)
+            tail_peak = np.array([abs_hi[full_subs * sub_len :].max()], dtype=np.float32)
+            peaks = np.concatenate([head_peaks, tail_peak])
+        else:
+            peaks = np.array([abs_hi.max()], dtype=np.float32)
 
-        envelope_db = 20.0 * np.log10(envelope + 1e-6)
-        gain_reduction_db = np.zeros_like(envelope_db)
-        over_threshold = envelope_db > threshold_db
-        if np.any(over_threshold):
-            gain_reduction_db[over_threshold] = (threshold_db - envelope_db[over_threshold]) * (
-                1.0 - 1.0 / ratio
-            )
+        dt_sub = sub_len / float(sr)
+        g_attack = math.exp(-dt_sub / 0.002)
+        g_release = math.exp(-dt_sub / 0.040)
 
-        min_gain_db = max(float(np.min(gain_reduction_db)), -20.0)
+        env = float(self._deesser_env_state) if isinstance(self._deesser_env_state, (int, float)) else 0.0
+        prev_gain = float(getattr(self, "_deesser_prev_gain", 1.0))
 
-        w0 = 2.0 * math.pi * cutoff / sample_rate
-        q_factor = 1.2
-        alpha = math.sin(w0) / (2.0 * q_factor)
-        a_val = 10.0 ** (min_gain_db / 40.0)
-        cos_w0 = math.cos(w0)
+        n_subs = len(peaks)
+        gain_knots = np.empty(n_subs + 1, dtype=np.float32)
+        gain_knots[0] = prev_gain
+        slope = 1.0 - 1.0 / ratio
 
-        b0 = 1.0 + alpha * a_val
-        b1 = -2.0 * cos_w0
-        b2 = 1.0 - alpha * a_val
-        a0 = 1.0 + alpha / a_val
-        a1 = -2.0 * cos_w0
-        a2 = 1.0 - alpha / a_val
+        for i in range(n_subs):
+            pk = float(peaks[i])
+            if pk > env:
+                env = g_attack * env + (1.0 - g_attack) * pk
+            else:
+                env = g_release * env + (1.0 - g_release) * pk
+            env_db = 20.0 * math.log10(env + 1e-6)
+            if env_db > threshold_db:
+                gr_db = max((threshold_db - env_db) * slope, -20.0)
+                gain_knots[i + 1] = 10.0 ** (gr_db / 20.0)
+            else:
+                gain_knots[i + 1] = 1.0
 
-        b = [b0 / a0, b1 / a0, b2 / a0]
-        a = [1.0, a1 / a0, a2 / a0]
+        self._deesser_env_state = env
+        self._deesser_prev_gain = float(gain_knots[-1])
 
-        if self._deesser_filt_state is None:
-            self._deesser_filt_state = np.zeros(2)
+        if np.all(gain_knots >= 0.999999):
+            return audio_np
 
-        processed, self._deesser_filt_state = scipy.signal.lfilter(
-            b, a, audio_np, zi=self._deesser_filt_state
-        )
+        knot_x = np.empty(n_subs + 1, dtype=np.float32)
+        knot_x[0] = 0.0
+        for i in range(full_subs):
+            knot_x[i + 1] = float((i + 1) * sub_len)
+        if full_subs * sub_len < n:
+            knot_x[-1] = float(n)
+
+        sample_x = np.arange(n, dtype=np.float32)
+        gain_curve = np.interp(sample_x, knot_x, gain_knots).astype(np.float32)
+
+        processed = low_band + high_band * gain_curve
         processed = np.nan_to_num(processed, nan=0.0, posinf=0.0, neginf=0.0)
         return processed.astype(np.float32, copy=False)
 

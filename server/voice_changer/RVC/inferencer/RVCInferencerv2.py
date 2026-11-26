@@ -56,7 +56,8 @@ class RVCInferencerv2(Inferencer):
         self._last_used_standalone_vocoder = False
         device_manager = DeviceManager.get_instance()
         dev = device_manager.device
-        is_half = device_manager.use_fp16()
+        target_dtype = device_manager.get_torch_dtype()
+        is_half = target_dtype != torch.float32
         use_jit_compile = device_manager.use_jit_compile()
         self.set_props(EnumInferenceTypes.pyTorchRVCv2, file)
 
@@ -85,8 +86,9 @@ class RVCInferencerv2(Inferencer):
         model.eval()
         self.is_refinegan = getattr(model, "is_refinegan", False)
 
-        if is_half:
-            model = model.half()
+        if target_dtype != torch.float32:
+            model = model.to(dtype=target_dtype)
+        self.model_dtype = target_dtype
 
         self.use_jit = use_jit_compile
         if use_jit_compile:
@@ -129,15 +131,19 @@ class RVCInferencerv2(Inferencer):
             except Exception:
                 active_vocoder = None
 
+        model_dtype = getattr(self, "model_dtype", feats.dtype)
+        feats_t = feats.to(dtype=model_dtype)
+        pitchf_t = pitchf.to(dtype=model_dtype) if pitchf is not None else pitchf
+
         self._last_used_standalone_vocoder = False
         with torch.jit.optimized_execution(self.use_jit):
             if active_vocoder is not None:
                 try:
                     z_masked, nsff0_slice, g = self.model.infer_latent(
-                        feats,
+                        feats_t,
                         pitch_length,
                         pitch,
-                        pitchf,
+                        pitchf_t,
                         sid,
                         skip_head,
                         return_length,
@@ -150,10 +156,10 @@ class RVCInferencerv2(Inferencer):
                     logger.warning(f"Error during active vocoder inference: {e}. Falling back to default decoder.")
 
             out = self.model.infer(
-                feats,
+                feats_t,
                 pitch_length,
                 pitch,
-                pitchf,
+                pitchf_t,
                 sid,
                 skip_head=skip_head,
                 return_length=return_length,

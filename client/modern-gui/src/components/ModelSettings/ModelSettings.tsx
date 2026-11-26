@@ -58,6 +58,9 @@ function ModelSettings({
   const [immediatePitchMode, setImmediatePitchMode] = useState<'speech' | 'singing'>(
     appState.serverSetting?.serverSetting?.formantProfilePitchMode === 'singing' ? 'singing' : 'speech'
   );
+  const [immediateCalFormantShift, setImmediateCalFormantShift] = useState<number>(
+    appState.serverSetting?.serverSetting?.formantProfileFormantShift ?? 0.0
+  );
 
   const [profiles, setProfiles] = useState<FormantProfile[]>([]);
   const [bindings, setBindings] = useState<Record<string | number, ModelFormantBinding>>({});
@@ -97,6 +100,9 @@ function ModelSettings({
       setImmediatePitchMode(
         appState.serverSetting.serverSetting.formantProfilePitchMode === 'singing' ? 'singing' : 'speech'
       );
+      setImmediateCalFormantShift(
+        appState.serverSetting.serverSetting.formantProfileFormantShift ?? 0.0
+      );
     }
   }, [
     appState.serverSetting?.serverSetting?.tran,
@@ -105,7 +111,8 @@ function ModelSettings({
     appState.serverSetting?.serverSetting?.formantProfileStrength,
     appState.serverSetting?.serverSetting?.formantProfilePitchScale,
     appState.serverSetting?.serverSetting?.formantProfilePitchOffset,
-    appState.serverSetting?.serverSetting?.formantProfilePitchMode
+    appState.serverSetting?.serverSetting?.formantProfilePitchMode,
+    appState.serverSetting?.serverSetting?.formantProfileFormantShift
   ]);
 
   const handleModeChange = (isCalibration: boolean) => {
@@ -129,7 +136,8 @@ function ModelSettings({
               formantProfilePitchStats: serializePitchStats(inputProfile, targetProfile),
               formantProfilePitchScale: currentBinding.pitchScale ?? appState.serverSetting?.serverSetting?.formantProfilePitchScale ?? 1.0,
               formantProfilePitchOffset: currentBinding.pitchOffset ?? appState.serverSetting?.serverSetting?.formantProfilePitchOffset ?? 0.0,
-              formantProfilePitchMode: currentBinding.pitchMode ?? appState.serverSetting?.serverSetting?.formantProfilePitchMode ?? 'speech'
+              formantProfilePitchMode: currentBinding.pitchMode ?? appState.serverSetting?.serverSetting?.formantProfilePitchMode ?? 'speech',
+              formantProfileFormantShift: currentBinding.formantShift ?? appState.serverSetting?.serverSetting?.formantProfileFormantShift ?? 0.0
             };
           }
         }
@@ -265,6 +273,19 @@ function ModelSettings({
     appState.serverSetting.updateServerSettings({
       ...appState.serverSetting.serverSetting,
       formantProfilePitchMode: mode
+    });
+  };
+
+  const handleCalFormantShiftChange = (val: number) => {
+    const activeSlot = appState.serverSetting?.serverSetting?.modelSlotIndex;
+    if (activeSlot !== undefined && activeSlot !== -1) {
+      saveFormantBinding(activeSlot, { formantShift: val });
+      setBindings(getAllFormantBindings());
+    }
+
+    appState.serverSetting.updateServerSettings({
+      ...appState.serverSetting.serverSetting,
+      formantProfileFormantShift: val
     });
   };
 
@@ -481,6 +502,25 @@ function ModelSettings({
               disabled={!model}
               showValue={true}
               valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(1)}`}
+            />
+          </div>
+
+          {/* Formant Shift (tract length) in Calibration Mode */}
+          <div>
+            <label htmlFor="formantProfileFormantShift" className={CSS_CLASSES.label}>
+              {t('formantShiftLabel')}
+            </label>
+            <MD3Slider
+              id="formantProfileFormantShift"
+              min={-3}
+              max={3}
+              step={0.05}
+              value={immediateCalFormantShift}
+              onChange={handleCalFormantShiftChange}
+              onImmediateChange={setImmediateCalFormantShift}
+              disabled={!model}
+              showValue={true}
+              valueFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(2)}`}
             />
           </div>
 

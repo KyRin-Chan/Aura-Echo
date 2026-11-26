@@ -88,6 +88,14 @@ def _run_coro(coro):
         def _timer_handle_cancelled(self, handle):
             pass
 
+        def run_in_executor(self, executor, func, *args):
+            fut = self.create_future()
+            try:
+                fut.set_result(func(*args))
+            except BaseException as exc:
+                fut.set_exception(exc)
+            return fut
+
         def call_exception_handler(self, ctx):
             if "exception" in ctx:
                 raise ctx["exception"]
@@ -2810,6 +2818,553 @@ class TestAudioPipelineQuality(unittest.TestCase):
         self.assertEqual(data["input_f0_p10"], 0.0)
         self.assertEqual(data["input_f0_p90"], 0.0)
         self.assertGreater(data["target_f0_log2_mean"], 0.0)
+
+    def test_rmvpe_fcpe_hop_frames_no_history_corruption(self):
+        # Historical prefix (frames 0..19) is ~150 Hz with one sustain-band frame;
+        # new hop at the tail (hop_frames=5, tail_frames=2) is ~300 Hz.
+        # Passing initial_prev_cent=300Hz must NOT warp the historical frame at index 10 to 300 Hz,
+        # and last_voiced_cent must be taken from the committed tail (index 22), not uncommitted lookahead (23..24).
+        T = 25
+        f0_r = torch.full((T,), 150.0, dtype=torch.float32)
+        conf_r = torch.full((T,), 0.20, dtype=torch.float32)
+        f0_f = torch.full((T,), 150.0, dtype=torch.float32)
+        conf_f = torch.full((T,), 0.05, dtype=torch.float32)
+
+        # Frame 10 in history: octave ambiguity between RMVPE (300 Hz) and FCPE (150 Hz)
+        f0_r[10] = 300.0
+        conf_r[10] = 0.22
+        f0_f[10] = 150.0
+        conf_f[10] = 0.06
+
+        # Tail committed vs lookahead pitch jump
+        f0_r[20:23] = 200.0
+        f0_f[20:23] = 200.0
+        f0_r[23:25] = 320.0
+        f0_f[23:25] = 320.0
+
+        prev_cent_300 = 1200.0 * math.log2(300.0 / 10.0)
+        f0_np, last_cent, conf_np = RMVPEFcpePitchExtractor._fuse_predictions_with_conf_np(
+            f0_r,
+            conf_r,
+            f0_f,
+            conf_f,
+            initial_prev_cent=prev_cent_300,
+            hop_frames=5,
+            tail_frames=2,
+        )
+        self.assertAlmostEqual(float(f0_np[10]), 150.0, delta=5.0)
+        expected_committed_cent = 1200.0 * math.log2(200.0 / 10.0)
+        self.assertAlmostEqual(last_cent, expected_committed_cent, places=2)
+        self.assertEqual(conf_np.shape, (T,))
+        self.assertTrue(np.all((conf_np >= 0.0) & (conf_np <= 1.0)))
+
+    def test_sola_16ms_bass_alignment_and_noise_equal_power(self):
+        settings = VoiceChangerSettings()
+        settings.inputSampleRate = 48000
+        settings.outputSampleRate = 48000
+        settings.crossFadeOverlapSize = 0.04
+        settings.serverReadChunkSize = 24
+        settings.extraConvertSize = 0.1
+
+        vc = VoiceChangerV2(settings)
+        self.assertEqual(vc.sola_search_frame, int(round(0.016 * 48000)))
+
+        # 1. Deep 70 Hz bass tone (period ~685.7 samples > 12 ms, < 16 ms) with 14 ms offset
+        block = vc.block_frame
+        needed = block + vc.crossfade_frame + vc.sola_search_frame
+        sr = 48000
+        freq_bass = 70.0
+        shift_14ms = int(0.014 * sr)
+        cursor = {"pos": 0}
+
+        stub_model = MagicMock()
+        stub_model.voiceChangerType = "RVC"
+        stub_model.formant_filter = None
+
+        def _fake_bass(_in):
+            start = cursor["pos"]
+            # Introduce a 14 ms phase shift on chunk 1+ that requires >12ms search window to realign
+            offset = shift_14ms if start > 0 else 0
+            idx = torch.arange(start - offset, start - offset + needed, dtype=torch.float32)
+            cursor["pos"] += block
+            return 0.5 * torch.sin(2.0 * math.pi * freq_bass * idx / sr), 0.35
+
+        stub_model.inference.side_effect = _fake_bass
+        vc.initialize(stub_model)
+        outs_bass = [vc.process_audio(np.zeros(block, dtype=np.float32))[0] for _ in range(5)]
+        stitched_bass = np.concatenate(outs_bass[2:])
+        # SOLA finds the 14 ms realignment so boundary sample step matches the continuous 70 Hz sine derivative
+        max_step = float(np.max(np.abs(np.diff(stitched_bass))))
+        self.assertLess(max_step, 0.0055)
+        period_samples = int(round(sr / freq_bass))
+        pos = block
+        b_rms = float(np.sqrt(np.mean(stitched_bass[pos - period_samples : pos + period_samples] ** 2)))
+        mid_rms = float(np.sqrt(np.mean(stitched_bass[block // 2 - period_samples : block // 2 + period_samples] ** 2)))
+        self.assertLess(abs(20.0 * math.log10(b_rms / max(mid_rms, 1e-8))), 0.15)
+
+        # 2. Uncorrelated white noise (fricatives) stays flat across SOLA boundary without -3 dB dip
+        vc._was_voiced = False
+        vc.sola_buffer.zero_()
+        rng = np.random.default_rng(123)
+
+        def _fake_noise(_in):
+            return torch.from_numpy(rng.normal(0.0, 0.25, needed).astype(np.float32)), 0.25
+
+        stub_model.inference.side_effect = _fake_noise
+        outs_noise = [vc.process_audio(np.zeros(block, dtype=np.float32))[0] for _ in range(6)]
+        stitched_noise = np.concatenate(outs_noise[2:])
+        half_cf = vc.crossfade_frame // 2
+        edge_rms_vals = []
+        body_rms_vals = []
+        for b in range(1, len(outs_noise[2:])):
+            p = b * block
+            edge_rms_vals.append(float(np.sqrt(np.mean(stitched_noise[p + half_cf - 256 : p + half_cf + 256] ** 2))))
+            body_rms_vals.append(float(np.sqrt(np.mean(stitched_noise[p + vc.crossfade_frame : p + block] ** 2))))
+        avg_diff_db = abs(20.0 * math.log10(np.mean(edge_rms_vals) / max(np.mean(body_rms_vals), 1e-8)))
+        self.assertLess(avg_diff_db, 0.5)
+
+    def test_generator_nsf_formant_shift_alias_free_and_jit(self):
+        from voice_changer.RVC.inferencer.rvc_models.infer_pack.models import (
+            GeneratorNSF,
+            SynthesizerTrnMs768NSFsid,
+        )
+
+        # 1. Verify TorchScript compilation succeeds on SynthesizerTrnMs768NSFsid
+        model = SynthesizerTrnMs768NSFsid(
+            spec_channels=513,
+            segment_size=32,
+            inter_channels=192,
+            hidden_channels=192,
+            filter_channels=768,
+            n_heads=2,
+            n_layers=2,
+            kernel_size=3,
+            p_dropout=0.0,
+            resblock="1",
+            resblock_kernel_sizes=[3, 7],
+            resblock_dilation_sizes=[[1, 3, 5], [1, 3, 5]],
+            upsample_rates=[10, 8, 2, 2],
+            upsample_initial_channel=128,
+            upsample_kernel_sizes=[16, 16, 4, 4],
+            spk_embed_dim=10,
+            gin_channels=256,
+            sr=32000,
+            is_half=False,
+        )
+        model.eval()
+        model.remove_weight_norm()
+        scripted = torch.jit.script(model)
+        feats = torch.zeros(1, 30, 768)
+        p_len = torch.tensor([30], dtype=torch.int64)
+        pitch = torch.full((1, 30), 100, dtype=torch.int64)
+        pitchf = torch.full((1, 30), 220.0, dtype=torch.float32)
+        sid = torch.tensor([0], dtype=torch.int64)
+        o, _, _ = scripted.infer(feats, p_len, pitch, pitchf, sid, skip_head=5, return_length=10, formant_length=12)
+        self.assertEqual(o.shape[-1], 12 * 320)
+
+        # 2. GeneratorNSF formant shift preserves output shape without waveform linear interpolation
+        gen = GeneratorNSF(
+            initial_channel=16,
+            resblock="1",
+            resblock_kernel_sizes=[3],
+            resblock_dilation_sizes=[[1, 3, 5]],
+            upsample_rates=[10, 8, 2, 2],
+            upsample_initial_channel=32,
+            upsample_kernel_sizes=[16, 16, 4, 4],
+            gin_channels=0,
+            sr=32000,
+        )
+        gen.eval()
+        z = torch.zeros(1, 16, 10)
+        f0 = torch.full((1, 10), 220.0 * (12.0 / 10.0))
+        y = gen(z, f0, n_res=12)
+        self.assertEqual(y.shape, (1, 1, 12 * 320))
+
+    def test_reflect_kaiser_resampler_edge_flatness(self):
+        from voice_changer.RVC.RVCr2 import ReflectKaiserResampler
+
+        resampler = ReflectKaiserResampler(40000, 48000)
+        n_in = 1600
+        t = torch.arange(n_in, dtype=torch.float32) / 40000.0
+        sig = 0.5 * torch.sin(2.0 * math.pi * 440.0 * t)
+        out = resampler(sig)
+        self.assertEqual(out.shape[0], 1920)
+        out_np = out.numpy()
+        # Compare edges directly against analytic 48 kHz sine (no zero-pad edge attenuation)
+        t_48 = torch.arange(1920, dtype=torch.float32) / 48000.0
+        ref_48 = (0.5 * torch.sin(2.0 * math.pi * 440.0 * t_48)).numpy()
+        head_rms = float(np.sqrt(np.mean(out_np[:64] ** 2)))
+        ref_head_rms = float(np.sqrt(np.mean(ref_48[:64] ** 2)))
+        tail_rms = float(np.sqrt(np.mean(out_np[-64:] ** 2)))
+        ref_tail_rms = float(np.sqrt(np.mean(ref_48[-64:] ** 2)))
+        self.assertLess(abs(20.0 * math.log10(head_rms / ref_head_rms)), 0.1)
+        self.assertLess(abs(20.0 * math.log10(tail_rms / ref_tail_rms)), 0.1)
+        self.assertLess(float(np.max(np.abs(out_np - ref_48))), 0.01)
+        self.assertLess(_compute_thd(out_np[128:-128], 440.0, 48000), 0.005)
+
+    def test_stateful_hpf_and_split_band_deesser(self):
+        from voice_changer.audio_effects.providers.simple.SimpleEffect import SimpleEffect
+        from voice_changer.common.AudioDSP import StatefulHighPassFilter
+
+        sr = 48000
+        hpf = StatefulHighPassFilter(cutoff_hz=65.0)
+        t = np.arange(sr, dtype=np.float32) / sr
+        dc_rumble = (0.2 + 0.3 * np.sin(2.0 * math.pi * 25.0 * t)).astype(np.float32)
+        out_rumble = hpf.process(dc_rumble, sr)
+        tail_rms = float(np.sqrt(np.mean(out_rumble[sr // 2 :] ** 2)))
+        self.assertLess(tail_rms, 0.05)
+
+        hpf.reset()
+        speech_250 = (0.3 * np.sin(2.0 * math.pi * 250.0 * t)).astype(np.float32)
+        out_speech = hpf.process(speech_250, sr)
+        in_rms = float(np.sqrt(np.mean(speech_250[sr // 2 :] ** 2)))
+        pass_rms = float(np.sqrt(np.mean(out_speech[sr // 2 :] ** 2)))
+        self.assertGreater(pass_rms / in_rms, 0.99)
+
+        # Split-band De-Esser
+        deesser = SimpleEffect("deesser", "output")
+        deesser.set_parameters({"cutoff": 5000.0, "threshold": -25.0, "ratio": 6.0})
+        quiet_sib = (0.01 * np.sin(2.0 * math.pi * 6500.0 * t[:2048])).astype(np.float32)
+        out_quiet = deesser.process_numpy(quiet_sib, sr)
+        self.assertTrue(np.allclose(out_quiet, quiet_sib, atol=1e-5))
+
+        low_300 = (0.25 * np.sin(2.0 * math.pi * 300.0 * t[:8192])).astype(np.float32)
+        sib_6500 = (0.4 * np.sin(2.0 * math.pi * 6500.0 * t[:8192])).astype(np.float32)
+        mix = low_300 + sib_6500
+        out_de = np.concatenate([deesser.process_numpy(mix[i : i + 1024], sr) for i in range(0, 8192, 1024)])
+        # Measure 300 Hz vs 6500 Hz after attack settling
+        spec_in = np.abs(np.fft.rfft(mix[4096:]))
+        spec_out = np.abs(np.fft.rfft(out_de[4096:]))
+        freqs = np.fft.rfftfreq(4096, d=1.0 / sr)
+        idx_300 = int(np.argmin(np.abs(freqs - 300.0)))
+        idx_6500 = int(np.argmin(np.abs(freqs - 6500.0)))
+        self.assertGreater(spec_out[idx_300] / spec_in[idx_300], 0.98)
+        self.assertLess(spec_out[idx_6500] / spec_in[idx_6500], 0.5)
+
+    def test_lookahead_size_buffer_alignment_and_offline(self):
+        settings = VoiceChangerSettings()
+        settings.inputSampleRate = 48000
+        settings.outputSampleRate = 48000
+        settings.crossFadeOverlapSize = 0.04
+        settings.extraConvertSize = 0.1
+        settings.serverReadChunkSize = 24
+        settings.lookaheadSize = 0.02  # 20 ms -> 2 frames
+        settings.rmsMixRate = 1.0
+
+        slot = RVCModelSlot(samplingRate=48000, f0=True)
+        rvc = RVCr2(slot, settings)
+        captured = {}
+
+        class MockPipe:
+            use_f0 = True
+            last_f0_smoothed = None
+            pitchExtractor = MagicMock()
+
+            def exec(
+                self,
+                sid,
+                audio,
+                pitch,
+                pitchf,
+                f0_up_key,
+                index_rate,
+                audio_feats_len,
+                silence_front,
+                embOutputLayer,
+                useFinalProj,
+                skip_head,
+                return_length,
+                protect,
+                **kwargs,
+            ):
+                captured["tail_frames"] = kwargs.get("tail_frames", 0)
+                captured["feats_len"] = audio_feats_len
+                captured["return_length"] = return_length
+                return torch.full((return_length * 480,), 0.1, dtype=torch.float32)
+
+        rvc.pipeline = MockPipe()
+        rvc.resampler_in = CausalPolyphaseResampler(48000, 16000)
+        rvc.resampler_out = BypassResampler()
+        rvc.realloc(3072, int(0.1 * 48000), int(0.04 * 48000), int(0.016 * 48000))
+
+        self.assertEqual(rvc.tail_frames, 2)
+        self.assertEqual(rvc.convert_feature_size_16k, rvc.skip_head + rvc.return_length + 2)
+
+        # Feed 2 chunks: first quiet speech, second loud spike that sits in lookahead tail for chunk 1's decoded window
+        chunk_quiet = 0.05 * np.sin(2.0 * math.pi * 220.0 * np.arange(3072, dtype=np.float32) / 48000.0)
+        out1, _ = rvc.inference(chunk_quiet, bypass_silence_gate=True)
+        self.assertEqual(captured["tail_frames"], 2)
+        self.assertEqual(out1.shape[0], rvc.return_length * 480)
+
+        out_off, out_sr = rvc.convert_offline(chunk_quiet, 48000)
+        self.assertEqual(out_sr, 48000)
+        self.assertEqual(out_off.shape[0], 3072)
+
+    def test_dfn3_ola_continuity_and_server_audio_no_double_ns(self):
+        from voice_changer.common import ServerDFN3 as dfn3_mod
+
+        inst = dfn3_mod.ServerDFN3.__new__(dfn3_mod.ServerDFN3)
+        inst.sample_rate = 48000
+        inst._proc_sr = 48000
+        inst._hop = 480
+        inst.available = True
+        inst._model = object()
+        inst._df_state = MagicMock()
+        inst._atten_lim_db = 18.0
+        inst._resampler_in = None
+        inst._resampler_out = None
+        inst._lookahead = 2 * 480
+        inst._ctx_len = 56 * 480
+        inst._ola_len = 480
+        ola_lin = np.linspace(0.0, 1.0, 480, dtype=np.float32)
+        inst._ola_fade_in = np.square(np.sin(0.5 * math.pi * ola_lin)).astype(np.float32)
+        inst._ola_fade_out = np.square(np.cos(0.5 * math.pi * ola_lin)).astype(np.float32)
+        inst._init_out_pad = 3 * 480
+        inst.reset()
+
+        call_idx = {"n": 0}
+
+        def _fake_enhance(_model, _state, audio_t, atten_lim_db=18.0):
+            call_idx["n"] += 1
+            # Block 1 outputs +0.4, Block 2 outputs -0.4 so hard splice would have a 0.8 jump
+            val = 0.4 if call_idx["n"] == 1 else -0.4
+            return torch.full_like(audio_t, val)
+
+        with patch.object(dfn3_mod, "_df_enhance", side_effect=_fake_enhance):
+            # Prime initial output FIFO pad, then capture two consecutive blocks
+            _ = inst.process(np.zeros(1440, dtype=np.float32))
+            b1 = inst.process(np.zeros(960, dtype=np.float32))
+            b2 = inst.process(np.zeros(960, dtype=np.float32))
+            combined = np.concatenate([b1, b2])
+            max_diff = float(np.max(np.abs(np.diff(combined))))
+            # Smooth OLA transition over 480 samples instead of a 0.8 instantaneous step jump
+            self.assertLess(max_diff, 0.02)
+
+        # Verify ServerAudio bypasses WebRTC NS when DFN3 is active and available
+        settings = VoiceChangerSettings()
+        settings.noiseSuppression = True
+        settings.noiseSuppression2 = True
+        sa = ServerAudio(MagicMock(), settings)
+        sa._out_sr = 48000
+
+        mock_dfn = MagicMock()
+        mock_dfn.available = True
+        mock_dfn.sample_rate = 48000
+        mock_dfn.strength = "medium"
+        with patch("voice_changer.Local.ServerAudio.ServerDFN3", return_value=mock_dfn):
+            sa._sync_audio_processing_state(active=True)
+        self.assertIs(sa._dfn3, mock_dfn)
+        self.assertIsNone(sa._ns_processor)
+
+    def test_speech_rms_mix_rate_envelope(self):
+        from voice_changer.common.AudioDSP import apply_speech_rms_envelope
+
+        t_16k = torch.arange(3200, dtype=torch.float32) / 16000.0
+        t_48k = torch.arange(9600, dtype=torch.float32) / 48000.0
+        # Model output at steady 0.2 amplitude 250 Hz
+        out_48k = 0.2 * torch.sin(2.0 * math.pi * 250.0 * t_48k)
+
+        # Rate 0.0 -> pure untouched model dynamics
+        in_loud = 0.8 * torch.sin(2.0 * math.pi * 250.0 * t_16k)
+        res_zero, _ = apply_speech_rms_envelope(in_loud, out_48k, 48000, rms_mix_rate=0.0)
+        self.assertTrue(torch.allclose(res_zero, out_48k))
+
+        # Rate 0.5 -> smoothly scales upward toward input speech loudness
+        res_half, prev_g = apply_speech_rms_envelope(in_loud, out_48k, 48000, rms_mix_rate=0.5)
+        self.assertGreater(float(res_half.abs().max()), 0.28)
+        self.assertLess(float(res_half.abs().max()), 0.55)
+        self.assertIsNotNone(prev_g)
+
+        # Sub-sonic 35 Hz rumble on input is suppressed by speech-band HP weighting
+        rumble_in = 0.8 * torch.sin(2.0 * math.pi * 35.0 * t_16k)
+        res_rumble, _ = apply_speech_rms_envelope(rumble_in, out_48k, 48000, rms_mix_rate=1.0)
+        self.assertLess(float(res_rumble.abs().max()), 0.22)
+
+    def test_continuous_protect_and_singing_vibrato_preservation(self):
+        # 1. Singing mode preserves 6 Hz vibrato peaks while removing extreme >3 st single-frame spikes
+        t_frames = np.arange(40, dtype=np.float32) * 0.010
+        vibrato = 220.0 * np.power(2.0, (1.2 * np.sin(2.0 * math.pi * 6.0 * t_frames)) / 12.0)
+        f0_vib = torch.from_numpy(vibrato.astype(np.float32))
+        f0_spiked = f0_vib.clone()
+        f0_spiked[20] *= 2.0  # +12 st single-frame octave error
+
+        out_sing = Pipeline._stabilize_f0(f0_spiked, pitch_mode="singing")
+        # Extreme spike at frame 20 removed
+        self.assertAlmostEqual(float(out_sing[20].item()), float(f0_vib[20].item()), delta=15.0)
+        # Vibrato peaks elsewhere preserved untouched
+        self.assertTrue(torch.allclose(out_sing[:18], f0_vib[:18], atol=1e-3))
+
+        # 2. Continuous voicing confidence produces intermediate protect blending
+        captured = {}
+
+        class DummyEmbedder:
+            def extract_features(self, feats, embOutputLayer=9, useFinalProj=True):
+                n_frames = feats.shape[1] // 320
+                return torch.zeros((1, n_frames, 768), dtype=feats.dtype, device=feats.device)
+
+        class ConfPitchExtractor:
+            def extract_with_confidence(self, audio, sr, window):
+                n_frames = audio.shape[0] // window + 1
+                return (
+                    torch.full((n_frames,), 200.0, dtype=torch.float32, device=audio.device),
+                    torch.full((n_frames,), 0.5, dtype=torch.float32, device=audio.device),
+                )
+
+        class CaptureInferencer:
+            is_refinegan = False
+
+            def uses_standalone_vocoder(self):
+                return False
+
+            def infer(self, feats, p_len, pitch, pitchf, sid, skip_head, return_length, formant_length):
+                captured["feats"] = feats.clone()
+                return torch.zeros(return_length * 400, dtype=torch.float32, device=feats.device)
+
+        index_vecs = torch.ones((4, 768), dtype=torch.float32)
+        mock_index = MagicMock()
+        mock_index.search.return_value = (
+            torch.full((15, 8), 0.1, dtype=torch.float32),
+            torch.zeros((15, 8), dtype=torch.int64),
+        )
+        pipe = Pipeline(
+            embedder=DummyEmbedder(),
+            inferencer=CaptureInferencer(),
+            pitchExtractor=ConfPitchExtractor(),
+            index=mock_index,
+            index_reconstruct=index_vecs,
+            use_f0=True,
+            model_sr=40000,
+            embChannels=768,
+        )
+        try:
+            # Mock _search_index_with_gate to return unit vector with gate=1.0 cleanly regardless of tensor length
+            with patch.object(
+                pipe,
+                "_search_index_with_gate",
+                side_effect=lambda q, top_k=8: (
+                    torch.ones_like(q),
+                    torch.ones((q.shape[0], 1), dtype=torch.float32, device=q.device),
+                ),
+            ):
+                pipe.exec(
+                    sid=0,
+                    audio=torch.zeros(30 * 160, dtype=torch.float32),
+                    pitch=None,
+                    pitchf=None,
+                    f0_up_key=0.0,
+                    index_rate=1.0,
+                    audio_feats_len=30,
+                    silence_front=0,
+                    embOutputLayer=9,
+                    useFinalProj=True,
+                    skip_head=10,
+                    return_length=20,
+                    protect=0.0,
+                )
+            # protect=0.0 + conf=0.5 -> blended weight == 0.5 (neither 0.0 nor 1.0)
+            mean_val = float(captured["feats"][0, 10:].mean().item())
+            self.assertAlmostEqual(mean_val, 0.5, delta=0.05)
+        finally:
+            pipe._executor.shutdown(wait=True)
+
+    def test_faiss_index_outlier_distance_gating(self):
+        pipe = Pipeline.__new__(Pipeline)
+        pipe.device = torch.device("cpu")
+        pipe.use_gpu_index = False
+        pipe.use_torch_gpu_index = True
+        pipe.index_reconstruct = torch.tensor([[1.0, 0.0, 0.0], [0.9, 0.1, 0.0]], dtype=torch.float32)
+        pipe._gpu_index_norms = torch.sum(pipe.index_reconstruct ** 2, dim=1)
+
+        in_domain = torch.tensor([[1.0, 0.0, 0.0]], dtype=torch.float32)
+        far_outlier = torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32)
+        _, gate_in = pipe._search_index_with_gate(in_domain, top_k=1)
+        _, gate_out = pipe._search_index_with_gate(far_outlier, top_k=1)
+        self.assertAlmostEqual(float(gate_in.item()), 1.0, places=4)
+        self.assertAlmostEqual(float(gate_out.item()), 0.0, places=4)
+
+    def test_calibration_formant_shift_synergy(self):
+        captured_exec = {}
+
+        class DummyEmbedder:
+            def extract_features(self, feats, embOutputLayer=9, useFinalProj=True):
+                return torch.zeros((1, feats.shape[1] // 320, 768), dtype=feats.dtype, device=feats.device)
+
+        class DummyPitchExtractor:
+            def extract(self, audio, sr, window):
+                n_frames = audio.shape[0] // window + 1
+                return torch.full((n_frames,), 150.0, dtype=torch.float32, device=audio.device)
+
+        class DummyInferencer:
+            is_refinegan = False
+
+            def uses_standalone_vocoder(self):
+                return False
+
+            def infer(self, feats, p_len, pitch, pitchf, sid, skip_head, return_length, formant_length):
+                captured_exec["formant_length"] = int(formant_length)
+                captured_exec["return_length"] = int(return_length)
+                return torch.zeros(formant_length * 400, dtype=torch.float32, device=feats.device)
+
+        pipe = Pipeline(
+            embedder=DummyEmbedder(),
+            inferencer=DummyInferencer(),
+            pitchExtractor=DummyPitchExtractor(),
+            index=None,
+            index_reconstruct=None,
+            use_f0=True,
+            model_sr=40000,
+            embChannels=768,
+        )
+        try:
+            settings = VoiceChangerSettings()
+            settings.inputSampleRate = 16000
+            settings.outputSampleRate = 40000
+            settings.formantShift = 2.5
+            settings.formantProfileActive = True
+            settings.formantProfileFormantShift = -1.5
+
+            slot = RVCModelSlot(slotIndex=0, samplingRate=40000, f0=True, embChannels=768)
+            rvc = RVCr2(slot, settings)
+            rvc.pipeline = pipe
+            rvc.resampler_in = CausalPolyphaseResampler(16000, 16000)
+            rvc.resampler_out = BypassResampler()
+            rvc.realloc(1600, 1600, 640, 256)
+
+            rvc.inference(np.full(1600, 0.1, dtype=np.float32), bypass_silence_gate=True)
+            expected_fl = math.ceil(rvc.return_length * (2.0 ** (-1.5 / 12.0)))
+            self.assertEqual(captured_exec["formant_length"], expected_fl)
+        finally:
+            pipe._executor.shutdown(wait=True)
+
+    def test_device_manager_bf16_selection(self):
+        dm = DeviceManager()
+        dm.device = torch.device("cpu")
+        dm.fp16_available = False
+        dm.bf16_available = dm.is_bf16_available()
+        self.assertFalse(dm.bf16_available)
+        self.assertEqual(dm.get_torch_dtype(), torch.float32)
+
+        dm.device = torch.device("cuda", 0)
+        dm.fp16_available = True
+        with (
+            patch("torch.cuda.get_device_capability", return_value=(8, 6)),
+            patch("torch.cuda.is_bf16_supported", return_value=True),
+        ):
+            dm.bf16_available = dm.is_bf16_available()
+        self.assertTrue(dm.bf16_available)
+        self.assertEqual(dm.get_torch_dtype(), torch.bfloat16)
+
+        dm.force_fp32 = True
+        self.assertEqual(dm.get_torch_dtype(), torch.float32)
+
+        dm.force_fp32 = False
+        with (
+            patch("torch.cuda.get_device_capability", return_value=(7, 5)),
+            patch("torch.cuda.is_bf16_supported", return_value=True),
+        ):
+            dm.bf16_available = dm.is_bf16_available()
+        self.assertFalse(dm.bf16_available)
+        self.assertEqual(dm.get_torch_dtype(), torch.float16)
 
 
 if __name__ == "__main__":

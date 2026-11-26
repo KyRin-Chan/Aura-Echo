@@ -3,6 +3,7 @@ VoiceChangerV2向け
 """
 import json
 import logging
+import math
 import os
 from time import perf_counter
 from typing import Callable, Optional
@@ -20,8 +21,10 @@ from voice_changer.common.AudioDSP import (
     AdaptiveNoiseGate,
     CausalPolyphaseResampler,
     MinimumPhaseFormantFilter,
+    StatefulHighPassFilter,
     _select_highest_energy_segment,
     _to_mono_float32,
+    apply_speech_rms_envelope,
 )
 from voice_changer.common.TorchUtils import circular_write
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
@@ -42,6 +45,53 @@ class BypassResampler(torch.nn.Module):
         return x
 
 
+class ReflectKaiserResampler(torch.nn.Module):
+    """High-stopband Kaiser-sinc resampler with symmetric reflection padding to prevent chunk-edge ringing."""
+
+    def __init__(
+        self,
+        orig_freq: int,
+        new_freq: int,
+        lowpass_filter_width: int = 16,
+        rolloff: float = 0.945,
+        beta: float = 10.0,
+    ):
+        super().__init__()
+        self.orig_freq = int(orig_freq)
+        self.new_freq = int(new_freq)
+        self.resampler = tat.Resample(
+            orig_freq=self.orig_freq,
+            new_freq=self.new_freq,
+            lowpass_filter_width=lowpass_filter_width,
+            rolloff=rolloff,
+            resampling_method="sinc_interp_kaiser",
+            beta=beta,
+            dtype=torch.float32,
+        )
+
+    @torch.no_grad()
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.numel() == 0:
+            return x.float()
+        x_f32 = x.reshape(-1).float()
+        n_in = int(x_f32.shape[0])
+        g = math.gcd(self.orig_freq, self.new_freq)
+        q = self.orig_freq // g
+        max_pad = min(64, max(0, n_in - 1))
+        pad_in = (max_pad // q) * q if (0 < q <= max_pad) else max_pad
+        target_len = max(1, int(round(n_in * self.new_freq / float(self.orig_freq))))
+        if pad_in > 0:
+            padded = F.pad(x_f32.unsqueeze(0), (pad_in, pad_in), mode="reflect").squeeze(0)
+            y = self.resampler(padded)
+            pad_out = int(round(pad_in * self.new_freq / float(self.orig_freq)))
+            end_idx = min(int(y.shape[0]), pad_out + target_len)
+            out = y[pad_out:end_idx]
+            if out.shape[0] < target_len:
+                out = F.pad(out, (0, target_len - out.shape[0]))
+            return out
+        return self.resampler(x_f32)
+
+
 class RVCr2(VoiceChangerModel):
     def __init__(self, slotInfo: RVCModelSlot, settings: VoiceChangerSettings):
         self.voiceChangerType = "RVC"
@@ -58,19 +108,23 @@ class RVCr2(VoiceChangerModel):
         self.convert_buffer: torch.Tensor | None = None
         self.pitch_buffer: torch.Tensor | None = None
         self.pitchf_buffer: torch.Tensor | None = None
+        self.voicing_conf_buffer: torch.Tensor | None = None
         self._audio_scratch: torch.Tensor | None = None
         self._convert_scratch: torch.Tensor | None = None
         self._pitch_scratch: torch.Tensor | None = None
         self._pitchf_scratch: torch.Tensor | None = None
+        self._voicing_conf_scratch: torch.Tensor | None = None
 
         self.return_length = 0
         self.skip_head = 0
+        self.tail_frames = 0
         self.silence_front = 0
         self.slotInfo = slotInfo
 
         self.resampler_in: CausalPolyphaseResampler | None = None
         self.resampler_out: torch.nn.Module | None = None
         self.formant_filter = MinimumPhaseFormantFilter().to(self.device_manager.device)
+        self._input_hpf = StatefulHighPassFilter(cutoff_hz=65.0)
 
         self.input_sample_rate = self.settings.inputSampleRate
         self.output_sample_rate = self.settings.outputSampleRate
@@ -78,8 +132,8 @@ class RVCr2(VoiceChangerModel):
         # Convert dB to RMS
         self.inputSensitivity = 10 ** (self.settings.silentThreshold / 20)
 
-        self.is_half = self.device_manager.use_fp16()
-        self.dtype = torch.float16 if self.is_half else torch.float32
+        self.dtype = self.device_manager.get_torch_dtype()
+        self.is_half = self.dtype != torch.float32
         self._progress_callback: Optional[Callable[[int, int, str], None]] = None
 
         self._pitch_sample_acc: int = 0
@@ -170,10 +224,9 @@ class RVCr2(VoiceChangerModel):
         if self.slotInfo.samplingRate == self.output_sample_rate:
             self.resampler_out = BypassResampler().to(self.device_manager.device)
         else:
-            self.resampler_out = tat.Resample(
+            self.resampler_out = ReflectKaiserResampler(
                 orig_freq=self.slotInfo.samplingRate,
                 new_freq=self.output_sample_rate,
-                dtype=torch.float32,
             ).to(self.device_manager.device)
 
         try:
@@ -205,10 +258,9 @@ class RVCr2(VoiceChangerModel):
             if self.slotInfo.samplingRate == self.output_sample_rate:
                 self.resampler_out = BypassResampler().to(self.device_manager.device)
             else:
-                self.resampler_out = tat.Resample(
+                self.resampler_out = ReflectKaiserResampler(
                     orig_freq=self.slotInfo.samplingRate,
                     new_freq=self.output_sample_rate,
-                    dtype=torch.float32,
                 ).to(self.device_manager.device)
             try:
                 VocoderManager.get_instance().update_target_sr(self.output_sample_rate)
@@ -225,8 +277,8 @@ class RVCr2(VoiceChangerModel):
 
     def update_settings(self, key: str, val, old_val):
         if key in {"gpu", "forceFp32", "disableJit", "useTensorRT"}:
-            self.is_half = self.device_manager.use_fp16()
-            self.dtype = torch.float16 if self.is_half else torch.float32
+            self.dtype = self.device_manager.get_torch_dtype()
+            self.is_half = self.dtype != torch.float32
             self.initialize(True)
         elif key == 'useONNX':
             self.initialize()
@@ -251,8 +303,8 @@ class RVCr2(VoiceChangerModel):
         return self.slotInfo.samplingRate
 
     def realloc(self, block_frame: int, extra_frame: int, crossfade_frame: int, sola_search_frame: int):
-        self.is_half = self.device_manager.use_fp16()
-        self.dtype = torch.float16 if self.is_half else torch.float32
+        self.dtype = self.device_manager.get_torch_dtype()
+        self.is_half = self.dtype != torch.float32
         self._last_block_frame = int(block_frame)
 
         block_frame_16k = int(block_frame / self.input_sample_rate * HUBERT_SAMPLE_RATE)
@@ -260,10 +312,13 @@ class RVCr2(VoiceChangerModel):
         sola_search_frame_16k = int(sola_search_frame / self.input_sample_rate * HUBERT_SAMPLE_RATE)
         extra_frame_16k = int(extra_frame / self.input_sample_rate * HUBERT_SAMPLE_RATE)
 
+        lookahead_sec = max(0.0, min(0.04, float(getattr(self.settings, "lookaheadSize", 0.0))))
+        tail_frames = int(round(lookahead_sec * (HUBERT_SAMPLE_RATE / float(WINDOW_SIZE))))
+
         return_size_16k = block_frame_16k + sola_search_frame_16k + crossfade_frame_16k
         return_frames = (return_size_16k + WINDOW_SIZE - 1) // WINDOW_SIZE
         extra_frames = extra_frame_16k // WINDOW_SIZE
-        total_frames = return_frames + extra_frames
+        total_frames = return_frames + extra_frames + tail_frames
         # Align total frames to even count (WINDOW_SIZE * 2 = 320 @16kHz = HuBERT stride)
         # by absorbing 1 padding frame into left context (skip_head) so SOLA right-alignment stays exact.
         if total_frames % 2 != 0:
@@ -275,6 +330,7 @@ class RVCr2(VoiceChangerModel):
 
         self.skip_head = extra_frames
         self.return_length = return_frames
+        self.tail_frames = tail_frames
         self.silence_front = max(0, (self.skip_head - 12) * WINDOW_SIZE) if self.settings.silenceFront else 0
 
         audio_buffer_size = block_frame_16k + crossfade_frame_16k
@@ -283,33 +339,37 @@ class RVCr2(VoiceChangerModel):
         self.convert_buffer = torch.zeros(convert_size_16k, dtype=torch.float32, device=dev)
         self.pitch_buffer = torch.zeros(self.convert_feature_size_16k + 1, dtype=torch.int64, device=dev)
         self.pitchf_buffer = torch.zeros(self.convert_feature_size_16k + 1, dtype=self.dtype, device=dev)
+        self.voicing_conf_buffer = torch.zeros(self.convert_feature_size_16k + 1, dtype=torch.float32, device=dev)
 
         self._audio_scratch = torch.empty_like(self.audio_buffer)
         self._convert_scratch = torch.empty_like(self.convert_buffer)
         self._pitch_scratch = torch.empty_like(self.pitch_buffer)
         self._pitchf_scratch = torch.empty_like(self.pitchf_buffer)
+        self._voicing_conf_scratch = torch.empty_like(self.voicing_conf_buffer)
 
         self._pitch_sample_acc = 0
         self._rms_gain_ema_t = None
         self._noise_gate.reset()
-        if self.resampler_in is not None:
+        self._input_hpf.reset()
+        if self.resampler_in is not None and hasattr(self.resampler_in, "reset"):
             self.resampler_in.reset()
         self.formant_filter.reset()
 
         logger.info(f'Allocated audio buffer size: {audio_buffer_size}')
-        logger.info(f'Allocated convert buffer size: {convert_size_16k}')
+        logger.info(f'Allocated convert buffer size: {convert_size_16k} (tail_frames={tail_frames})')
         logger.info(f'Allocated pitchf buffer size: {self.convert_feature_size_16k + 1}')
 
     def reset_state(self) -> None:
         """Reset streaming buffers and filter/F0 state without reallocating memory."""
-        for attr in ("audio_buffer", "convert_buffer", "pitch_buffer", "pitchf_buffer"):
+        for attr in ("audio_buffer", "convert_buffer", "pitch_buffer", "pitchf_buffer", "voicing_conf_buffer"):
             buf = getattr(self, attr, None)
             if buf is not None:
                 buf.zero_()
         self._pitch_sample_acc = 0
         self._rms_gain_ema_t = None
         self._noise_gate.reset()
-        if self.resampler_in is not None:
+        self._input_hpf.reset()
+        if self.resampler_in is not None and hasattr(self.resampler_in, "reset"):
             self.resampler_in.reset()
         if self.formant_filter is not None:
             self.formant_filter.reset()
@@ -383,15 +443,28 @@ class RVCr2(VoiceChangerModel):
                     self.pitchf_buffer[:keep].copy_(self._pitchf_scratch[:keep])
                 else:
                     self.pitchf_buffer[:keep] = self.pitchf_buffer[hop:].detach().clone()
+                if self.voicing_conf_buffer is not None:
+                    if self._voicing_conf_scratch is not None:
+                        self._voicing_conf_scratch[:keep].copy_(self.voicing_conf_buffer[hop:])
+                        self.voicing_conf_buffer[:keep].copy_(self._voicing_conf_scratch[:keep])
+                    else:
+                        self.voicing_conf_buffer[:keep] = self.voicing_conf_buffer[hop:].detach().clone()
             self.pitch_buffer[-hop:].zero_()
             self.pitchf_buffer[-hop:].zero_()
+            if self.voicing_conf_buffer is not None:
+                self.voicing_conf_buffer[-hop:].zero_()
         if self.pipeline is not None:
             self.pipeline.last_f0_smoothed = None
             if hasattr(self.pipeline.pitchExtractor, "reset"):
                 self.pipeline.pitchExtractor.reset()
 
     def _prepare_16k_input(self, audio_in: AudioInOutFloat) -> tuple[torch.Tensor, int]:
-        audio_in_t = torch.as_tensor(audio_in, dtype=torch.float32, device=self.device_manager.device)
+        if isinstance(audio_in, torch.Tensor):
+            audio_np = audio_in.detach().cpu().numpy()
+        else:
+            audio_np = np.asarray(audio_in, dtype=np.float32)
+        audio_hp = self._input_hpf.process(audio_np, self.input_sample_rate)
+        audio_in_t = torch.as_tensor(audio_hp, dtype=torch.float32, device=self.device_manager.device)
         audio_in_16k = self.resampler_in(audio_in_t)
         self._sync_formant_filter()
 
@@ -502,6 +575,12 @@ class RVCr2(VoiceChangerModel):
 
         tmp_pitch = torch.zeros(feats_len + 1, dtype=torch.int64, device=dev)
         tmp_pitchf = torch.zeros(feats_len + 1, dtype=self.dtype, device=dev)
+        tmp_voicing_conf = torch.zeros(feats_len + 1, dtype=torch.float32, device=dev)
+        offline_tail_frames = (
+            int(getattr(self, "tail_frames", 0) or 0)
+            if (self.convert_buffer is not None and getattr(self, "convert_feature_size_16k", 0) > 0)
+            else 0
+        )
         formant_shift = (
             float(formant_shift_override)
             if formant_shift_override is not None
@@ -519,6 +598,14 @@ class RVCr2(VoiceChangerModel):
                 chunk_16k = padded_16k[pos_16k : pos_16k + win_16k]
                 tmp_pitch.zero_()
                 tmp_pitchf.zero_()
+                tmp_voicing_conf.zero_()
+
+                exec_kwargs = {"formant_shift": formant_shift}
+                if pitch_dist_cfg is not None:
+                    exec_kwargs["pitch_dist_cfg"] = pitch_dist_cfg
+                if offline_tail_frames > 0 or isinstance(self.pipeline, Pipeline):
+                    exec_kwargs["voicing_conf"] = tmp_voicing_conf
+                    exec_kwargs["tail_frames"] = offline_tail_frames
 
                 audio_model = self.pipeline.exec(
                     self.settings.dstId,
@@ -534,12 +621,13 @@ class RVCr2(VoiceChangerModel):
                     skip_head,
                     return_length,
                     self.settings.protect,
-                    formant_shift=formant_shift,
-                    pitch_dist_cfg=pitch_dist_cfg,
+                    **exec_kwargs,
                 )
 
                 uses_standalone = getattr(
-                    self.pipeline.inferencer, "uses_standalone_vocoder", lambda: False
+                    getattr(self.pipeline, "inferencer", None),
+                    "uses_standalone_vocoder",
+                    lambda: False,
                 )()
                 if uses_standalone:
                     try:
@@ -649,10 +737,20 @@ class RVCr2(VoiceChangerModel):
         circular_write(audio_in_16k, self.audio_buffer, scratch=self._audio_scratch)
         circular_write(audio_in_16k, self.convert_buffer, scratch=self._convert_scratch)
 
-        buf_rms = torch.sqrt(torch.mean(self.audio_buffer.float() ** 2) + 1e-8)
+        tail_frames = int(getattr(self, "tail_frames", 0) or 0)
+        if tail_frames > 0 and self.convert_buffer is not None:
+            end_16k = max(0, int(self.convert_buffer.shape[0]) - tail_frames * WINDOW_SIZE)
+            start_16k = max(0, end_16k - int(self.return_length) * WINDOW_SIZE)
+            rms_ref_16k = self.convert_buffer[start_16k:end_16k]
+        else:
+            rms_ref_16k = self.audio_buffer
 
         calibration_active = bool(getattr(self.settings, "formantProfileActive", False))
-        effective_formant_shift = 0.0 if calibration_active else float(getattr(self.settings, "formantShift", 0.0))
+        effective_formant_shift = (
+            float(getattr(self.settings, "formantProfileFormantShift", 0.0))
+            if calibration_active
+            else float(getattr(self.settings, "formantShift", 0.0))
+        )
         pitch_dist_cfg = self._pitch_dist_cfg if calibration_active else None
 
         audio_model = self.pipeline.exec(
@@ -674,23 +772,23 @@ class RVCr2(VoiceChangerModel):
             pitchf_scratch=self._pitchf_scratch,
             formant_shift=effective_formant_shift,
             pitch_dist_cfg=pitch_dist_cfg,
+            voicing_conf=self.voicing_conf_buffer,
+            voicing_conf_scratch=self._voicing_conf_scratch,
+            tail_frames=tail_frames,
         )
 
-        # Smoothed adaptive RMS normalization (zero GPU->CPU sync, prevents pumping and noise boost)
+        # Speech-weighted sub-block RMS envelope mixing (zero GPU->CPU sync)
         if vol > 1e-3:
-            model_rms = torch.sqrt(torch.mean(audio_model ** 2) + 1e-8)
-            target_scale = torch.where(
-                model_rms > 1e-4,
-                (buf_rms / model_rms).clamp(0.25, 2.5),
-                torch.ones_like(model_rms),
+            rms_mix_rate = float(getattr(self.settings, "rmsMixRate", 0.40))
+            audio_model, self._rms_gain_ema_t = apply_speech_rms_envelope(
+                rms_ref_16k,
+                audio_model,
+                model_sr=int(self.slotInfo.samplingRate or 40000),
+                rms_mix_rate=rms_mix_rate,
+                prev_gain=self._rms_gain_ema_t,
             )
-            if self._rms_gain_ema_t is None or self._rms_gain_ema_t.device != audio_model.device:
-                self._rms_gain_ema_t = target_scale.detach()
-            else:
-                self._rms_gain_ema_t = 0.7 * self._rms_gain_ema_t + 0.3 * target_scale.detach()
-            audio_model = audio_model * self._rms_gain_ema_t
 
-        uses_standalone = getattr(self.pipeline.inferencer, "uses_standalone_vocoder", lambda: False)()
+        uses_standalone = getattr(getattr(self.pipeline, "inferencer", None), "uses_standalone_vocoder", lambda: False)()
         if uses_standalone:
             try:
                 VocoderManager.get_instance().update_target_sr(self.output_sample_rate)

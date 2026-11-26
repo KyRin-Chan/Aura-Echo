@@ -15,7 +15,8 @@ class RVCInferencerv2Nono(Inferencer):
     def load_model(self, file: str):
         device_manager = DeviceManager.get_instance()
         dev = device_manager.device
-        is_half = device_manager.use_fp16()
+        target_dtype = device_manager.get_torch_dtype()
+        is_half = target_dtype != torch.float32
         use_jit_compile = device_manager.use_jit_compile()
         self.set_props(EnumInferenceTypes.pyTorchRVCv2Nono, file)
 
@@ -38,8 +39,9 @@ class RVCInferencerv2Nono(Inferencer):
 
         model.eval()
 
-        if is_half:
-            model = model.half()
+        if target_dtype != torch.float32:
+            model = model.to(dtype=target_dtype)
+        self.model_dtype = target_dtype
 
         self.use_jit = use_jit_compile
         if use_jit_compile:
@@ -65,9 +67,10 @@ class RVCInferencerv2Nono(Inferencer):
         return_length: int,
         formant_length: int,
     ) -> torch.Tensor:
+        model_dtype = getattr(self, "model_dtype", feats.dtype)
         with torch.jit.optimized_execution(self.use_jit):
             out = self.model.infer(
-                feats,
+                feats.to(dtype=model_dtype),
                 pitch_length,
                 sid,
                 skip_head=skip_head,

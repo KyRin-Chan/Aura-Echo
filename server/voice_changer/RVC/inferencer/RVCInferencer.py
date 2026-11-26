@@ -20,7 +20,8 @@ class RVCInferencer(Inferencer):
         self._last_used_standalone_vocoder = False
         device_manager = DeviceManager.get_instance()
         dev = device_manager.device
-        is_half = device_manager.use_fp16()
+        target_dtype = device_manager.get_torch_dtype()
+        is_half = target_dtype != torch.float32
         self.set_props(EnumInferenceTypes.pyTorchRVC, file)
 
         # Keep torch.load for backward compatibility, but discourage the use of this loading method
@@ -40,8 +41,9 @@ class RVCInferencer(Inferencer):
         model.eval().remove_weight_norm()
         self.is_refinegan = getattr(model, "is_refinegan", False)
 
-        if is_half:
-            model = model.half()
+        if target_dtype != torch.float32:
+            model = model.to(dtype=target_dtype)
+        self.model_dtype = target_dtype
 
         self.model = model
         return self
@@ -62,16 +64,20 @@ class RVCInferencer(Inferencer):
     ) -> torch.Tensor:
         assert pitch is not None or pitchf is not None, "Pitch or Pitchf is not found."
 
+        model_dtype = getattr(self, "model_dtype", feats.dtype)
+        feats_t = feats.to(dtype=model_dtype)
+        pitchf_t = pitchf.to(dtype=model_dtype) if pitchf is not None else pitchf
+
         self._last_used_standalone_vocoder = False
         if not getattr(self, "is_refinegan", False):
             try:
                 active_vocoder = VocoderManager.get_instance().get_active_vocoder()
                 if active_vocoder is not None and getattr(active_vocoder, "is_loaded", False):
                     z_masked, nsff0_slice, g = self.model.infer_latent(
-                        feats,
+                        feats_t,
                         pitch_length,
                         pitch,
-                        pitchf,
+                        pitchf_t,
                         sid,
                         skip_head,
                         return_length,
@@ -84,10 +90,10 @@ class RVCInferencer(Inferencer):
                 logger.warning(f"Error during active vocoder inference: {e}. Falling back to default decoder.")
 
         res = self.model.infer(
-            feats,
+            feats_t,
             pitch_length,
             pitch,
-            pitchf,
+            pitchf_t,
             sid,
             skip_head=skip_head,
             return_length=return_length,

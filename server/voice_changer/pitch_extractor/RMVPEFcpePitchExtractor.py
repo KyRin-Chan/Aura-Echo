@@ -34,6 +34,7 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             is_half=device_manager.use_fp16(),
             use_jit_compile=device_manager.use_jit_compile(),
             device=self.device,
+            dtype=device_manager.get_torch_dtype(),
         )
 
         # NOTE: FCPE doesn't behave correctly in FP16 mode.
@@ -77,7 +78,7 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         return above / (above + np.float32(scale_k + 1e-6))
 
     @classmethod
-    def _fuse_predictions_np(
+    def _fuse_predictions_with_conf_np(
         cls,
         f0_rmvpe: torch.Tensor,
         conf_rmvpe: torch.Tensor,
@@ -88,7 +89,9 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         rmvpe_sustain_threshold: float = 0.020,
         fcpe_sustain_threshold: float = 0.004,
         initial_prev_cent: float = 0.0,
-    ) -> tuple[np.ndarray, float]:
+        hop_frames: Optional[int] = None,
+        tail_frames: int = 0,
+    ) -> tuple[np.ndarray, float, np.ndarray]:
         """Fuse RMVPE and FCPE F0/confidence predictions using a single batched D2H copy."""
         f1 = f0_rmvpe.reshape(-1).float()
         c1 = conf_rmvpe.reshape(-1).float()
@@ -97,7 +100,8 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
 
         T = f1.shape[0]
         if T == 0:
-            return np.empty(0, dtype=np.float32), 0.0
+            empty = np.empty(0, dtype=np.float32)
+            return empty, 0.0, empty
 
         if f2.shape[0] > T:
             f2 = f2[:T]
@@ -146,6 +150,11 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         w_sum = np.maximum(s1 + s2, np.float32(1e-6))
         cent_fused = (s1 * cent1 + s2 * cent2) / w_sum
 
+        # Only apply previous-chunk tail cent at t=0 when the entire input is contiguous new frames.
+        # When hop_frames < T, t=0 lies ~200-300ms in the past; let the prefix propagate real past pitch forward.
+        hist_end = (T - hop_frames) if (hop_frames is not None and 0 < hop_frames < T) else 0
+        seed_at_start = float(initial_prev_cent) if (hist_end == 0 and initial_prev_cent > 0.0) else 0.0
+
         need_arb = (both_high & (diff_cents > 50.0)) | (v1_low ^ v2_low) | ((v1_low | v2_low) & ~both_high)
         if not bool(np.any(need_arb)):
             f0_np = np.where(
@@ -169,10 +178,14 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             cent_out_l = cent_out.tolist()
             voiced_out_l = [False] * T
 
-            prev_cent = float(initial_prev_cent) if initial_prev_cent > 0.0 else 0.0
+            prev_cent = seed_at_start
             unvoiced_run = 0 if prev_cent > 0.0 else 4
 
             for t in range(T):
+                if t == hist_end and hist_end > 0 and hist_end <= 2 and prev_cent == 0.0 and initial_prev_cent > 0.0:
+                    prev_cent = float(initial_prev_cent)
+                    unvoiced_run = 0
+
                 if v1_high_l[t] and v2_high_l[t]:
                     if diff_l[t] <= 50.0:
                         c_val = cent_fused_l[t]
@@ -270,13 +283,53 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
                 np.float32(0.0),
             ).astype(np.float32, copy=False)
 
+        conf_np = np.where(
+            f0_np > np.float32(0.0),
+            np.clip(np.maximum(s1, s2), np.float32(0.0), np.float32(1.0)),
+            np.float32(0.0),
+        ).astype(np.float32, copy=False)
+
+        commit_end = T - max(0, int(tail_frames))
+        if commit_end <= 0:
+            commit_end = T
+        commit_slice = f0_np[max(0, commit_end - 4) : commit_end]
         last_hz = 0.0
-        for val in reversed(f0_np[-min(4, T):].tolist()):
+        for val in reversed(commit_slice.tolist()):
             if val > 0.0:
                 last_hz = float(val)
                 break
         last_voiced_cent = (
             1200.0 * math.log2(max(last_hz, 10.0) / 10.0) if last_hz > 0.0 else 0.0
+        )
+        return f0_np, last_voiced_cent, conf_np
+
+    @classmethod
+    def _fuse_predictions_np(
+        cls,
+        f0_rmvpe: torch.Tensor,
+        conf_rmvpe: torch.Tensor,
+        f0_fcpe: torch.Tensor,
+        conf_fcpe: torch.Tensor,
+        rmvpe_threshold: float = 0.032,
+        fcpe_threshold: float = 0.006,
+        rmvpe_sustain_threshold: float = 0.020,
+        fcpe_sustain_threshold: float = 0.004,
+        initial_prev_cent: float = 0.0,
+        hop_frames: Optional[int] = None,
+        tail_frames: int = 0,
+    ) -> tuple[np.ndarray, float]:
+        f0_np, last_voiced_cent, _ = cls._fuse_predictions_with_conf_np(
+            f0_rmvpe,
+            conf_rmvpe,
+            f0_fcpe,
+            conf_fcpe,
+            rmvpe_threshold=rmvpe_threshold,
+            fcpe_threshold=fcpe_threshold,
+            rmvpe_sustain_threshold=rmvpe_sustain_threshold,
+            fcpe_sustain_threshold=fcpe_sustain_threshold,
+            initial_prev_cent=initial_prev_cent,
+            hop_frames=hop_frames,
+            tail_frames=tail_frames,
         )
         return f0_np, last_voiced_cent
 
@@ -292,9 +345,11 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         rmvpe_sustain_threshold: float = 0.020,
         fcpe_sustain_threshold: float = 0.004,
         initial_prev_cent: float = 0.0,
+        hop_frames: Optional[int] = None,
+        tail_frames: int = 0,
     ) -> torch.Tensor:
         """Fuse RMVPE and FCPE F0/confidence predictions with hysteresis and causal continuity."""
-        f0_np, _ = cls._fuse_predictions_np(
+        f0_np, _, _ = cls._fuse_predictions_with_conf_np(
             f0_rmvpe,
             conf_rmvpe,
             f0_fcpe,
@@ -304,17 +359,21 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             rmvpe_sustain_threshold=rmvpe_sustain_threshold,
             fcpe_sustain_threshold=fcpe_sustain_threshold,
             initial_prev_cent=initial_prev_cent,
+            hop_frames=hop_frames,
+            tail_frames=tail_frames,
         )
         if f0_np.size == 0:
             return torch.empty(0, dtype=torch.float32, device=f0_rmvpe.device)
         return torch.from_numpy(f0_np).to(device=f0_rmvpe.device)
 
-    def extract(
+    def extract_with_confidence(
         self,
         audio: torch.Tensor,
         sr: int,
         window: int,
-    ) -> torch.Tensor:
+        hop_frames: Optional[int] = None,
+        tail_frames: int = 0,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if audio.device.type == "cuda" and self._fcpe_stream is not None:
             cur_stream = torch.cuda.current_stream(audio.device)
             self._fcpe_stream.wait_stream(cur_stream)
@@ -341,7 +400,7 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
                 mel_fcpe, threshold=self.fcpe_sustain_threshold
             )
 
-        f0_np, last_voiced_cent = self._fuse_predictions_np(
+        f0_np, last_voiced_cent, conf_np = self._fuse_predictions_with_conf_np(
             f0_rmvpe,
             conf_rmvpe,
             f0_fcpe,
@@ -351,9 +410,28 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             rmvpe_sustain_threshold=self.rmvpe_sustain_threshold,
             fcpe_sustain_threshold=self.fcpe_sustain_threshold,
             initial_prev_cent=self._last_voiced_cent,
+            hop_frames=hop_frames,
+            tail_frames=tail_frames,
         )
         self._last_voiced_cent = last_voiced_cent
 
         if f0_np.size == 0:
-            return torch.empty(0, dtype=audio.dtype, device=audio.device)
-        return torch.from_numpy(f0_np).to(device=audio.device, dtype=audio.dtype)
+            empty = torch.empty(0, dtype=audio.dtype, device=audio.device)
+            return empty, empty
+        return (
+            torch.from_numpy(f0_np).to(device=audio.device, dtype=audio.dtype),
+            torch.from_numpy(conf_np).to(device=audio.device, dtype=torch.float32),
+        )
+
+    def extract(
+        self,
+        audio: torch.Tensor,
+        sr: int,
+        window: int,
+        hop_frames: Optional[int] = None,
+        tail_frames: int = 0,
+    ) -> torch.Tensor:
+        f0, _ = self.extract_with_confidence(
+            audio, sr, window, hop_frames=hop_frames, tail_frames=tail_frames
+        )
+        return f0

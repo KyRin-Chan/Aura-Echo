@@ -161,7 +161,11 @@ class ServerDFN3:
                 self.available = False
 
         self._lookahead = 2 * self._hop
-        self._ctx_len = 24 * self._hop
+        self._ctx_len = 56 * self._hop
+        self._ola_len = self._hop
+        ola_lin = np.linspace(0.0, 1.0, self._ola_len, dtype=np.float32)
+        self._ola_fade_in = np.square(np.sin(0.5 * math.pi * ola_lin)).astype(np.float32)
+        self._ola_fade_out = np.square(np.cos(0.5 * math.pi * ola_lin)).astype(np.float32)
         self._init_out_pad = int(
             math.ceil((self._hop + self._lookahead) * self.sample_rate / float(self._proc_sr))
         ) + (64 if self.sample_rate != self._proc_sr else 0)
@@ -182,6 +186,8 @@ class ServerDFN3:
         self._in_fifo = np.zeros(self._lookahead, dtype=np.float32)
         self._hist = np.zeros(self._ctx_len, dtype=np.float32)
         self._out_fifo = np.zeros(self._init_out_pad, dtype=np.float32)
+        self._prev_tail_48k = np.zeros(self._ola_len, dtype=np.float32)
+        self._has_prev_tail = False
 
     def process(self, mic_chunk: np.ndarray) -> np.ndarray:
         mic = np.ascontiguousarray(mic_chunk, dtype=np.float32).reshape(-1)
@@ -208,7 +214,22 @@ class ServerDFN3:
                 self._model, self._df_state, audio_t, atten_lim_db=self._atten_lim_db
             )
             enhanced_np = enhanced_t.squeeze(0).detach().cpu().numpy().astype(np.float32, copy=False)
-            block_48k = enhanced_np[self._ctx_len : self._ctx_len + step]
+            block_48k = np.array(
+                enhanced_np[self._ctx_len : self._ctx_len + step],
+                dtype=np.float32,
+                copy=True,
+            )
+            ola_len = self._ola_len
+            if self._has_prev_tail and ola_len > 0 and block_48k.shape[0] >= ola_len:
+                block_48k[:ola_len] = (
+                    block_48k[:ola_len] * self._ola_fade_in
+                    + self._prev_tail_48k * self._ola_fade_out
+                )
+            if ola_len > 0 and enhanced_np.shape[0] >= self._ctx_len + step + ola_len:
+                self._prev_tail_48k = enhanced_np[
+                    self._ctx_len + step : self._ctx_len + step + ola_len
+                ].copy()
+                self._has_prev_tail = True
 
             self._hist = np.concatenate((self._hist, self._in_fifo[:step]))[-self._ctx_len :]
             self._in_fifo = self._in_fifo[step:]

@@ -31,6 +31,20 @@ class FcpePitchExtractor(PitchExtractor):
         ).to(device_manager.device)
         self.fcpe = model
 
+    def extract_with_confidence(
+        self,
+        audio: torch.Tensor,
+        sr: int,
+        window: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        mel: torch.Tensor = self.mel_extractor(audio.unsqueeze(0).float())
+        f0, raw_conf = self.fcpe.infer_with_confidence(mel, threshold=0.006)
+        f0 = f0.squeeze()
+        raw_conf = raw_conf.squeeze().float()
+        above = torch.clamp(raw_conf - 0.004, min=0.0)
+        cal_conf = torch.where(f0 > 0, above / (above + 0.035 + 1e-6), torch.zeros_like(raw_conf))
+        return f0, cal_conf
+
     def extract(
         self,
         audio: torch.Tensor,

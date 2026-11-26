@@ -66,7 +66,7 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
         labelPosition="left"
       />
       {isServerAudio && noiseSuppression2Checked && (
-        <div className="pt-1">
+        <div className="pt-1 space-y-1.5">
           <MD3Select
             id="dfn3-strength-select"
             label={t('noiseSuppression2StrengthLabel')}
@@ -78,6 +78,11 @@ function NoiseReduction({ appState }: NoiseReductionProps) {
               });
             }}
           />
+          {noiseSuppressionChecked && (
+            <p className="text-[11px] text-on-surface-variant/80 leading-snug">
+              {t('dfn3BypassesWebRtcHint')}
+            </p>
+          )}
         </div>
       )}
     </div>

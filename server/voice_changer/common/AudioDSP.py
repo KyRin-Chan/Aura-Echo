@@ -1177,6 +1177,127 @@ class StatefulAutoGainControl:
         return (audio * gain_curve).astype(np.float32, copy=False)
 
 
+class StatefulHighPassFilter:
+    """
+    Stateful 2nd-order Butterworth high-pass filter for real-time mono float32 streams.
+    Removes DC offset, plosive thumps, and sub-sonic rumble prior to 16 kHz resampling / F0.
+    """
+
+    def __init__(self, cutoff_hz: float = 65.0, order: int = 2):
+        self.cutoff_hz = float(cutoff_hz)
+        self.order = max(1, int(order))
+        self._sr: int = 0
+        self._sos: Optional[np.ndarray] = None
+        self._zi: Optional[np.ndarray] = None
+
+    def reset(self) -> None:
+        if self._sos is not None:
+            self._zi = np.zeros((self._sos.shape[0], 2), dtype=np.float64)
+        else:
+            self._zi = None
+
+    def _ensure_filter(self, sr: int) -> None:
+        sr_int = max(800, int(sr))
+        if sr_int == self._sr and self._sos is not None and self._zi is not None:
+            return
+        cutoff = max(10.0, min(self.cutoff_hz, sr_int * 0.45))
+        self._sos = scipy_signal.butter(self.order, cutoff, btype="highpass", fs=sr_int, output="sos")
+        self._zi = np.zeros((self._sos.shape[0], 2), dtype=np.float64)
+        self._sr = sr_int
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        if audio is None:
+            return audio
+        arr = np.asarray(audio, dtype=np.float32).reshape(-1)
+        if arr.size == 0:
+            return arr
+        self._ensure_filter(sample_rate)
+        out, self._zi = scipy_signal.sosfilt(self._sos, arr, zi=self._zi)
+        return np.asarray(out, dtype=np.float32)
+
+
+def apply_speech_rms_envelope(
+    audio_in_16k: torch.Tensor,
+    audio_model: torch.Tensor,
+    model_sr: int,
+    rms_mix_rate: float,
+    prev_gain: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+    """
+    Sub-block speech-weighted RMS envelope matching with zero GPU->CPU sync.
+
+    Blends input speech loudness into `audio_model` at exponent `rms_mix_rate`
+    in [0, 1] using 20 ms sub-frames and first-order high-pass speech weighting
+    so sub-100 Hz mic rumble does not pump output gain.
+    """
+    mix = max(0.0, min(1.0, float(rms_mix_rate)))
+    if mix <= 1e-4 or audio_model.numel() == 0 or audio_in_16k.numel() == 0:
+        return audio_model, prev_gain
+
+    orig_dtype = audio_model.dtype
+    in_f = audio_in_16k.reshape(-1).float()
+    out_f = audio_model.reshape(-1).float()
+    n_out = out_f.shape[0]
+    n_in = in_f.shape[0]
+    if n_out < 16 or n_in < 16:
+        return audio_model, prev_gain
+
+    def _speech_band_hp(x: torch.Tensor, sr_val: int) -> torch.Tensor:
+        # Matched linear-phase zero-overshoot high-pass via 2-pass ~4 ms boxcar subtraction:
+        # |H_hp(f)| = 1 - sinc^2(f * 0.004) -> -24 dB @35 Hz, 0.0 dB @250 Hz regardless of sample rate.
+        n = int(x.shape[0])
+        k = max(3, int(round(0.004 * max(8000, sr_val))) | 1)
+        max_odd = n if (n % 2 == 1) else (n - 1)
+        k = min(k, max_odd)
+        if k < 5:
+            return x[1:] - x[:-1]
+        p = (k - 1) // 2
+        if p >= n:
+            return x
+        t = x.view(1, 1, n)
+        lp1 = F.avg_pool1d(F.pad(t, (p, p), mode="reflect"), kernel_size=k, stride=1)
+        lp2 = F.avg_pool1d(F.pad(lp1, (p, p), mode="reflect"), kernel_size=k, stride=1)
+        return (t - lp2).view(-1)
+
+    # Matched speech-band high-pass emphasis (~140 Hz) on input (16 kHz) and output (model_sr)
+    in_hp = _speech_band_hp(in_f, 16000)
+    out_hp = _speech_band_hp(out_f, int(model_sr or 40000))
+
+    # Target ~20 ms sub-frames based on output duration
+    dur_sec = max(1e-3, n_out / float(max(1, int(model_sr))))
+    n_subs = max(1, min(32, int(round(dur_sec / 0.020))))
+    in_sub_len = max(1, in_hp.shape[0] // n_subs)
+    out_sub_len = max(1, out_hp.shape[0] // n_subs)
+
+    in_use = in_hp[: n_subs * in_sub_len].view(n_subs, in_sub_len)
+    out_use = out_hp[: n_subs * out_sub_len].view(n_subs, out_sub_len)
+
+    in_rms = torch.sqrt(torch.mean(in_use * in_use, dim=1) + 1e-10)
+    out_rms = torch.sqrt(torch.mean(out_use * out_use, dim=1) + 1e-10)
+
+    ratio = (in_rms / out_rms).clamp(0.25, 2.5)
+    target_gains = torch.where(
+        (out_rms > 1e-4) & (in_rms > 1e-4),
+        torch.pow(ratio, mix),
+        torch.ones_like(ratio),
+    )
+
+    if prev_gain is None or prev_gain.device != out_f.device:
+        cur_g = target_gains[0].detach()
+    else:
+        cur_g = prev_gain.float().detach()
+
+    knots = [cur_g]
+    for i in range(n_subs):
+        cur_g = 0.7 * cur_g + 0.3 * target_gains[i]
+        knots.append(cur_g)
+
+    knot_t = torch.stack(knots).view(1, 1, n_subs + 1)
+    gain_curve = F.interpolate(knot_t, size=n_out, mode="linear", align_corners=True).view(-1)
+    scaled = (out_f * gain_curve).to(dtype=orig_dtype)
+    return scaled, cur_g.detach()
+
+
 def soft_knee_limit_np(
     audio: np.ndarray, threshold: float = 0.85, ceiling: float = 0.98
 ) -> np.ndarray:

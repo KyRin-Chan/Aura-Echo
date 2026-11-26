@@ -124,6 +124,8 @@ export declare const ServerSettingKey: {
     readonly vadEnabled: "vadEnabled";
     readonly vadThreshold: "vadThreshold";
     readonly extraConvertSize: "extraConvertSize";
+    readonly lookaheadSize: "lookaheadSize";
+    readonly rmsMixRate: "rmsMixRate";
     readonly indexRatio: "indexRatio";
     readonly protect: "protect";
     readonly forceFp32: "forceFp32";
@@ -145,6 +147,7 @@ export declare const ServerSettingKey: {
     readonly formantProfilePitchScale: "formantProfilePitchScale";
     readonly formantProfilePitchOffset: "formantProfilePitchOffset";
     readonly formantProfilePitchMode: "formantProfilePitchMode";
+    readonly formantProfileFormantShift: "formantProfileFormantShift";
     readonly embedders: "embedders";
     readonly pitchExtractors: "pitchExtractors";
     readonly vocoders: "vocoders";
@@ -206,6 +209,8 @@ export type VoiceChangerServerSetting = {
     vadEnabled: boolean;
     vadThreshold: number;
     extraConvertSize: number;
+    lookaheadSize: number;
+    rmsMixRate: number;
     indexRatio: number;
     protect: number;
     silenceFront: number;
@@ -227,6 +232,7 @@ export type VoiceChangerServerSetting = {
     formantProfilePitchScale: number;
     formantProfilePitchOffset: number;
     formantProfilePitchMode: string;
+    formantProfileFormantShift: number;
     embedders: ModelInfoDict;
     pitchExtractors: ModelInfoDict;
     vocoders: ModelInfoDict;

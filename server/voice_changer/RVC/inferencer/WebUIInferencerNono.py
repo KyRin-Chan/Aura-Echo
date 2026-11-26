@@ -12,7 +12,8 @@ class WebUIInferencerNono(Inferencer):
 
         device_manager = DeviceManager.get_instance()
         dev = device_manager.device
-        is_half = device_manager.use_fp16()
+        target_dtype = device_manager.get_torch_dtype()
+        is_half = target_dtype != torch.float32
 
         cpt = torch.load(file, map_location="cpu")
         model = SynthesizerTrnMsNSFsidM_nono(**cpt["params"], is_half=is_half)
@@ -21,8 +22,9 @@ class WebUIInferencerNono(Inferencer):
         model.load_state_dict(cpt["weight"], strict=False)
 
         model = model.to(dev)
-        if is_half:
-            model = model.half()
+        if target_dtype != torch.float32:
+            model = model.to(dtype=target_dtype)
+        self.model_dtype = target_dtype
 
         self.model = model
         return self
@@ -38,8 +40,9 @@ class WebUIInferencerNono(Inferencer):
         return_length: int,
         formant_length: int,
     ) -> torch.Tensor:
+        model_dtype = getattr(self, "model_dtype", feats.dtype)
         res = self.model.infer(
-            feats,
+            feats.to(dtype=model_dtype),
             pitch_length,
             sid,
             skip_head=skip_head,

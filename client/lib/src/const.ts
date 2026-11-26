@@ -159,6 +159,8 @@ export const ServerSettingKey = {
     vadEnabled: "vadEnabled",
     vadThreshold: "vadThreshold",
     extraConvertSize: "extraConvertSize",
+    lookaheadSize: "lookaheadSize",
+    rmsMixRate: "rmsMixRate",
 
     indexRatio: "indexRatio",
     protect: "protect",
@@ -183,6 +185,7 @@ export const ServerSettingKey = {
     formantProfilePitchScale: "formantProfilePitchScale",
     formantProfilePitchOffset: "formantProfilePitchOffset",
     formantProfilePitchMode: "formantProfilePitchMode",
+    formantProfileFormantShift: "formantProfileFormantShift",
     
     embedders: "embedders",
     pitchExtractors: "pitchExtractors",
@@ -254,6 +257,8 @@ export type VoiceChangerServerSetting = {
     vadEnabled: boolean;
     vadThreshold: number;
     extraConvertSize: number;
+    lookaheadSize: number;
+    rmsMixRate: number;
 
     indexRatio: number; // RVC
     protect: number; // RVC
@@ -278,6 +283,7 @@ export type VoiceChangerServerSetting = {
     formantProfilePitchScale: number;
     formantProfilePitchOffset: number;
     formantProfilePitchMode: string;
+    formantProfileFormantShift: number;
 
     embedders: ModelInfoDict;
     pitchExtractors: ModelInfoDict;
@@ -439,6 +445,8 @@ export const DefaultServerSetting: ServerInfo = {
     vadEnabled: false,
     vadThreshold: 0.45,
     extraConvertSize: 0,
+    lookaheadSize: 0.0,
+    rmsMixRate: 0.4,
 
     indexRatio: 0,
     protect: 0.5,
@@ -461,6 +469,7 @@ export const DefaultServerSetting: ServerInfo = {
     formantProfilePitchScale: 1.0,
     formantProfilePitchOffset: 0.0,
     formantProfilePitchMode: "speech",
+    formantProfileFormantShift: 0.0,
 
     gpus: [],
 

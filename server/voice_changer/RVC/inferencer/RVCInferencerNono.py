@@ -12,7 +12,8 @@ class RVCInferencerNono(Inferencer):
     def load_model(self, file: str):
         device_manager = DeviceManager.get_instance()
         dev = device_manager.device
-        is_half = device_manager.use_fp16()
+        target_dtype = device_manager.get_torch_dtype()
+        is_half = target_dtype != torch.float32
         self.set_props(EnumInferenceTypes.pyTorchRVCNono, file)
 
         # Keep torch.load for backward compatibility, but discourage the use of this loading method
@@ -28,8 +29,9 @@ class RVCInferencerNono(Inferencer):
 
         model.eval().remove_weight_norm()
 
-        if is_half:
-            model = model.half()
+        if target_dtype != torch.float32:
+            model = model.to(dtype=target_dtype)
+        self.model_dtype = target_dtype
 
         self.model = model
         return self
@@ -45,8 +47,9 @@ class RVCInferencerNono(Inferencer):
         return_length: int,
         formant_length: int,
     ) -> torch.Tensor:
+        model_dtype = getattr(self, "model_dtype", feats.dtype)
         res = self.model.infer(
-            feats,
+            feats.to(dtype=model_dtype),
             pitch_length,
             sid,
             skip_head=skip_head,

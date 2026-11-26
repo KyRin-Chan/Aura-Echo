@@ -229,6 +229,7 @@ class Generator(torch.nn.Module):
         super(Generator, self).__init__()
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
+        self.upp = math.prod(upsample_rates)
         self.conv_pre = Conv1d(
             initial_channel, upsample_initial_channel, 7, 1, padding=3
         )
@@ -286,7 +287,7 @@ class Generator(torch.nn.Module):
             x = xs / self.num_kernels
         x = F.leaky_relu(x, inplace=True)
         x = self.conv_post(x)
-        x = torch.tanh(x, out=x)
+        x = torch.tanh(x)
 
         return x
 
@@ -524,14 +525,18 @@ class GeneratorNSF(torch.nn.Module):
         g: Optional[torch.Tensor] = None,
         n_res: Optional[int] = None,
     ):
-        har_source, noi_source, uv = self.m_source(f0, self.upp)
+        if n_res is not None and n_res != f0.shape[-1]:
+            orig_f0_len = f0.shape[-1]
+            f0_src = (
+                F.interpolate(f0.unsqueeze(1).float(), size=n_res, mode="nearest").squeeze(1)
+                * (float(orig_f0_len) / float(n_res))
+            ).to(f0.dtype)
+        else:
+            f0_src = f0
+        har_source, noi_source, uv = self.m_source(f0_src, self.upp)
         har_source = har_source.transpose(1, 2)
-        if n_res is not None:
-            n = n_res * self.upp
-            if n != har_source.shape[-1]:
-                har_source = F.interpolate(har_source, size=n, mode="linear")
-            if n_res != x.shape[-1]:
-                x = F.interpolate(x, size=n_res, mode="linear")
+        if n_res is not None and n_res != x.shape[-1]:
+            x = F.interpolate(x, size=n_res, mode="linear")
         x = self.conv_pre(x)
         if g is not None:
             x = x + self.cond(g)
@@ -557,7 +562,7 @@ class GeneratorNSF(torch.nn.Module):
                 x = xs / self.num_kernels
         x = F.leaky_relu(x, inplace=True)
         x = self.conv_post(x)
-        x = torch.tanh(x, out=x)
+        x = torch.tanh(x)
         return x
 
     def remove_weight_norm(self):
@@ -762,12 +767,13 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
         sid: torch.Tensor,
         skip_head: int,
         return_length: int,
+        noise_scale: float = 0.5,
     ):
         g = self.emb_g(sid).unsqueeze(-1)
         flow_head = max(skip_head - 24, 0)
         dec_head = skip_head - flow_head
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)
-        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * noise_scale) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
         z = z[:, :, dec_head : dec_head + return_length]
         x_mask = x_mask[:, :, dec_head : dec_head + return_length]
@@ -785,17 +791,34 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
         skip_head: int,
         return_length: int,
         formant_length: Optional[int] = None,
+        noise_scale: float = 0.5,
     ):
         g = self.emb_g(sid).unsqueeze(-1)
         flow_head = max(skip_head - 24, 0)
         dec_head = skip_head - flow_head
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths, flow_head)
-        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * noise_scale) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
-        z = z[:, :, dec_head : dec_head + return_length]
-        x_mask = x_mask[:, :, dec_head : dec_head + return_length]
-        nsff0 = nsff0[:, skip_head : skip_head + return_length]
-        o = self.dec(z * x_mask, nsff0, g=g, n_res=formant_length)
+
+        dec_tail = 0
+        dec_n_res = formant_length
+        if (
+            (formant_length is None or formant_length == return_length)
+            and z.shape[-1] > dec_head + return_length
+            and nsff0.shape[-1] > skip_head + return_length
+        ):
+            avail_z = z.shape[-1] - (dec_head + return_length)
+            avail_f0 = nsff0.shape[-1] - (skip_head + return_length)
+            dec_tail = min(2, min(avail_z, avail_f0))
+            dec_n_res = None
+
+        dec_len = return_length + dec_tail
+        z = z[:, :, dec_head : dec_head + dec_len]
+        x_mask = x_mask[:, :, dec_head : dec_head + dec_len]
+        nsff0 = nsff0[:, skip_head : skip_head + dec_len]
+        o = self.dec(z * x_mask, nsff0, g=g, n_res=dec_n_res)
+        if dec_tail > 0:
+            o = o[:, :, : return_length * self.dec.upp]
         return o, x_mask, (z, z_p, m_p, logs_p)
 
 
@@ -991,16 +1014,30 @@ class SynthesizerTrnMs256NSFsid_nono(nn.Module):
         skip_head: int,
         return_length: int,
         formant_length: Optional[int] = None,
+        noise_scale: float = 0.5,
     ):
         g = self.emb_g(sid).unsqueeze(-1)
         flow_head = max(skip_head - 24, 0)
         dec_head = skip_head - flow_head
         m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths, flow_head)
-        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * noise_scale) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
-        z = z[:, :, dec_head : dec_head + return_length]
-        x_mask = x_mask[:, :, dec_head : dec_head + return_length]
-        o = self.dec(z * x_mask, g=g, n_res=formant_length)
+
+        dec_tail = 0
+        dec_n_res = formant_length
+        if (
+            (formant_length is None or formant_length == return_length)
+            and z.shape[-1] > dec_head + return_length
+        ):
+            dec_tail = min(2, z.shape[-1] - (dec_head + return_length))
+            dec_n_res = None
+
+        dec_len = return_length + dec_tail
+        z = z[:, :, dec_head : dec_head + dec_len]
+        x_mask = x_mask[:, :, dec_head : dec_head + dec_len]
+        o = self.dec(z * x_mask, g=g, n_res=dec_n_res)
+        if dec_tail > 0:
+            o = o[:, :, : return_length * self.dec.upp]
         return o, x_mask, (z, z_p, m_p, logs_p)
 
 
