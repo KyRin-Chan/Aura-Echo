@@ -9,6 +9,10 @@ from typing import Optional
 import numpy as np
 
 from voice_changer.common.ServerAEC import NumpyCausalPolyphaseResampler
+from voice_changer.utils.SystemPriority import (
+    register_current_thread_mmcss,
+    revert_current_thread_mmcss,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +339,10 @@ class WasapiLoopbackCapture:
         return out_buf
 
     def _capture_loop(self) -> None:
+        try:
+            register_current_thread_mmcss("critical")
+        except Exception:
+            pass
         ole32 = ctypes.windll.ole32
         ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
         ole32.CoInitializeEx.restype = ctypes.c_long
@@ -354,6 +362,10 @@ class WasapiLoopbackCapture:
         if hr_co not in (S_OK, S_FALSE, RPC_E_CHANGED_MODE):
             logger.error(f"[WasapiLoopback] CoInitializeEx failed: 0x{hr_co & 0xFFFFFFFF:08X}")
             self._ready_event.set()
+            try:
+                revert_current_thread_mmcss()
+            except Exception:
+                pass
             return
 
         winmm = None
@@ -744,4 +756,8 @@ class WasapiLoopbackCapture:
                 self._ready_event.set()
             if need_co_uninit:
                 ole32.CoUninitialize()
+            try:
+                revert_current_thread_mmcss()
+            except Exception:
+                pass
             self._running = False

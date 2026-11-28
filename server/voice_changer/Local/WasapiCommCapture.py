@@ -9,6 +9,10 @@ from typing import Callable, Optional
 import numpy as np
 
 from voice_changer.common.ServerAEC import NumpyCausalPolyphaseResampler
+from voice_changer.utils.SystemPriority import (
+    register_current_thread_mmcss,
+    revert_current_thread_mmcss,
+)
 from voice_changer.Local.WasapiLoopback import (
     AUDCLNT_BUFFERFLAGS_SILENT,
     AUDCLNT_E_DEVICE_INVALIDATED,
@@ -323,6 +327,10 @@ class WasapiCommCapture:
         return self._resampler.process(mono)
 
     def _capture_loop(self) -> None:
+        try:
+            register_current_thread_mmcss("critical")
+        except Exception:
+            pass
         ole32 = ctypes.windll.ole32
         ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
         ole32.CoInitializeEx.restype = ctypes.c_long
@@ -344,6 +352,10 @@ class WasapiCommCapture:
         if hr_co not in (S_OK, S_FALSE, RPC_E_CHANGED_MODE):
             logger.error(f"[WasapiComm] CoInitializeEx failed: 0x{hr_co & 0xFFFFFFFF:08X}")
             self._ready_event.set()
+            try:
+                revert_current_thread_mmcss()
+            except Exception:
+                pass
             return
 
         winmm = None
@@ -699,4 +711,8 @@ class WasapiCommCapture:
                 self._ready_event.set()
             if need_co_uninit:
                 ole32.CoUninitialize()
+            try:
+                revert_current_thread_mmcss()
+            except Exception:
+                pass
             self._running = False

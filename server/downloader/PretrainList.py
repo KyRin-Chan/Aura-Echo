@@ -95,6 +95,13 @@ pitch_extractors = {
         "type": "onnx",
         "mandatory": False,
     },
+    "swiftf0_onnx": {
+        "name": "SwiftF0 (Onnx)",
+        "url": "https://huggingface.co/AnhP/Vietnamese-RVC-Project/resolve/main/predictors/swift3.onnx",
+        "saveTo": "pretrain/pitch_extractor/swift3.onnx",
+        "type": "onnx",
+        "mandatory": False,
+    },
 }
 
 embedders = {

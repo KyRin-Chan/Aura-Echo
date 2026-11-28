@@ -38,9 +38,11 @@ export const F0Detector = {
     hpa_rmvpe_onnx: "hpa_rmvpe_onnx",
     djcm: "djcm",
     djcm_onnx: "djcm_onnx",
+    swiftf0_onnx: "swiftf0_onnx",
     fcpe: "fcpe",
     fcpe_onnx: "fcpe_onnx",
     rmvpe_fcpe: "rmvpe_fcpe",
+    hpa_rmvpe_fcpe: "hpa_rmvpe_fcpe",
 } as const;
 export type F0Detector = (typeof F0Detector)[keyof typeof F0Detector];
 

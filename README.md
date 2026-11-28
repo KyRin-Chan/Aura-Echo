@@ -7,7 +7,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900?logo=nvidia)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-blue)
+![License](https://img.shields.io/badge/license-Non--Commercial-orange)
 
 [Overview](#overview) · [Quick Start](#quick-start) · [Troubleshooting](#troubleshooting) · [Development](#development)
 
@@ -143,7 +143,7 @@ The output is written to the `dist` directory.
 
 ## License
 
-Released under the [MIT License](LICENSE).
+AuraEcho is released under a [Non-Commercial License](LICENSE) — free for personal and non-commercial use; commercial use and paid redistribution are prohibited without prior written permission. Upstream third-party components remain under their original MIT Licenses as detailed in [LICENSE](LICENSE).
 
 ## Acknowledgements
 

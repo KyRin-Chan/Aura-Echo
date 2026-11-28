@@ -12,6 +12,7 @@ from voice_changer.pitch_extractor.DJCMPitchExtractor import DJCMPitchExtractor
 from voice_changer.pitch_extractor.FcpePitchExtractor import FcpePitchExtractor
 from voice_changer.pitch_extractor.FcpeOnnxPitchExtractor import FcpeOnnxPitchExtractor
 from voice_changer.pitch_extractor.RMVPEFcpePitchExtractor import RMVPEFcpePitchExtractor
+from voice_changer.pitch_extractor.SwiftF0OnnxPitchExtractor import SwiftF0OnnxPitchExtractor
 from downloader.PretrainList import pitch_extractors
 from settings import ServerSettings, get_settings
 import logging
@@ -93,6 +94,11 @@ class PitchExtractorManager(Protocol):
                 'path': pitch_extractors['djcm_onnx']['saveTo'],
                 'args': [pitch_extractors['djcm_onnx']['saveTo']]
             },
+            'swiftf0_onnx': {
+                'class': SwiftF0OnnxPitchExtractor,
+                'path': pitch_extractors['swiftf0_onnx']['saveTo'],
+                'args': [pitch_extractors['swiftf0_onnx']['saveTo']]
+            },
             'fcpe': {
                 'class': FcpePitchExtractor,
                 'path': pitch_extractors['fcpe']['saveTo'],
@@ -107,6 +113,11 @@ class PitchExtractorManager(Protocol):
                 'class': RMVPEFcpePitchExtractor,
                 'paths': [pitch_extractors['rmvpe']['saveTo'], pitch_extractors['fcpe']['saveTo']],
                 'args': [pitch_extractors['rmvpe']['saveTo'], pitch_extractors['fcpe']['saveTo']]
+            },
+            'hpa_rmvpe_fcpe': {
+                'class': RMVPEFcpePitchExtractor,
+                'paths': [pitch_extractors['hpa_rmvpe']['saveTo'], pitch_extractors['fcpe']['saveTo']],
+                'args': [pitch_extractors['hpa_rmvpe']['saveTo'], pitch_extractors['fcpe']['saveTo'], True]
             },
         }
                 

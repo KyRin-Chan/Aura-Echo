@@ -53,12 +53,19 @@ class ModelManager:
         settings = get_settings()
         if settings.edition.lower() != 'directml':
             rmvpe_downloaded = result.get('rmvpe', {}).get('downloaded', False)
+            hpa_rmvpe_downloaded = result.get('hpa_rmvpe', {}).get('downloaded', False)
             fcpe_downloaded = result.get('fcpe', {}).get('downloaded', False)
             result['rmvpe_fcpe'] = {
                 'name': 'RMVPE + FCPE (Hybrid)',
                 'type': 'pytorch',
                 'mandatory': False,
                 'downloaded': rmvpe_downloaded and fcpe_downloaded,
+            }
+            result['hpa_rmvpe_fcpe'] = {
+                'name': 'HPA-RMVPE + FCPE (Hybrid)',
+                'type': 'pytorch',
+                'mandatory': False,
+                'downloaded': hpa_rmvpe_downloaded and fcpe_downloaded,
             }
         return result
     
@@ -207,6 +214,18 @@ class ModelManager:
                 'path': pitch_extractors['fcpe']['saveTo'],
                 'model_type': 'pitch_extractor'
             }
+        if model_key == 'hpa_rmvpe_fcpe':
+            return {
+                'name': 'HPA-RMVPE + FCPE (Hybrid)',
+                'type': 'pytorch',
+                'mandatory': False,
+                'downloaded': (
+                    os.path.exists(pitch_extractors['hpa_rmvpe']['saveTo'])
+                    and os.path.exists(pitch_extractors['fcpe']['saveTo'])
+                ),
+                'path': pitch_extractors['fcpe']['saveTo'],
+                'model_type': 'pitch_extractor'
+            }
 
         model, model_type = ModelManager._get_model_dict(model_key)
         if not model:
@@ -237,6 +256,14 @@ class ModelManager:
             return {
                 'status': 'success',
                 'message': "Successfully downloaded and verified rmvpe_fcpe dependencies",
+                'path': pitch_extractors['fcpe']['saveTo']
+            }
+        if model_key == 'hpa_rmvpe_fcpe':
+            await ModelManager.download_model('hpa_rmvpe')
+            await ModelManager.download_model('fcpe')
+            return {
+                'status': 'success',
+                'message': "Successfully downloaded and verified hpa_rmvpe_fcpe dependencies",
                 'path': pitch_extractors['fcpe']['saveTo']
             }
 
@@ -337,7 +364,7 @@ class ModelManager:
         Returns:
             Dictionary with status and message
         """
-        if model_key == 'rmvpe_fcpe':
+        if model_key in ('rmvpe_fcpe', 'hpa_rmvpe_fcpe'):
             return ModelManager.delete_model('fcpe')
 
         model = ModelManager.get_model(model_key)

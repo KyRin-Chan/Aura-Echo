@@ -15,11 +15,11 @@ _TAIL_RAMP_NP = np.array([1.05, 1.12, 1.20, 1.30], dtype=np.float32)
 
 
 class RMVPEFcpePitchExtractor(PitchExtractor):
-    """Hybrid pitch extractor combining RMVPE and FCPE via calibrated confidence fusion and causal continuity arbitration."""
+    """Hybrid pitch extractor combining RMVPE/HPA-RMVPE and FCPE via calibrated confidence fusion and causal continuity arbitration."""
 
-    def __init__(self, rmvpe_file: str, fcpe_file: str):
+    def __init__(self, rmvpe_file: str, fcpe_file: str, use_hpa: bool = False):
         super().__init__()
-        self.type: PitchExtractorType = "rmvpe_fcpe"
+        self.type: PitchExtractorType = "hpa_rmvpe_fcpe" if use_hpa else "rmvpe_fcpe"
 
         device_manager = DeviceManager.get_instance()
         self.device = device_manager.device
@@ -32,9 +32,10 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         self.rmvpe = RMVPE(
             model_path=rmvpe_file,
             is_half=device_manager.use_fp16(),
-            use_jit_compile=device_manager.use_jit_compile(),
+            use_jit_compile=False if use_hpa else device_manager.use_jit_compile(),
             device=self.device,
             dtype=device_manager.get_torch_dtype(),
+            hpa=use_hpa,
         )
 
         # NOTE: FCPE doesn't behave correctly in FP16 mode.

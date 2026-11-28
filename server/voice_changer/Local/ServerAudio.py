@@ -17,6 +17,10 @@ from voice_changer.Local.AudioDeviceList import (
 from voice_changer.Local.WasapiCommCapture import WasapiCommCapture
 from voice_changer.common.ServerAEC import ServerAEC
 from voice_changer.common.ServerDFN3 import ServerDFN3
+from voice_changer.utils.SystemPriority import (
+    register_current_thread_mmcss,
+    revert_current_thread_mmcss,
+)
 from voice_changer.utils.VoiceChangerModel import AudioInOutFloat
 from voice_changer.VoiceChangerSettings import VoiceChangerSettings
 
@@ -358,81 +362,92 @@ class ServerAudio:
             self._last_diag_log_ts = now
 
     def _inference_worker_loop(self) -> None:
+        try:
+            register_current_thread_mmcss("high")
+        except Exception:
+            pass
+
         block_frame = self._block_frame
         last_emit_ts = 0.0
 
-        while not self._stop_event.is_set():
-            self._in_event.wait(timeout=0.05)
-            self._in_event.clear()
-
+        try:
             while not self._stop_event.is_set():
-                in_ring = self.in_ring
-                if in_ring is None:
-                    break
+                self._in_event.wait(timeout=0.05)
+                self._in_event.clear()
 
-                avail = in_ring.available()
-                if avail < block_frame:
-                    break
+                while not self._stop_event.is_set():
+                    in_ring = self.in_ring
+                    if in_ring is None:
+                        break
 
-                iter_ts = monotonic()
-                if self._last_worker_iter_ts > 0.0:
-                    self._max_worker_gap_ms = max(
-                        self._max_worker_gap_ms, (iter_ts - self._last_worker_iter_ts) * 1000.0
-                    )
-                self._last_worker_iter_ts = iter_ts
+                    avail = in_ring.available()
+                    if avail < block_frame:
+                        break
 
-                # Keep latency bounded if producer outpaces GPU inference while preserving context continuity
-                if avail > block_frame * 2:
-                    drop_chunks = (avail - block_frame) // block_frame
-                    skip_cb = getattr(self.callbacks, "on_skip_audio", None)
-                    for _ in range(drop_chunks):
+                    iter_ts = monotonic()
+                    if self._last_worker_iter_ts > 0.0:
+                        self._max_worker_gap_ms = max(
+                            self._max_worker_gap_ms, (iter_ts - self._last_worker_iter_ts) * 1000.0
+                        )
+                    self._last_worker_iter_ts = iter_ts
+
+                    # Keep latency bounded if producer outpaces GPU inference while preserving context continuity
+                    if avail > block_frame * 2:
+                        drop_chunks = (avail - block_frame) // block_frame
+                        skip_cb = getattr(self.callbacks, "on_skip_audio", None)
+                        for _ in range(drop_chunks):
+                            if self._stop_event.is_set():
+                                break
+                            if not in_ring.read_exact_into(self._worker_skip_buf):
+                                break
+                            self._apply_input_processing(self._worker_skip_buf)
+                            if skip_cb is not None:
+                                try:
+                                    skip_cb(self._worker_skip_buf)
+                                except Exception as skip_err:
+                                    logger.debug(f"on_skip_audio error: {skip_err}")
+                            self._dropped_input_chunks += 1
                         if self._stop_event.is_set():
                             break
-                        if not in_ring.read_exact_into(self._worker_skip_buf):
+
+                    if not in_ring.read_exact_into(self._worker_in_buf):
+                        break
+
+                    self._apply_input_processing(self._worker_in_buf)
+
+                    try:
+                        out_wav, vol, perf, err = self.callbacks.on_audio(self._worker_in_buf)
+                        if self._stop_event.is_set():
                             break
-                        self._apply_input_processing(self._worker_skip_buf)
-                        if skip_cb is not None:
-                            try:
-                                skip_cb(self._worker_skip_buf)
-                            except Exception as skip_err:
-                                logger.debug(f"on_skip_audio error: {skip_err}")
-                        self._dropped_input_chunks += 1
-                    if self._stop_event.is_set():
-                        break
+                        self.performance = perf
+                        infer_ms = float(perf[1]) * 1000.0 if (perf and len(perf) > 1) else 0.0
+                        self._max_infer_ms = max(self._max_infer_ms, infer_ms)
 
-                if not in_ring.read_exact_into(self._worker_in_buf):
-                    break
+                        if out_wav is not None and out_wav.size > 0:
+                            if self.out_ring is not None:
+                                self.out_ring.write(out_wav)
+                            if self._has_monitor and self.mon_ring is not None:
+                                self.mon_ring.write(out_wav)
 
-                self._apply_input_processing(self._worker_in_buf)
-
-                try:
-                    out_wav, vol, perf, err = self.callbacks.on_audio(self._worker_in_buf)
-                    if self._stop_event.is_set():
-                        break
-                    self.performance = perf
-                    infer_ms = float(perf[1]) * 1000.0 if (perf and len(perf) > 1) else 0.0
-                    self._max_infer_ms = max(self._max_infer_ms, infer_ms)
-
-                    if out_wav is not None and out_wav.size > 0:
-                        if self.out_ring is not None:
-                            self.out_ring.write(out_wav)
-                        if self._has_monitor and self.mon_ring is not None:
-                            self.mon_ring.write(out_wav)
-
-                    now = monotonic()
-                    if err is not None or (now - last_emit_ts >= 0.05):
-                        self.callbacks.emit_to(vol, self.performance, err)
-                        last_emit_ts = now
-                except Exception as e:
-                    if self._stop_event.is_set():
-                        break
-                    logger.exception(e)
-                    self.callbacks.emit_to(
-                        0,
-                        self.performance,
-                        ('ERR_GENERIC_SERVER_AUDIO_ERROR', ERR_GENERIC_SERVER_AUDIO_ERROR),
-                    )
-                self._maybe_log_diagnostics(monotonic())
+                        now = monotonic()
+                        if err is not None or (now - last_emit_ts >= 0.05):
+                            self.callbacks.emit_to(vol, self.performance, err)
+                            last_emit_ts = now
+                    except Exception as e:
+                        if self._stop_event.is_set():
+                            break
+                        logger.exception(e)
+                        self.callbacks.emit_to(
+                            0,
+                            self.performance,
+                            ('ERR_GENERIC_SERVER_AUDIO_ERROR', ERR_GENERIC_SERVER_AUDIO_ERROR),
+                        )
+                    self._maybe_log_diagnostics(monotonic())
+        finally:
+            try:
+                revert_current_thread_mmcss()
+            except Exception:
+                pass
 
     ###########################################
     # Callback Section (Lock-free / Zero-Alloc)
