@@ -77,6 +77,9 @@ function ClientInfoModal({ showClientInfo, setShowClientInfo }: ClientInfoModalP
               <FontAwesomeIcon icon={faExternalLinkAlt} className="ml-1" size="xs" />
             </a>
           </div>
+          <div className="mt-3 pt-3 border-t border-outline-variant/40 text-xs text-on-surface-variant leading-relaxed">
+            {t('nonCommercialNotice')}
+          </div>
         </div>
 
         {/* Audio Diagnostics Section */}

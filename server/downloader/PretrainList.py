@@ -69,14 +69,15 @@ pitch_extractors = {
     },
     "hpa_rmvpe": {
         "name": "HPA-RMVPE",
-        "url": "https://huggingface.co/AnhP/Vietnamese-RVC-Project/resolve/main/predictors/hpa-rmvpe-112000.pt",
+        "url": "https://huggingface.co/AnhP/Vietnamese-RVC-Project/resolve/main/predictors/hpa-v4.pt",
         "saveTo": "pretrain/pitch_extractor/hpa_rmvpe.pt",
+        "hash": "ccadae49bfe177b16d99ca12789bc269",
         "type": "pytorch",
         "mandatory": False,
     },
     "hpa_rmvpe_onnx": {
         "name": "HPA-RMVPE (Onnx)",
-        "url": "https://huggingface.co/AnhP/Vietnamese-RVC-Project/resolve/main/predictors/hpa-rmvpe-112000.onnx",
+        "url": "https://huggingface.co/AnhP/Vietnamese-RVC-Project/resolve/main/predictors/hpa-v4.onnx",
         "saveTo": "pretrain/pitch_extractor/hpa_rmvpe.onnx",
         "type": "onnx",
         "mandatory": False,

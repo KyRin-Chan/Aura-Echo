@@ -239,6 +239,7 @@ async def main():
     
     logger.info(f"Python: {sys.version}")
     logger.info(f"AuraEcho version: {get_version()} {get_edition()}")
+    logger.info("AuraEcho is completely free (https://github.com/KyRin-Chan/Aura-Echo). If you paid for it anywhere, you have likely been scammed - please request a refund.")
     
     # Create necessary directories
     os.makedirs(settings.model_dir, exist_ok=True)
