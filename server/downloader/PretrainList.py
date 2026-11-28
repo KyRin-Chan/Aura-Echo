@@ -67,6 +67,34 @@ pitch_extractors = {
         "type": "onnx",
         "mandatory": False,
     },
+    "hpa_rmvpe": {
+        "name": "HPA-RMVPE",
+        "url": "https://huggingface.co/AnhP/Vietnamese-RVC-Project/resolve/main/predictors/hpa-rmvpe-112000.pt",
+        "saveTo": "pretrain/pitch_extractor/hpa_rmvpe.pt",
+        "type": "pytorch",
+        "mandatory": False,
+    },
+    "hpa_rmvpe_onnx": {
+        "name": "HPA-RMVPE (Onnx)",
+        "url": "https://huggingface.co/AnhP/Vietnamese-RVC-Project/resolve/main/predictors/hpa-rmvpe-112000.onnx",
+        "saveTo": "pretrain/pitch_extractor/hpa_rmvpe.onnx",
+        "type": "onnx",
+        "mandatory": False,
+    },
+    "djcm": {
+        "name": "DJCM",
+        "url": "https://huggingface.co/AnhP/Vietnamese-RVC-Project/resolve/main/predictors/djcm.pt",
+        "saveTo": "pretrain/pitch_extractor/djcm.pt",
+        "type": "pytorch",
+        "mandatory": False,
+    },
+    "djcm_onnx": {
+        "name": "DJCM (Onnx)",
+        "url": "https://huggingface.co/AnhP/Vietnamese-RVC-Project/resolve/main/predictors/djcm.onnx",
+        "saveTo": "pretrain/pitch_extractor/djcm.onnx",
+        "type": "onnx",
+        "mandatory": False,
+    },
 }
 
 embedders = {

@@ -8,6 +8,7 @@ import numpy as np
 from safetensors import safe_open
 from voice_changer.common.JitCache import get_jit_cache_path, load_jit_cache, save_jit_cache
 from voice_changer.common.SafetensorsUtils import load_model
+from voice_changer.common.rmvpe.hpa_yolo import HPADeepUnet
 from librosa.filters import mel
 
 logger = logging.getLogger(__file__)
@@ -232,16 +233,28 @@ class E2E(nn.Module):
         inter_layers=4,
         in_channels=1,
         en_out_channels=16,
+        hpa: bool = False,
     ):
         super(E2E, self).__init__()
-        self.unet = DeepUnet(
-            kernel_size,
-            n_blocks,
-            en_de_layers,
-            inter_layers,
-            in_channels,
-            en_out_channels,
-        )
+        if hpa:
+            self.unet = HPADeepUnet(
+                in_channels=in_channels,
+                en_out_channels=en_out_channels,
+                base_channels=64,
+                hyperace_k=2,
+                hyperace_l=1,
+                num_hyperedges=16,
+                num_heads=4,
+            )
+        else:
+            self.unet = DeepUnet(
+                kernel_size,
+                n_blocks,
+                en_de_layers,
+                inter_layers,
+                in_channels,
+                en_out_channels,
+            )
         self.cnn = nn.Conv2d(en_out_channels, 3, (3, 3), padding=(1, 1))
         if n_gru:
             self.fc = nn.Sequential(
@@ -332,9 +345,18 @@ class MelSpectrogram(torch.nn.Module):
 
 
 class RMVPE:
-    def __init__(self, model_path: str, is_half: bool, use_jit_compile: bool, device: torch.device, dtype: torch.dtype | None = None):
+    def __init__(
+        self,
+        model_path: str,
+        is_half: bool,
+        use_jit_compile: bool,
+        device: torch.device,
+        dtype: torch.dtype | None = None,
+        hpa: bool = False,
+    ):
         target_dtype = dtype if dtype is not None else (torch.float16 if is_half else torch.float32)
-        cache_path = get_jit_cache_path("rmvpe_jit_v1", model_path, device, target_dtype) if use_jit_compile else None
+        cache_name = "hpa_rmvpe_jit_v1" if hpa else "rmvpe_jit_v1"
+        cache_path = get_jit_cache_path(cache_name, model_path, device, target_dtype) if use_jit_compile else None
         cached = load_jit_cache(cache_path, device) if cache_path else None
 
         if cached is not None:
@@ -349,7 +371,7 @@ class RMVPE:
             self.model = model
             logger.info(f"Loaded cached RMVPE JIT model from {cache_path} in {total_ms:.1f} ms.")
         else:
-            model = E2E(4, 1, (2, 2))
+            model = E2E(4, 1, (2, 2), hpa=hpa)
             if model_path.endswith('.safetensors'):
                 with safe_open(model_path, 'pt', device=str(device) if device.type == 'cuda' else 'cpu') as cpt:
                     load_model(model, cpt, strict=False)

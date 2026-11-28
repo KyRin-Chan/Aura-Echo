@@ -17,7 +17,7 @@
 
 ## Overview
 
-AuraEcho is a customized fork of [deiteris/voice-changer](https://github.com/deiteris/voice-changer), providing low-latency, real-time voice conversion based on Retrieval-based Voice Conversion (RVC).
+AuraEcho provides low-latency, real-time voice conversion based on Retrieval-based Voice Conversion (RVC).
 
 This edition focuses on a single, well-tuned configuration for **NVIDIA RTX GPUs**, with acceleration via **CUDA / TensorRT / ONNX**.
 

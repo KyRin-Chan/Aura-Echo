@@ -5,6 +5,10 @@ from voice_changer.pitch_extractor.CrepePitchExtractor import CrepePitchExtracto
 from voice_changer.pitch_extractor.PitchExtractor import PitchExtractor
 from voice_changer.pitch_extractor.RMVPEOnnxPitchExtractor import RMVPEOnnxPitchExtractor
 from voice_changer.pitch_extractor.RMVPEPitchExtractor import RMVPEPitchExtractor
+from voice_changer.pitch_extractor.HPARMVPEOnnxPitchExtractor import HPARMVPEOnnxPitchExtractor
+from voice_changer.pitch_extractor.HPARMVPEPitchExtractor import HPARMVPEPitchExtractor
+from voice_changer.pitch_extractor.DJCMOnnxPitchExtractor import DJCMOnnxPitchExtractor
+from voice_changer.pitch_extractor.DJCMPitchExtractor import DJCMPitchExtractor
 from voice_changer.pitch_extractor.FcpePitchExtractor import FcpePitchExtractor
 from voice_changer.pitch_extractor.FcpeOnnxPitchExtractor import FcpeOnnxPitchExtractor
 from voice_changer.pitch_extractor.RMVPEFcpePitchExtractor import RMVPEFcpePitchExtractor
@@ -68,6 +72,26 @@ class PitchExtractorManager(Protocol):
                 'class': RMVPEOnnxPitchExtractor,
                 'path': pitch_extractors['rmvpe_onnx']['saveTo'],
                 'args': [pitch_extractors['rmvpe_onnx']['saveTo']]
+            },
+            'hpa_rmvpe': {
+                'class': HPARMVPEPitchExtractor,
+                'path': pitch_extractors['hpa_rmvpe']['saveTo'],
+                'args': [pitch_extractors['hpa_rmvpe']['saveTo']]
+            },
+            'hpa_rmvpe_onnx': {
+                'class': HPARMVPEOnnxPitchExtractor,
+                'path': pitch_extractors['hpa_rmvpe_onnx']['saveTo'],
+                'args': [pitch_extractors['hpa_rmvpe_onnx']['saveTo']]
+            },
+            'djcm': {
+                'class': DJCMPitchExtractor,
+                'path': pitch_extractors['djcm']['saveTo'],
+                'args': [pitch_extractors['djcm']['saveTo']]
+            },
+            'djcm_onnx': {
+                'class': DJCMOnnxPitchExtractor,
+                'path': pitch_extractors['djcm_onnx']['saveTo'],
+                'args': [pitch_extractors['djcm_onnx']['saveTo']]
             },
             'fcpe': {
                 'class': FcpePitchExtractor,
