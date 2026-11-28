@@ -19,6 +19,8 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
 
     def __init__(self, rmvpe_file: str, fcpe_file: str, use_hpa: bool = False):
         super().__init__()
+        self.use_hpa = use_hpa
+        self.primary_backup = use_hpa
         self.type: PitchExtractorType = "hpa_rmvpe_fcpe" if use_hpa else "rmvpe_fcpe"
 
         device_manager = DeviceManager.get_instance()
@@ -78,6 +80,125 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         above = np.maximum(conf - np.float32(threshold), np.float32(0.0))
         return above / (above + np.float32(scale_k + 1e-6))
 
+    @staticmethod
+    def _arbitrate_primary_backup(
+        T: int,
+        hist_end: int,
+        initial_prev_cent: float,
+        v1_high_l: list[bool],
+        v2_high_l: list[bool],
+        v1_low_l: list[bool],
+        v2_low_l: list[bool],
+        cent1_l: list[float],
+        cent2_l: list[float],
+        diff_l: list[float],
+        s1_l: list[float],
+        s2_l: list[float],
+        cent_tail_blend_l: list[float],
+    ) -> tuple[list[float], list[bool], list[bool]]:
+        """HPA-RMVPE primary / FCPE backup causal arbitration."""
+        cent_out_l = [0.0] * T
+        voiced_out_l = [False] * T
+        used_backup_l = [False] * T
+
+        prev_cent = float(initial_prev_cent) if (hist_end == 0 and initial_prev_cent > 0.0) else 0.0
+        unvoiced_run = 0 if prev_cent > 0.0 else 4
+        tail_start = max(0, T - 4)
+
+        for t in range(T):
+            if t == hist_end and hist_end > 0 and hist_end <= 2 and prev_cent == 0.0 and initial_prev_cent > 0.0:
+                prev_cent = float(initial_prev_cent)
+                unvoiced_run = 0
+
+            is_tail = t >= tail_start
+
+            if v1_high_l[t] and v2_high_l[t]:
+                if diff_l[t] <= 50.0:
+                    c_val = cent_tail_blend_l[t] if is_tail else cent1_l[t]
+                    used_backup = False
+                elif (
+                    prev_cent > 0.0
+                    and abs(cent1_l[t] - prev_cent) > 250.0
+                    and abs(cent2_l[t] - prev_cent) <= 180.0
+                    and s2_l[t] >= 0.35
+                ):
+                    c_val = cent2_l[t]
+                    used_backup = True
+                else:
+                    c_val = cent1_l[t]
+                    used_backup = False
+                cent_out_l[t] = c_val
+                voiced_out_l[t] = True
+                used_backup_l[t] = used_backup
+                prev_cent = c_val
+                unvoiced_run = 0
+                continue
+
+            if v1_high_l[t]:
+                c_val = cent1_l[t]
+                cent_out_l[t] = c_val
+                voiced_out_l[t] = True
+                prev_cent = c_val
+                unvoiced_run = 0
+                continue
+
+            if v2_high_l[t]:
+                if v1_low_l[t] and diff_l[t] <= 50.0:
+                    c_val = cent1_l[t]
+                    cent_out_l[t] = c_val
+                    voiced_out_l[t] = True
+                    prev_cent = c_val
+                    unvoiced_run = 0
+                elif prev_cent > 0.0 and unvoiced_run <= 2:
+                    max_diff = 220.0 if is_tail else 160.0
+                    min_s2 = 0.25 if is_tail else 0.45
+                    if abs(cent2_l[t] - prev_cent) <= max_diff and s2_l[t] >= min_s2:
+                        c_val = cent2_l[t]
+                        cent_out_l[t] = c_val
+                        voiced_out_l[t] = True
+                        used_backup_l[t] = True
+                        prev_cent = c_val
+                        unvoiced_run = 0
+                    else:
+                        unvoiced_run += 1
+                        if unvoiced_run > 3:
+                            prev_cent = 0.0
+                else:
+                    unvoiced_run += 1
+                    if unvoiced_run > 3:
+                        prev_cent = 0.0
+                continue
+
+            if v1_low_l[t] or v2_low_l[t]:
+                accepted = False
+                c_cand = 0.0
+                used_backup = False
+                if prev_cent > 0.0 and unvoiced_run <= 2:
+                    if v1_low_l[t] and abs(cent1_l[t] - prev_cent) <= 180.0 and s1_l[t] >= 0.035:
+                        c_cand = cent1_l[t]
+                        accepted = True
+                    elif is_tail and v2_low_l[t] and abs(cent2_l[t] - prev_cent) <= 160.0 and s2_l[t] >= 0.10:
+                        c_cand = cent2_l[t]
+                        accepted = True
+                        used_backup = True
+                if accepted:
+                    cent_out_l[t] = c_cand
+                    voiced_out_l[t] = True
+                    used_backup_l[t] = used_backup
+                    prev_cent = c_cand
+                    unvoiced_run = 0
+                else:
+                    unvoiced_run += 1
+                    if unvoiced_run > 3:
+                        prev_cent = 0.0
+                continue
+
+            unvoiced_run += 1
+            if unvoiced_run > 3:
+                prev_cent = 0.0
+
+        return cent_out_l, voiced_out_l, used_backup_l
+
     @classmethod
     def _fuse_predictions_with_conf_np(
         cls,
@@ -92,6 +213,7 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         initial_prev_cent: float = 0.0,
         hop_frames: Optional[int] = None,
         tail_frames: int = 0,
+        primary_backup: bool = False,
     ) -> tuple[np.ndarray, float, np.ndarray]:
         """Fuse RMVPE and FCPE F0/confidence predictions using a single batched D2H copy."""
         f1 = f0_rmvpe.reshape(-1).float()
@@ -124,9 +246,9 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         s1 = cls._calibrate_confidence_np(c1_np, rmvpe_sustain_threshold, 0.08)
         s2 = cls._calibrate_confidence_np(c2_np, fcpe_sustain_threshold, 0.035)
 
-        # Gently boost FCPE on the rightmost 4 frames (40ms) where RMVPE's backward BiGRU lacks future context
         tail_len = min(4, T)
-        if tail_len > 0:
+        if not primary_backup and tail_len > 0:
+            # Gently boost FCPE on the rightmost 4 frames (40ms) where RMVPE's backward BiGRU lacks future context
             s2 = s2.copy()
             s2[-tail_len:] = np.minimum(s2[-tail_len:] * _TAIL_RAMP_NP[-tail_len:], np.float32(1.0))
 
@@ -150,6 +272,10 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
 
         w_sum = np.maximum(s1 + s2, np.float32(1e-6))
         cent_fused = (s1 * cent1 + s2 * cent2) / w_sum
+        cent_tail_blend = (
+            (np.float32(0.75) * s1 * cent1 + np.float32(0.25) * s2 * cent2)
+            / np.maximum(np.float32(0.75) * s1 + np.float32(0.25) * s2, np.float32(1e-6))
+        )
 
         # Only apply previous-chunk tail cent at t=0 when the entire input is contiguous new frames.
         # When hop_frames < T, t=0 lies ~200-300ms in the past; let the prefix propagate real past pitch forward.
@@ -158,9 +284,63 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
 
         need_arb = (both_high & (diff_cents > 50.0)) | (v1_low ^ v2_low) | ((v1_low | v2_low) & ~both_high)
         if not bool(np.any(need_arb)):
+            if primary_backup:
+                cent_fast = cent1.copy()
+                conf_fast = s1.copy()
+                if tail_len > 0:
+                    cent_fast[-tail_len:] = cent_tail_blend[-tail_len:]
+                    conf_fast[-tail_len:] = np.maximum(
+                        s1[-tail_len:], np.float32(0.5) * s2[-tail_len:]
+                    )
+                f0_np = np.where(
+                    both_high,
+                    np.float32(10.0) * np.power(np.float32(2.0), cent_fast / np.float32(1200.0)),
+                    np.float32(0.0),
+                ).astype(np.float32, copy=False)
+                conf_np = np.where(
+                    f0_np > np.float32(0.0),
+                    np.clip(conf_fast, np.float32(0.0), np.float32(1.0)),
+                    np.float32(0.0),
+                ).astype(np.float32, copy=False)
+            else:
+                f0_np = np.where(
+                    both_high,
+                    np.float32(10.0) * np.power(np.float32(2.0), cent_fused / np.float32(1200.0)),
+                    np.float32(0.0),
+                ).astype(np.float32, copy=False)
+                conf_np = np.where(
+                    f0_np > np.float32(0.0),
+                    np.clip(np.maximum(s1, s2), np.float32(0.0), np.float32(1.0)),
+                    np.float32(0.0),
+                ).astype(np.float32, copy=False)
+        elif primary_backup:
+            cent_out_l, voiced_out_l, used_backup_l = cls._arbitrate_primary_backup(
+                T=T,
+                hist_end=hist_end,
+                initial_prev_cent=initial_prev_cent,
+                v1_high_l=v1_high.tolist(),
+                v2_high_l=v2_high.tolist(),
+                v1_low_l=v1_low.tolist(),
+                v2_low_l=v2_low.tolist(),
+                cent1_l=cent1.tolist(),
+                cent2_l=cent2.tolist(),
+                diff_l=diff_cents.tolist(),
+                s1_l=s1.tolist(),
+                s2_l=s2.tolist(),
+                cent_tail_blend_l=cent_tail_blend.tolist(),
+            )
+            cent_final = np.asarray(cent_out_l, dtype=np.float32)
+            voiced_final = np.asarray(voiced_out_l, dtype=bool)
             f0_np = np.where(
-                both_high,
-                np.float32(10.0) * np.power(np.float32(2.0), cent_fused / np.float32(1200.0)),
+                voiced_final,
+                np.float32(10.0) * np.power(np.float32(2.0), cent_final / np.float32(1200.0)),
+                np.float32(0.0),
+            ).astype(np.float32, copy=False)
+            used_backup_np = np.asarray(used_backup_l, dtype=bool)
+            raw_out_conf = np.where(used_backup_np, s2, s1)
+            conf_np = np.where(
+                f0_np > np.float32(0.0),
+                np.clip(raw_out_conf, np.float32(0.0), np.float32(1.0)),
                 np.float32(0.0),
             ).astype(np.float32, copy=False)
         else:
@@ -283,12 +463,11 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
                 np.float32(10.0) * np.power(np.float32(2.0), cent_final / np.float32(1200.0)),
                 np.float32(0.0),
             ).astype(np.float32, copy=False)
-
-        conf_np = np.where(
-            f0_np > np.float32(0.0),
-            np.clip(np.maximum(s1, s2), np.float32(0.0), np.float32(1.0)),
-            np.float32(0.0),
-        ).astype(np.float32, copy=False)
+            conf_np = np.where(
+                f0_np > np.float32(0.0),
+                np.clip(np.maximum(s1, s2), np.float32(0.0), np.float32(1.0)),
+                np.float32(0.0),
+            ).astype(np.float32, copy=False)
 
         commit_end = T - max(0, int(tail_frames))
         if commit_end <= 0:
@@ -318,6 +497,7 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         initial_prev_cent: float = 0.0,
         hop_frames: Optional[int] = None,
         tail_frames: int = 0,
+        primary_backup: bool = False,
     ) -> tuple[np.ndarray, float]:
         f0_np, last_voiced_cent, _ = cls._fuse_predictions_with_conf_np(
             f0_rmvpe,
@@ -331,6 +511,7 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             initial_prev_cent=initial_prev_cent,
             hop_frames=hop_frames,
             tail_frames=tail_frames,
+            primary_backup=primary_backup,
         )
         return f0_np, last_voiced_cent
 
@@ -348,6 +529,7 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
         initial_prev_cent: float = 0.0,
         hop_frames: Optional[int] = None,
         tail_frames: int = 0,
+        primary_backup: bool = False,
     ) -> torch.Tensor:
         """Fuse RMVPE and FCPE F0/confidence predictions with hysteresis and causal continuity."""
         f0_np, _, _ = cls._fuse_predictions_with_conf_np(
@@ -362,6 +544,7 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             initial_prev_cent=initial_prev_cent,
             hop_frames=hop_frames,
             tail_frames=tail_frames,
+            primary_backup=primary_backup,
         )
         if f0_np.size == 0:
             return torch.empty(0, dtype=torch.float32, device=f0_rmvpe.device)
@@ -413,6 +596,7 @@ class RMVPEFcpePitchExtractor(PitchExtractor):
             initial_prev_cent=self._last_voiced_cent,
             hop_frames=hop_frames,
             tail_frames=tail_frames,
+            primary_backup=self.primary_backup,
         )
         self._last_voiced_cent = last_voiced_cent
 

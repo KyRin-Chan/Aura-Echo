@@ -20,6 +20,15 @@ SWIFT_CENTER_OFFSET = 128.0
 SWIFT_MIN_SAMPLES = 256
 
 
+def _ort_type_to_dtypes(ort_type: str):
+    """Map an ONNX Runtime tensor type string to (numpy_dtype, torch_dtype)."""
+    if ort_type == "tensor(float16)":
+        return np.float16, torch.float16
+    if ort_type in ("tensor(double)", "tensor(float64)"):
+        return np.float64, torch.float64
+    return np.float32, torch.float32
+
+
 class SwiftF0OnnxPitchExtractor(PitchExtractor):
     """ONNX Runtime pitch extractor for SwiftF0 (swift3.onnx)."""
 
@@ -42,17 +51,56 @@ class SwiftF0OnnxPitchExtractor(PitchExtractor):
 
         inputs = self.onnx_session.get_inputs()
         outputs = self.onnx_session.get_outputs()
-        self.input_name = inputs[0].name if inputs else "input_audio"
+        audio_inp = next(
+            (inp for inp in inputs if inp.name.lower() not in ("fmin", "fmax")),
+            inputs[0] if inputs else None,
+        )
+        self.input_name = audio_inp.name if audio_inp is not None else "input_audio"
         self.output_names = (
             [out.name for out in outputs] if outputs else ["pitch_hz", "confidence"]
         )
-        self.input_is_fp16 = bool(inputs) and inputs[0].type == "tensor(float16)"
-        self.in_dtype_t = torch.float16 if self.input_is_fp16 else torch.float32
-        self.in_dtype_np = np.float16 if self.input_is_fp16 else np.float32
+        audio_type = getattr(audio_inp, "type", "tensor(float)") if audio_inp is not None else "tensor(float)"
+        self.input_is_fp16 = audio_type == "tensor(float16)"
+        self.in_dtype_np, self.in_dtype_t = _ort_type_to_dtypes(audio_type)
+
+        self._scalar_inputs: list[tuple[str, str, type, torch.dtype, tuple[int, ...]]] = []
+        for inp in inputs:
+            attr_name = inp.name.lower()
+            if attr_name in ("fmin", "fmax"):
+                np_dtype, torch_dtype = _ort_type_to_dtypes(getattr(inp, "type", "tensor(float)"))
+                raw_shape = getattr(inp, "shape", ()) or ()
+                if raw_shape and all(isinstance(d, int) and d > 0 for d in raw_shape):
+                    shape = tuple(raw_shape)
+                else:
+                    shape = ()
+                self._scalar_inputs.append((inp.name, attr_name, np_dtype, torch_dtype, shape))
+        self._cuda_scalar_cache: dict[tuple[str, torch.device], tuple[float, torch.Tensor]] = {}
 
         self.confidence_threshold = float(confidence_threshold)
         self.fmin = float(F0_MIN)
         self.fmax = float(TRACKER_F0_MAX)
+
+    def _get_cuda_scalar_tensor(
+        self,
+        name: str,
+        value: float,
+        dtype: torch.dtype,
+        shape: tuple[int, ...],
+        device: torch.device,
+    ) -> torch.Tensor:
+        """Return a cached CUDA tensor for scalar ONNX inputs like fmin/fmax."""
+        key = (name, device)
+        cached = self._cuda_scalar_cache.get(key)
+        if (
+            cached is not None
+            and cached[0] == value
+            and cached[1].dtype == dtype
+            and tuple(cached[1].shape) == shape
+        ):
+            return cached[1]
+        tensor = torch.full(shape, value, dtype=dtype, device=device)
+        self._cuda_scalar_cache[key] = (value, tensor)
+        return tensor
 
     def _run_session(self, audio_in: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if audio_in.device.type == "cuda":
@@ -67,6 +115,21 @@ class SwiftF0OnnxPitchExtractor(PitchExtractor):
                     shape=tuple(audio_in.shape),
                     buffer_ptr=audio_in.data_ptr(),
                 )
+                scalar_refs = []
+                for name, attr_name, np_dtype, torch_dtype, shape in self._scalar_inputs:
+                    val = float(getattr(self, attr_name))
+                    t = self._get_cuda_scalar_tensor(
+                        name, val, torch_dtype, shape, audio_in.device
+                    )
+                    scalar_refs.append(t)
+                    binding.bind_input(
+                        name,
+                        device_type="cuda",
+                        device_id=audio_in.device.index,
+                        element_type=np_dtype,
+                        shape=tuple(t.shape),
+                        buffer_ptr=t.data_ptr(),
+                    )
                 outs = self._io_cache.run(
                     self.onnx_session,
                     binding,
@@ -82,10 +145,16 @@ class SwiftF0OnnxPitchExtractor(PitchExtractor):
             )
             return pitch_hz, conf
 
-        outs = self.onnx_session.run(
-            self.output_names,
-            {self.input_name: audio_in.detach().cpu().numpy().astype(self.in_dtype_np)},
-        )
+        feed = {
+            self.input_name: audio_in.detach().cpu().numpy().astype(self.in_dtype_np)
+        }
+        for name, attr_name, np_dtype, _, shape in self._scalar_inputs:
+            arr = np.asarray(float(getattr(self, attr_name)), dtype=np_dtype)
+            if shape:
+                arr = arr.reshape(shape)
+            feed[name] = arr
+
+        outs = self.onnx_session.run(self.output_names, feed)
         pitch_hz = torch.as_tensor(
             outs[0], dtype=torch.float32, device=audio_in.device
         ).reshape(-1)

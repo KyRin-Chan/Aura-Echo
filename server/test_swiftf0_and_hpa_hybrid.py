@@ -261,6 +261,7 @@ class TestSwiftF0AndHPAHybrid(unittest.TestCase):
             ):
                 ext = RMVPEFcpePitchExtractor(hpa_path, "dummy_fcpe.pt", use_hpa=True)
                 self.assertEqual(ext.type, "hpa_rmvpe_fcpe")
+                self.assertTrue(ext.primary_backup)
                 self.assertNotIsInstance(ext.rmvpe.model.unet, DeepUnet)
                 self.assertFalse(getattr(ext.rmvpe, "use_jit", False))
 
@@ -366,6 +367,225 @@ class TestSwiftF0AndHPAHybrid(unittest.TestCase):
                 pitch_extractors["fcpe"]["saveTo"],
                 True,
             )
+
+    def test_hpa_rmvpe_fcpe_primary_backup_arbitration(self):
+        # 1. Non-tail agreement (diff <= 50 cents): pure HPA-RMVPE, zero FCPE drag; tail uses 75/25 HPA-dominant blend
+        f0_hpa = torch.full((8,), 220.0, dtype=torch.float32)
+        conf_hpa = torch.full((8,), 0.20, dtype=torch.float32)
+        f0_fcpe = torch.full((8,), 224.0, dtype=torch.float32)  # ~31 cents higher
+        conf_fcpe = torch.full((8,), 0.08, dtype=torch.float32)
+
+        f0_pb, _, conf_pb = RMVPEFcpePitchExtractor._fuse_predictions_with_conf_np(
+            f0_hpa, conf_hpa, f0_fcpe, conf_fcpe, primary_backup=True
+        )
+        self.assertTrue(np.allclose(f0_pb[:4], 220.0, atol=1e-3))
+        self.assertTrue(np.all((f0_pb[4:] > 220.0) & (f0_pb[4:] < 221.5)))
+        self.assertTrue(np.all(conf_pb > 0.0))
+
+        # 2. Cold-start FCPE false positive (HPA=0, strong FCPE) is rejected
+        f0_r_silent = torch.zeros(4, dtype=torch.float32)
+        conf_r_silent = torch.zeros(4, dtype=torch.float32)
+        f0_f_fp = torch.full((4,), 220.0, dtype=torch.float32)
+        conf_f_fp = torch.full((4,), 0.08, dtype=torch.float32)
+
+        out_fp = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_r_silent, conf_r_silent, f0_f_fp, conf_f_fp, primary_backup=True
+        )
+        self.assertTrue(torch.all(out_fp == 0.0))
+
+        # 3. Cold-start octave divergence (prev_cent=0): trusts HPA-RMVPE regardless of FCPE confidence
+        f0_r_cold = torch.tensor([220.0, 220.0, 220.0, 220.0], dtype=torch.float32)
+        conf_r_cold = torch.full((4,), 0.12, dtype=torch.float32)
+        f0_f_cold = torch.tensor([440.0, 220.0, 220.0, 220.0], dtype=torch.float32)
+        conf_f_cold = torch.full((4,), 0.25, dtype=torch.float32)
+
+        out_cold_oct = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_r_cold, conf_r_cold, f0_f_cold, conf_f_cold, initial_prev_cent=0.0, primary_backup=True
+        )
+        self.assertAlmostEqual(float(out_cold_oct[0].item()), 220.0, delta=0.5)
+
+        # 4. Mid-speech HPA octave jump (220 -> 440 -> 220) is rescued by high-conf continuous FCPE (220)
+        f0_r_oct = torch.tensor([220.0, 220.0, 440.0, 220.0, 220.0, 220.0], dtype=torch.float32)
+        conf_r_oct = torch.full((6,), 0.20, dtype=torch.float32)
+        f0_f_oct = torch.full((6,), 220.0, dtype=torch.float32)
+        conf_f_oct = torch.full((6,), 0.05, dtype=torch.float32)
+
+        out_oct_rescue = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_r_oct, conf_r_oct, f0_f_oct, conf_f_oct, primary_backup=True
+        )
+        self.assertAlmostEqual(float(out_oct_rescue[2].item()), 220.0, delta=0.5)
+
+        # 5. Mid-speech brief HPA dropout (220, 220, 0, 212) bridged smoothly by FCPE backup
+        f0_r_drop = torch.tensor([220.0, 220.0, 0.0, 212.0, 212.0, 212.0], dtype=torch.float32)
+        conf_r_drop = torch.tensor([0.20, 0.20, 0.0, 0.20, 0.20, 0.20], dtype=torch.float32)
+        f0_f_drop = torch.tensor([220.0, 220.0, 215.0, 212.0, 212.0, 212.0], dtype=torch.float32)
+        conf_f_drop = torch.full((6,), 0.05, dtype=torch.float32)
+
+        out_drop = RMVPEFcpePitchExtractor.fuse_predictions(
+            f0_r_drop, conf_r_drop, f0_f_drop, conf_f_drop, primary_backup=True
+        )
+        self.assertAlmostEqual(float(out_drop[2].item()), 215.0, delta=0.5)
+
+    def test_swiftf0_binds_fmin_and_fmax_inputs(self):
+        mock_dm = _make_mock_swift_dm()
+
+        def _make_three_input_node(name: str, ort_type: str, shape):
+            node = MagicMock()
+            node.name = name
+            node.type = ort_type
+            node.shape = shape
+            return node
+
+        # 1. CPU 3-input path (audio, fmin, fmax)
+        inp_audio = _make_three_input_node("audio", "tensor(float)", [1, "samples"])
+        inp_fmin = _make_three_input_node("fmin", "tensor(float)", [])
+        inp_fmax = _make_three_input_node("fmax", "tensor(float)", [])
+        out_pitch = MagicMock()
+        out_pitch.name = "pitch"
+        out_conf = MagicMock()
+        out_conf.name = "confidence"
+
+        cpu_sess = MagicMock()
+        cpu_sess.get_inputs.return_value = [inp_audio, inp_fmin, inp_fmax]
+        cpu_sess.get_outputs.return_value = [out_pitch, out_conf]
+        captured_feeds = []
+
+        def _run_cpu(output_names, input_feed):
+            captured_feeds.append(input_feed)
+            n_samples = input_feed["audio"].shape[1]
+            t_swift = max(1, (n_samples - 256) // SWIFT_HOP + 1)
+            return [
+                np.full((1, t_swift), 220.0, dtype=np.float64),
+                np.full((1, t_swift), 0.95, dtype=np.float32),
+            ]
+
+        cpu_sess.run.side_effect = _run_cpu
+
+        with (
+            patch(
+                "voice_changer.pitch_extractor.SwiftF0OnnxPitchExtractor.DeviceManager.get_instance",
+                return_value=mock_dm,
+            ),
+            patch(
+                "voice_changer.pitch_extractor.SwiftF0OnnxPitchExtractor.load_onnx_model_safe",
+                return_value=(MagicMock(), False),
+            ),
+            patch(
+                "voice_changer.pitch_extractor.SwiftF0OnnxPitchExtractor.create_ort_session_with_stream",
+                return_value=(cpu_sess, False),
+            ),
+        ):
+            ext = SwiftF0OnnxPitchExtractor("dummy_swift3.onnx")
+            f0, conf = ext.extract_with_confidence(torch.randn(16000), 16000, 160)
+            self.assertEqual(f0.shape, (101,))
+            self.assertEqual(conf.shape, (101,))
+            self.assertEqual(len(captured_feeds), 1)
+            feed = captured_feeds[0]
+            self.assertEqual(set(feed.keys()), {"audio", "fmin", "fmax"})
+            self.assertEqual(feed["fmin"].shape, ())
+            self.assertEqual(feed["fmax"].shape, ())
+            self.assertEqual(feed["fmin"].dtype, np.float32)
+            self.assertEqual(feed["fmax"].dtype, np.float32)
+            self.assertAlmostEqual(float(feed["fmin"]), float(F0_MIN), places=5)
+            self.assertAlmostEqual(float(feed["fmax"]), float(TRACKER_F0_MAX), places=5)
+
+            # 2. CUDA IOBinding path: verify audio, fmin, fmax are all bound
+            mock_binding = MagicMock()
+            cpu_sess.io_binding.return_value = mock_binding
+
+            fake_cuda_dev = MagicMock()
+            fake_cuda_dev.type = "cuda"
+            fake_cuda_dev.index = 0
+
+            fake_audio = MagicMock()
+            fake_audio.device = fake_cuda_dev
+            fake_audio.shape = (1, 16000)
+            fake_audio.to.return_value = fake_audio
+            fake_audio.contiguous.return_value = fake_audio
+            fake_audio.data_ptr.return_value = 0x1000
+
+            fake_scalar_fmin = MagicMock()
+            fake_scalar_fmin.dtype = torch.float32
+            fake_scalar_fmin.shape = ()
+            fake_scalar_fmin.data_ptr.return_value = 0x2000
+
+            fake_scalar_fmax = MagicMock()
+            fake_scalar_fmax.dtype = torch.float32
+            fake_scalar_fmax.shape = ()
+            fake_scalar_fmax.data_ptr.return_value = 0x3000
+
+            def _fake_torch_full(shape, value, dtype=None, device=None):
+                if float(value) == float(F0_MIN):
+                    return fake_scalar_fmin
+                return fake_scalar_fmax
+
+            fake_outs = [
+                torch.full((1, 62), 220.0, dtype=torch.float64),
+                torch.full((1, 62), 0.95, dtype=torch.float32),
+            ]
+            with (
+                patch(
+                    "voice_changer.pitch_extractor.SwiftF0OnnxPitchExtractor.ort_cuda_context"
+                ),
+                patch(
+                    "voice_changer.pitch_extractor.SwiftF0OnnxPitchExtractor.torch.full",
+                    side_effect=_fake_torch_full,
+                ) as full_mock,
+                patch.object(
+                    ext._io_cache,
+                    "run",
+                    return_value=fake_outs,
+                ),
+            ):
+                ext._run_session(fake_audio)
+                ext._run_session(fake_audio)
+
+            self.assertEqual(full_mock.call_count, 2)  # Cached on second call
+            bound_names = [call.args[0] for call in mock_binding.bind_input.call_args_list]
+            self.assertEqual(bound_names, ["audio", "fmin", "fmax", "audio", "fmin", "fmax"])
+            fmin_call = mock_binding.bind_input.call_args_list[1]
+            fmax_call = mock_binding.bind_input.call_args_list[2]
+            self.assertEqual(fmin_call.kwargs["shape"], ())
+            self.assertEqual(fmax_call.kwargs["shape"], ())
+            self.assertEqual(fmin_call.kwargs["element_type"], np.float32)
+            self.assertEqual(fmax_call.kwargs["element_type"], np.float32)
+
+        # 3. Real swift3.onnx CPU smoke test
+        swift3_path = SERVER_DIR / "pretrain" / "pitch_extractor" / "swift3.onnx"
+        if swift3_path.exists():
+            import onnxruntime
+
+            def _cpu_session_factory(model_or_path, sess_options, device_manager, cuda_stream=None):
+                model_data = (
+                    model_or_path
+                    if isinstance(model_or_path, str)
+                    else model_or_path.SerializeToString()
+                )
+                sess = onnxruntime.InferenceSession(
+                    model_data,
+                    sess_options=sess_options,
+                    providers=["CPUExecutionProvider"],
+                )
+                return sess, False
+
+            with (
+                patch(
+                    "voice_changer.pitch_extractor.SwiftF0OnnxPitchExtractor.DeviceManager.get_instance",
+                    return_value=mock_dm,
+                ),
+                patch(
+                    "voice_changer.pitch_extractor.SwiftF0OnnxPitchExtractor.create_ort_session_with_stream",
+                    side_effect=_cpu_session_factory,
+                ),
+            ):
+                real_ext = SwiftF0OnnxPitchExtractor(str(swift3_path))
+                t = torch.arange(16000, dtype=torch.float32) / 16000.0
+                wave = 0.5 * torch.sin(2.0 * np.pi * 220.0 * t) + 0.25 * torch.sin(
+                    2.0 * np.pi * 440.0 * t
+                )
+                f0_real, conf_real = real_ext.extract_with_confidence(wave, 16000, 160)
+                self.assertEqual(f0_real.shape, (101,))
+                self.assertEqual(conf_real.shape, (101,))
 
 
 if __name__ == "__main__":
