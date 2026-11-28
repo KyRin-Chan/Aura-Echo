@@ -17,7 +17,6 @@ from voice_changer.Local.AudioDeviceList import (
 from voice_changer.Local.WasapiCommCapture import WasapiCommCapture
 from voice_changer.common.ServerAEC import ServerAEC
 from voice_changer.common.ServerDFN3 import ServerDFN3
-from voice_changer.utils.SystemPriority import register_current_thread_mmcss
 from voice_changer.utils.VoiceChangerModel import AudioInOutFloat
 from voice_changer.VoiceChangerSettings import VoiceChangerSettings
 
@@ -359,11 +358,6 @@ class ServerAudio:
             self._last_diag_log_ts = now
 
     def _inference_worker_loop(self) -> None:
-        try:
-            register_current_thread_mmcss()
-        except Exception:
-            pass
-
         block_frame = self._block_frame
         last_emit_ts = 0.0
 

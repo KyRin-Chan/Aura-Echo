@@ -17,7 +17,6 @@ from voice_changer.utils.VoiceChangerModel import AudioInOutFloat
 from settings import get_settings
 from voice_changer.utils.ZipUtils import sanitize_filename
 from voice_changer.common.deviceManager.DeviceManager import DeviceManager
-from voice_changer.utils.SystemPriority import register_current_thread_mmcss
 from Exceptions import (
     PipelineNotInitializedException,
     VoiceChangerIsNotSelectedException,
@@ -410,12 +409,6 @@ class VoiceChangerManager(ServerAudioCallbacks):
         return self.get_info()
 
     def change_voice(self, receivedData: AudioInOutFloat) -> tuple[AudioInOutFloat, tuple, tuple | None]:
-        # Ensure worker thread is registered to Windows MMCSS "Pro Audio" class for real-time priority
-        try:
-            register_current_thread_mmcss()
-        except Exception as mmcss_err:
-            logger.debug(f"Failed to register current thread to MMCSS: {mmcss_err}")
-
         if self.settings.passThrough:  # パススルー
             try:
                 with self.device_manager.lock:

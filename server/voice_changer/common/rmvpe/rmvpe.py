@@ -1,3 +1,4 @@
+from time import perf_counter
 from typing import List
 import logging
 import torch.nn as nn
@@ -5,6 +6,7 @@ import torch.nn.functional as F
 import torch
 import numpy as np
 from safetensors import safe_open
+from voice_changer.common.JitCache import get_jit_cache_path, load_jit_cache, save_jit_cache
 from voice_changer.common.SafetensorsUtils import load_model
 from librosa.filters import mel
 
@@ -331,29 +333,48 @@ class MelSpectrogram(torch.nn.Module):
 
 class RMVPE:
     def __init__(self, model_path: str, is_half: bool, use_jit_compile: bool, device: torch.device, dtype: torch.dtype | None = None):
-        model = E2E(4, 1, (2, 2))
-        if model_path.endswith('.safetensors'):
-            with safe_open(model_path, 'pt', device=str(device) if device.type == 'cuda' else 'cpu') as cpt:
-                load_model(model, cpt, strict=False)
-        else:
-            cpt = torch.load(model_path, map_location=device if device.type == 'cuda' else 'cpu')
-            model.load_state_dict(cpt, strict=False)
-        model = model.eval().to(device)
-
         target_dtype = dtype if dtype is not None else (torch.float16 if is_half else torch.float32)
-        if target_dtype != torch.float32:
-            model = model.to(dtype=target_dtype)
+        cache_path = get_jit_cache_path("rmvpe_jit_v1", model_path, device, target_dtype) if use_jit_compile else None
+        cached = load_jit_cache(cache_path, device) if cache_path else None
 
-        self.use_jit = use_jit_compile
-        if use_jit_compile:
-            logger.info('Compiling JIT model...')
+        if cached is not None:
+            model, _, load_ms = cached
+            t_opt = perf_counter()
             try:
-                model = torch.jit.optimize_for_inference(torch.jit.script(model))
-            except Exception as e:
-                logger.warning(f"JIT compilation failed: {e}. Falling back to eager mode.")
-                self.use_jit = False
+                model = torch.jit.optimize_for_inference(model)
+            except Exception as opt_err:
+                logger.warning(f"Failed to optimize cached RMVPE JIT model: {opt_err}; using unoptimized scripted model.")
+            total_ms = load_ms + (perf_counter() - t_opt) * 1000.0
+            self.use_jit = True
+            self.model = model
+            logger.info(f"Loaded cached RMVPE JIT model from {cache_path} in {total_ms:.1f} ms.")
+        else:
+            model = E2E(4, 1, (2, 2))
+            if model_path.endswith('.safetensors'):
+                with safe_open(model_path, 'pt', device=str(device) if device.type == 'cuda' else 'cpu') as cpt:
+                    load_model(model, cpt, strict=False)
+            else:
+                cpt = torch.load(model_path, map_location=device if device.type == 'cuda' else 'cpu')
+                model.load_state_dict(cpt, strict=False)
+            model = model.eval().to(device)
 
-        self.model = model
+            if target_dtype != torch.float32:
+                model = model.to(dtype=target_dtype)
+
+            self.use_jit = use_jit_compile
+            if use_jit_compile:
+                logger.info('Compiling RMVPE JIT model...')
+                try:
+                    # Save scripted module before optimize_for_inference (optimized IR can fail torch.jit.load on E2E).
+                    scripted = torch.jit.script(model)
+                    if cache_path and save_jit_cache(scripted, cache_path):
+                        logger.info(f"Saved compiled RMVPE JIT model cache to {cache_path}")
+                    model = torch.jit.optimize_for_inference(scripted)
+                except Exception as e:
+                    logger.warning(f"JIT compilation failed: {e}. Falling back to eager mode.")
+                    self.use_jit = False
+
+            self.model = model
 
         self.mel_extractor = MelSpectrogram(
             is_half, 128, 16000, 1024, 160, None, 30, 8000, dtype=target_dtype

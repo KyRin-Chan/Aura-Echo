@@ -9,7 +9,6 @@ from typing import Optional
 import numpy as np
 
 from voice_changer.common.ServerAEC import NumpyCausalPolyphaseResampler
-from voice_changer.utils.SystemPriority import register_current_thread_mmcss
 
 logger = logging.getLogger(__name__)
 
@@ -336,10 +335,6 @@ class WasapiLoopbackCapture:
         return out_buf
 
     def _capture_loop(self) -> None:
-        try:
-            register_current_thread_mmcss()
-        except Exception:
-            pass
         ole32 = ctypes.windll.ole32
         ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
         ole32.CoInitializeEx.restype = ctypes.c_long

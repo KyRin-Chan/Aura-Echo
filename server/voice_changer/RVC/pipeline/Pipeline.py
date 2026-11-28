@@ -18,7 +18,6 @@ from voice_changer.common.deviceManager.DeviceManager import DeviceManager
 from voice_changer.embedder.Embedder import Embedder
 from voice_changer.pitch_extractor.PitchExtractor import PitchExtractor
 from voice_changer.RVC.inferencer.Inferencer import Inferencer
-from voice_changer.utils.SystemPriority import register_current_thread_mmcss
 from voice_changer.utils.Timer import Timer2
 
 logger = logging.getLogger(__name__)
@@ -566,10 +565,6 @@ class Pipeline:
             audio_emb = audio.to(dtype=self.dtype).view(1, -1)
             if self.use_f0:
                 def _run_feats_worker():
-                    try:
-                        register_current_thread_mmcss()
-                    except Exception:
-                        pass
                     if self._embedder_stream is not None:
                         with torch.cuda.stream(self._embedder_stream):
                             return self.embedder.extract_features(
